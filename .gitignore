@@ -1,5 +1,8 @@
-# ビルド成果物（build_portable.ps1 / cargo が自動生成）
-/dist_portable/
+# ビルド成果物（EXE以外）
+/dist_portable/T-regressor/python-embed/
+/dist_portable/T-regressor/native_dist/lib/
+/dist_portable/T-regressor/native_dist/*.o
+/dist_portable/T-regressor/native_dist/*.obj
 /src-tauri/target/
 /src-tauri/gen/
 
