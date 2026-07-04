@@ -1,0 +1,4 @@
+// predict_native.exe のアイコンリソース。
+// エクスポートされる「学習済モデルのexe」は本体アプリ(T-regressor.exe)と
+// 見分けやすいよう、ロゴと同形状・色違い(シアン→アンバー)の model_icon.ico を使う。
+IDI_ICON1 ICON "model_icon.ico"

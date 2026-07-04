@@ -1,0 +1,30 @@
+{
+  "productName": "T-regressor",
+  "version": "1.0.0",
+  "identifier": "jp.brainverse.tregressor",
+  "build": {
+    "frontendDist": "../frontend"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "T-regressor",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 920,
+        "minHeight": 640,
+        "resizable": true,
+        "dragDropEnabled": true,
+        "url": "treg://localhost/index.html",
+        "backgroundColor": "#020305"
+      }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": false,
+    "targets": [],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico", "icons/icon.icns"]
+  }
+}

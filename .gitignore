@@ -1,0 +1,28 @@
+# ビルド成果物（build_portable.ps1 / cargo が自動生成）
+/dist_portable/
+/src-tauri/target/
+/src-tauri/gen/
+
+# ネイティブ予測 EXE のビルド中間ファイル
+native_predictor/*.o
+native_predictor/*.obj
+native_predictor/predict_native.exe
+
+# Python
+__pycache__/
+*.pyc
+
+# 学習実行時に生成される状態（ユーザーのデータを含むため追跡しない）
+/trained_model/
+/trained_model_tmp/
+/trained_model_tmp2/
+
+# テストスイートが実行時に生成する一時データ
+/tests/_work_harness/
+/tests/verify_work/
+
+# OS / エディタ
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

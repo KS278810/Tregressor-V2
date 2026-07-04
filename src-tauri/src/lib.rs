@@ -1,0 +1,509 @@
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+use serde_json::Value;
+use tauri::{AppHandle, Emitter, State};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+#[cfg(windows)]
+const DETACHED_PROCESS: u32 = 0x0000_0008;
+
+// ── 埋め込みリソース ──────────────────────────────────────────────────────────
+
+const EMBED_VERSION:    &str  = env!("EMBED_VERSION");
+const EMB_PYTHON_ZIP:   &[u8] = include_bytes!(env!("PYTHON_EMBED_ZIP"));
+const EMB_INDEX_HTML:   &[u8] = include_bytes!("../../frontend/index.html");
+const EMB_LOGO2:        &[u8] = include_bytes!("../../frontend/reference/logo2.png");
+const EMB_GIF_OK:       &[u8] = include_bytes!("../../frontend/reference/robo2_ok.gif");
+const EMB_GIF_TRAINING: &[u8] = include_bytes!("../../frontend/reference/robo2_training.gif");
+const EMB_GIF_DONE:     &[u8] = include_bytes!("../../frontend/reference/robo2_completed.gif");
+const EMB_TRAIN_PY:     &[u8] = include_bytes!("../../train_bridge.py");
+const EMB_PREDICT_PY:   &[u8] = include_bytes!("../../predict_template.py");
+const EMB_LIGHT_PY:     &[u8] = include_bytes!("../../_light.py");
+const EMB_BAT_TMPL:     &[u8] = include_bytes!("../../bat_template.txt");
+const EMB_NATIVE_EXE:   &[u8] = include_bytes!("../../native_predictor/predict_native.exe");
+
+// ── 状態管理 ──────────────────────────────────────────────────────────────────
+// Child と「意図的に止めた」フラグを対で持つ。キャンセルや再実行での kill を
+// クラッシュと誤検知して train_error を出さないためのガード。
+
+struct TrainProcess(Mutex<Option<(Child, Arc<AtomicBool>)>>);
+struct PredictProcess(Mutex<Option<(Child, Arc<AtomicBool>)>>);
+
+fn take_and_kill(slot: &Mutex<Option<(Child, Arc<AtomicBool>)>>) {
+    if let Some((mut child, cancelled)) = slot.lock().unwrap().take() {
+        cancelled.store(true, Ordering::SeqCst);
+        kill_process(&mut child);
+    }
+}
+
+// ── パス解決 ─────────────────────────────────────────────────────────────────
+
+fn res_dir() -> PathBuf {
+    let base = std::env::var("LOCALAPPDATA")
+        .or_else(|_| std::env::var("APPDATA"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(base).join("T-regressor")
+}
+
+fn python_exe() -> PathBuf {
+    let res = res_dir().join("python-embed");
+    // pythonw.exe はコンソールウィンドウを表示しない（GUIサブシステム）
+    let pw = res.join("pythonw.exe");
+    if pw.exists() { return pw; }
+    let p = res.join("python.exe");
+    if p.exists() { p } else { PathBuf::from("python") }
+}
+
+fn model_dir_path() -> PathBuf { res_dir().join("trained_model") }
+
+// ── 自己展開 ─────────────────────────────────────────────────────────────────
+
+fn version_ok() -> bool {
+    std::fs::read_to_string(res_dir().join(".version"))
+        .map(|v| v.trim() == EMBED_VERSION)
+        .unwrap_or(false)
+}
+
+fn extract_scripts(dir: &PathBuf) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    std::fs::write(dir.join("train_bridge.py"),     EMB_TRAIN_PY)?;
+    std::fs::write(dir.join("predict_template.py"), EMB_PREDICT_PY)?;
+    std::fs::write(dir.join("_light.py"),           EMB_LIGHT_PY)?;
+    std::fs::write(dir.join("bat_template.txt"),    EMB_BAT_TMPL)?;
+    let nd = dir.join("native_dist");
+    std::fs::create_dir_all(&nd)?;
+    std::fs::write(nd.join("predict_native.exe"), EMB_NATIVE_EXE)?;
+    std::fs::create_dir_all(dir.join("trained_model"))?;
+    Ok(())
+}
+
+fn start_python_extraction(app: AppHandle) {
+    let dir = res_dir();
+    thread::spawn(move || {
+        let py_dir = dir.join("python-embed");
+        let _ = std::fs::create_dir_all(&py_dir);
+
+        let cursor = std::io::Cursor::new(EMB_PYTHON_ZIP);
+        let mut archive = match zip::ZipArchive::new(cursor) {
+            Ok(a) => a,
+            Err(e) => {
+                let _ = app.emit("extraction_error", e.to_string());
+                return;
+            }
+        };
+
+        let total = archive.len();
+        if total == 0 {
+            let _ = app.emit("extraction_error", "python-embed が埋め込まれていません");
+            return;
+        }
+
+        let mut had_error = false;
+        for i in 0..total {
+            let mut f = match archive.by_index(i) {
+                Ok(f) => f,
+                Err(_) => { had_error = true; continue; }
+            };
+            let out_path = py_dir.join(f.name());
+            if f.is_dir() {
+                if std::fs::create_dir_all(&out_path).is_err() { had_error = true; }
+            } else {
+                if let Some(p) = out_path.parent() { let _ = std::fs::create_dir_all(p); }
+                match std::fs::File::create(&out_path) {
+                    Ok(mut out) => {
+                        if std::io::copy(&mut f, &mut out).is_err() { had_error = true; }
+                    }
+                    Err(_) => { had_error = true; }
+                }
+            }
+            if i % 300 == 0 || i == total - 1 {
+                let pct = ((i + 1) * 100) / total;
+                let _ = app.emit("extraction_progress", serde_json::json!({
+                    "percent": pct,
+                    "current": i + 1,
+                    "total":   total
+                }));
+            }
+        }
+
+        // 展開に失敗したファイルがある場合は .version を書かない
+        // （次回起動時に再展開させて自己修復できるようにする）
+        if had_error {
+            let _ = app.emit("extraction_error",
+                "一部ファイルの展開に失敗しました。ディスク容量を確認して再起動してください。");
+            return;
+        }
+        let _ = std::fs::write(res_dir().join(".version"), EMBED_VERSION);
+        let _ = app.emit("extraction_complete", ());
+    });
+}
+
+// ── treg:// URI スキームハンドラ ──────────────────────────────────────────────
+
+fn serve_treg(path: &str) -> tauri::http::Response<Vec<u8>> {
+    let (data, mime): (&[u8], &str) = match path {
+        "/" | "/index.html" | "" => (EMB_INDEX_HTML, "text/html; charset=utf-8"),
+        "/reference/logo2.png"           => (EMB_LOGO2,        "image/png"),
+        "/reference/robo2_ok.gif"        => (EMB_GIF_OK,       "image/gif"),
+        "/reference/robo2_training.gif"  => (EMB_GIF_TRAINING, "image/gif"),
+        "/reference/robo2_completed.gif" => (EMB_GIF_DONE,     "image/gif"),
+        _ => return tauri::http::Response::builder()
+                .status(404)
+                .body(b"Not Found".to_vec())
+                .unwrap(),
+    };
+    tauri::http::Response::builder()
+        .header("Content-Type", mime)
+        .status(200)
+        .body(data.to_vec())
+        .unwrap()
+}
+
+// ── プロセス強制終了 ─────────────────────────────────────────────────────────
+
+fn kill_process(child: &mut Child) {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("taskkill");
+        cmd.args(["/pid", &child.id().to_string(), "/f", "/t"]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd.spawn();
+    }
+    let _ = child.kill();
+}
+
+// ── コマンド ─────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn check_python_ready() -> bool {
+    res_dir().join("python-embed").join("python.exe").exists()
+}
+
+#[tauri::command]
+async fn run_train(
+    app: AppHandle,
+    train_proc: State<'_, TrainProcess>,
+    csv_path: String,
+    target_col: String,
+    strategy: String,
+    num_jobs: i32,
+) -> Result<(), String> {
+    if !csv_path.to_lowercase().ends_with(".csv") {
+        return Err("無効なファイルパスです".to_string());
+    }
+    take_and_kill(&train_proc.0);
+
+    let num_jobs = num_jobs.clamp(1, 16);
+    let python = python_exe();
+    let script = res_dir().join("train_bridge.py");
+    let mut cmd = Command::new(&python);
+    cmd.args([
+        script.to_str().unwrap_or("train_bridge.py"),
+        &csv_path,
+        &target_col,
+        "0",
+        &strategy,
+        &num_jobs.to_string(),
+    ])
+        .stdout(Stdio::piped()).stderr(Stdio::piped())
+        .env("PYTHONUTF8", "1").env("PYTHONIOENCODING", "utf-8");
+    #[cfg(windows)] cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+
+    let mut child = cmd.spawn().map_err(|e| format!("Python起動失敗: {e}"))?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    *train_proc.0.lock().unwrap() = Some((child, cancelled.clone()));
+
+    // stderr: ログ転送しつつ末尾を保持（クラッシュ時のエラーメッセージに使う）
+    let err_tail: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let app3 = app.clone();
+    let tail_w = err_tail.clone();
+    thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().flatten() {
+            if !line.is_empty() {
+                let _ = app3.emit("log_data", format!("[err] {line}"));
+                let mut t = tail_w.lock().unwrap();
+                t.push(line);
+                if t.len() > 12 { t.remove(0); }
+            }
+        }
+    });
+
+    let app2 = app.clone();
+    thread::spawn(move || {
+        let mut finished = false;
+        for line in BufReader::new(stdout).lines().flatten() {
+            if let Some(j) = line.strip_prefix("RESULT_JSON:") {
+                match serde_json::from_str::<Value>(j) {
+                    Ok(val) => {
+                        let _ = app2.emit("train_complete", &val);
+                    }
+                    Err(e) => { let _ = app2.emit("train_error", format!("JSON解析失敗: {e}")); }
+                }
+                finished = true;
+            } else if line.starts_with("ERROR:") {
+                let _ = app2.emit("train_error", &line);
+                finished = true;
+            } else if !line.is_empty() {
+                let _ = app2.emit("log_data", &line);
+            }
+        }
+        // stdout が閉じた = プロセス終了。結果もエラーも出ていなければクラッシュ。
+        // これがないと UI は「学習中...」のまま永遠に止まる。
+        if !finished && !cancelled.load(Ordering::SeqCst) {
+            thread::sleep(Duration::from_millis(700)); // stderr スレッドの取りこぼし防止
+            let tail = err_tail.lock().unwrap().join("\n");
+            let msg = if tail.is_empty() {
+                "学習プロセスが結果を返さずに終了しました。CSV の内容を確認してください。".to_string()
+            } else {
+                format!("学習プロセスが異常終了しました:\n{tail}")
+            };
+            let _ = app2.emit("train_error", msg);
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+async fn cancel_train(train_proc: State<'_, TrainProcess>) -> Result<(), String> {
+    take_and_kill(&train_proc.0);
+    Ok(())
+}
+
+#[tauri::command]
+async fn run_predict(
+    app: AppHandle,
+    pred_proc: State<'_, PredictProcess>,
+    csv_path: String,
+) -> Result<(), String> {
+    if !csv_path.to_lowercase().ends_with(".csv") {
+        return Err("無効なファイルパスです".to_string());
+    }
+    take_and_kill(&pred_proc.0);
+
+    let python = python_exe();
+    let script = res_dir().join("predict_template.py");
+    let mut cmd = Command::new(&python);
+    cmd.args([script.to_str().unwrap_or("predict_template.py"), &csv_path])
+        .stdout(Stdio::piped()).stderr(Stdio::piped())
+        .env("PYTHONUTF8", "1").env("PYTHONIOENCODING", "utf-8");
+    #[cfg(windows)] cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+
+    let mut child = cmd.spawn().map_err(|e| format!("Python起動失敗: {e}"))?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    *pred_proc.0.lock().unwrap() = Some((child, cancelled.clone()));
+
+    let err_tail: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let app3 = app.clone();
+    let tail_w = err_tail.clone();
+    thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().flatten() {
+            if !line.is_empty() {
+                let _ = app3.emit("log_data", format!("[err] {line}"));
+                let mut t = tail_w.lock().unwrap();
+                t.push(line);
+                if t.len() > 12 { t.remove(0); }
+            }
+        }
+    });
+
+    let app2 = app.clone();
+    thread::spawn(move || {
+        let mut finished = false;
+        for line in BufReader::new(stdout).lines().flatten() {
+            if let Some(j) = line.strip_prefix("PREDICT_JSON:") {
+                match serde_json::from_str::<Value>(j) {
+                    Ok(val) => { let _ = app2.emit("predict_complete", &val); }
+                    Err(e) => { let _ = app2.emit("predict_error", format!("JSON解析失敗: {e}")); }
+                }
+                finished = true;
+            } else if !line.is_empty() {
+                let _ = app2.emit("log_data", &line);
+            }
+        }
+        if !finished && !cancelled.load(Ordering::SeqCst) {
+            thread::sleep(Duration::from_millis(700));
+            let tail = err_tail.lock().unwrap().join("\n");
+            let msg = if tail.is_empty() {
+                "予測プロセスが結果を返さずに終了しました。".to_string()
+            } else {
+                format!("予測プロセスが異常終了しました:\n{tail}")
+            };
+            let _ = app2.emit("predict_error", msg);
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+async fn cancel_predict(pred_proc: State<'_, PredictProcess>) -> Result<(), String> {
+    take_and_kill(&pred_proc.0);
+    Ok(())
+}
+
+#[tauri::command]
+async fn read_csv_headers(path: String) -> Result<Vec<String>, String> {
+    let raw = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let text = if raw.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        String::from_utf8_lossy(&raw[3..]).into_owned()
+    } else {
+        String::from_utf8_lossy(&raw).into_owned()
+    };
+    let first = text.lines().next().unwrap_or("").to_string();
+
+    // クォート対応の最小CSVパース（"a,b" のようなカンマ入り列名を分断しない）
+    let mut headers: Vec<String> = Vec::new();
+    let mut field = String::new();
+    let mut in_quotes = false;
+    let mut chars = first.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' if in_quotes => {
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    field.push('"'); // "" → エスケープされた引用符
+                } else {
+                    in_quotes = false;
+                }
+            }
+            '"' => in_quotes = true,
+            ',' if !in_quotes => {
+                headers.push(field.trim().to_string());
+                field.clear();
+            }
+            _ => field.push(c),
+        }
+    }
+    headers.push(field.trim().to_string());
+    headers.retain(|h| !h.is_empty());
+    Ok(headers)
+}
+
+const SAMPLE_CSV: &str = "area_m2,age_years,walk_min,floor,station_rank,rent_10kyen\r\n\
+32,3,5,4,4,8.5\r\n45,10,8,2,3,7.2\r\n28,1,3,8,5,9.8\r\n60,15,12,1,3,8.9\r\n\
+38,7,6,5,4,8.1\r\n52,2,4,10,5,12.5\r\n25,20,15,2,2,5.8\r\n70,8,7,3,4,11.2\r\n\
+41,12,9,6,3,7.8\r\n33,5,4,4,4,8.3\r\n55,0,2,15,5,14.8\r\n48,18,20,1,2,6.5\r\n\
+36,4,6,3,4,8.0\r\n65,6,5,7,5,13.2\r\n29,14,11,2,3,6.2\r\n72,3,3,12,5,16.5\r\n\
+44,9,10,4,3,7.5\r\n58,1,5,8,4,11.8\r\n31,22,18,1,2,5.2\r\n67,7,6,9,4,12.8\r\n\
+40,5,7,5,4,8.6\r\n53,11,9,3,3,8.9\r\n35,3,4,6,4,8.8\r\n78,4,5,14,5,17.2\r\n\
+27,16,13,2,2,5.5\r\n62,2,3,11,5,13.8\r\n43,8,8,4,3,7.9\r\n50,13,11,2,3,7.3\r\n\
+38,6,5,7,4,9.2\r\n56,0,4,9,5,12.2\r\n";
+
+#[tauri::command]
+async fn save_sample_csv() -> Result<Option<String>, String> {
+    let dest_file = tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .set_title("サンプルCSVの保存先を選択")
+            .add_filter("CSV", &["csv"])
+            .set_file_name("sample.csv")
+            .save_file()
+    }).await.map_err(|e| e.to_string())?;
+
+    let dest_file = match dest_file { Some(p) => p, None => return Ok(None) };
+    std::fs::write(&dest_file, SAMPLE_CSV).map_err(|e| e.to_string())?;
+    Ok(Some(dest_file.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+async fn open_csv_dialog() -> Result<Option<String>, String> {
+    let result = tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .add_filter("CSV", &["csv"])
+            .set_title("CSVファイルを選択")
+            .pick_file()
+    }).await.map_err(|e| e.to_string())?;
+    Ok(result.map(|p| p.to_string_lossy().to_string()))
+}
+
+// ── デプロイ（EXE 埋め込み） ─────────────────────────────────────────────────
+
+const EXE_TAIL_MAGIC: &[u8] = b"TREG_EMB";
+
+fn embed_treg_into_exe(base_exe: &[u8], treg: &[u8]) -> Vec<u8> {
+    let mut out = base_exe.to_vec();
+    out.extend_from_slice(treg);
+    out.extend_from_slice(&(treg.len() as u64).to_le_bytes());
+    out.extend_from_slice(EXE_TAIL_MAGIC);
+    out
+}
+
+#[tauri::command]
+async fn export_robot(_app: AppHandle, file_stem: String) -> Result<Option<String>, String> {
+    let trained    = model_dir_path();
+    let treg_path  = trained.join("model.treg");
+    let native_exe = res_dir().join("native_dist").join("predict_native.exe");
+
+    if !treg_path.exists() || !native_exe.exists() {
+        return Err("model.treg が見つかりません。再学習してください。".to_string());
+    }
+
+    let stem = if file_stem.is_empty() { "model".to_string() } else { file_stem };
+    let default_name = format!("{}.exe", stem);
+
+    let dest_file = tauri::async_runtime::spawn_blocking(move || {
+        rfd::FileDialog::new()
+            .set_title("予測EXEの保存先を選択")
+            .add_filter("実行ファイル", &["exe"])
+            .set_file_name(&default_name)
+            .save_file()
+    }).await.map_err(|e| e.to_string())?;
+
+    let dest_file = match dest_file { Some(p) => p, None => return Ok(None) };
+    let exe_bytes  = std::fs::read(&native_exe).map_err(|e| e.to_string())?;
+    let treg_bytes = std::fs::read(&treg_path).map_err(|e| e.to_string())?;
+    std::fs::write(&dest_file, embed_treg_into_exe(&exe_bytes, &treg_bytes))
+        .map_err(|e| e.to_string())?;
+    Ok(Some(dest_file.to_string_lossy().to_string()))
+}
+
+// ── エントリーポイント ────────────────────────────────────────────────────────
+
+pub fn run() {
+    tauri::Builder::default()
+        .manage(TrainProcess(Mutex::new(None)))
+        .manage(PredictProcess(Mutex::new(None)))
+        .register_uri_scheme_protocol("treg", |_ctx, request| {
+            serve_treg(request.uri().path())
+        })
+        .invoke_handler(tauri::generate_handler![
+            check_python_ready,
+            run_train,
+            cancel_train,
+            run_predict,
+            cancel_predict,
+            read_csv_headers,
+            save_sample_csv,
+            export_robot,
+            open_csv_dialog,
+        ])
+        .setup(|app| {
+            let dir = res_dir();
+            let need_extract = !version_ok();
+
+            // スクリプト類は毎回更新（高速 ~14MB）
+            if let Err(e) = extract_scripts(&dir) {
+                eprintln!("スクリプト展開失敗: {e}");
+            }
+
+            // python-embed はバージョン不一致時のみバックグラウンド展開
+            if need_extract {
+                let app_handle = app.handle().clone();
+                thread::spawn(move || start_python_extraction(app_handle));
+            }
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("Tauri アプリの起動に失敗")
+}
