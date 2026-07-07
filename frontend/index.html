@@ -57,6 +57,28 @@
             display: flex; flex-direction: column; overflow: hidden;
         }
 
+        /* ─ Web版(ブラウザ)専用: exe版と同じ1100x720キャンバスとして"常に元の縦横比のまま"
+           表示する。width/heightを別々にmin()で決めると縦横比が崩れ、中の円形要素が
+           楕円に見えるなど内部レイアウトが歪むため、実寸は常に1100x720に固定し、
+           単一の倍率(zoom)だけをJSで計算して一括拡縮する(縦横比が数学的に保たれる)。
+           exe版はネイティブウィンドウ自体がこのサイズなので対象外
+           (IS_TAURI 判定で .web-shell/.boxed は付与されない)。 */
+        html.web-shell {
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #020305; padding: 12px;
+        }
+        body.boxed {
+            width: 1100px; height: 720px;
+            margin: 0; flex-shrink: 0;
+            border-radius: 10px;
+            box-shadow: 0 30px 90px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.05);
+            /* transform を持つ要素は position:fixed の子要素の containing block になるため、
+               起動オーバーレイ/設定パネルがブラウザ全体でなくこの箱の中に収まる。
+               zoomはtransformと違いレイアウトサイズ自体も変わるため、周囲のflex中央寄せが
+               そのまま正しく機能する(Chromium系のみ対応。Firefox/Safariでは1倍のまま)。 */
+            zoom: var(--app-zoom, 1);
+        }
+
         header { text-align: center; margin-bottom: 18px; flex-shrink: 0; position: relative; }
         .logo { height: 44px; width: auto; filter: drop-shadow(0 0 15px rgba(63,196,236,0.4)); }
 
@@ -228,6 +250,10 @@
             border-radius: 10px; padding: 12px 16px; font-size: 13.5px; color: #a9d4f5; line-height: 1.65;
             margin-bottom: 18px; position: relative; text-align: left;
             box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; align-items: flex-start;
+            /* 長文(行数が多い)メッセージが来ても下のchar-boxを圧迫しないよう、自身の
+               高さに上限を設ける(flex-shrink:0で自身も潰れない)。スクロールバーは表示せず、
+               上限を超えた分は単純に見切れる(スライドバー無し、との要望により2026-07変更)。 */
+            flex-shrink: 0; max-height: 150px; overflow-y: hidden;
         }
         .chat-bubble::after {
             content: ''; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
@@ -251,6 +277,10 @@
             width: 220px; height: 220px; border-radius: 50%; overflow: hidden;
             border: 1px solid rgba(63,196,236,0.2); background: #010204;
             transition: all 0.6s cubic-bezier(0.16,1,0.3,1);
+            /* .char-panel は縦方向flexでchat-bubbleと同居しており、flex-shrink:0が
+               無いとチャットの文章が長い(行数が多い)ときに高さだけ圧縮され、220x220の
+               正円が楕円に潰れて見えるバグがあった。幅・高さとも常に固定するため必須。 */
+            flex-shrink: 0;
         }
         .char-box img { width: 100%; height: 100%; object-fit: cover; }
 
@@ -614,7 +644,10 @@
                         <div id="featureBars" class="feature-bars-scroll"></div>
                     </div>
                     <div id="predictResultSection" style="display:none;flex-direction:column;flex:1;height:0;min-height:0;">
-                        <div id="predictRowsLabel" class="predict-rows-label" style="flex-shrink:0;"></div>
+                        <div style="flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                            <div id="predictRowsLabel" class="predict-rows-label"></div>
+                            <button id="predictDownloadBtn" class="btn" style="display:none;padding:6px 14px;font-size:12px;">CSVをDL</button>
+                        </div>
                         <div class="preview-table-wrap" style="flex:1;overflow-y:auto;overflow-x:auto;min-height:0;">
                             <table id="previewTable" class="preview-table">
                                 <thead id="previewHead"></thead>
@@ -690,9 +723,362 @@
 </div>
 
 <script>
-    // ── Tauri V2 IPC ─────────────────────────────────────────────────────────────
-    const invoke = window.__TAURI__.core.invoke;
-    const listen  = window.__TAURI__.event.listen;
+    // ── 実行媒体 抽象化レイヤー (Platform) ──────────────────────────────────────────
+    // このHTMLは exe版(Tauri)・Web版(HTTP/オフライン)の共通フロントエンドである。
+    // バックエンド呼び出し(Tauri invoke/event ↔ Pyodide直接呼び出し)だけを Platform 越しに
+    // 抽象化し、UI・見た目・演出ロジックは完全に共通のまま動かす。
+    // Web版は frontend/index.html を web/build_frontend.mjs でそのまま書き出したもの
+    // (reference/ → assets/ のパス置換のみ)なので、ここでの分岐が唯一の相違点。
+    const IS_TAURI = !!(window.__TAURI__);
+
+    function makeTauriPlatform() {
+        const invoke = window.__TAURI__.core.invoke;
+        const listen = window.__TAURI__.event.listen;
+        return {
+            capabilities: { cancelTrain: true, sampleFlow: 'save', exportKind: 'native', dragDrop: 'native' },
+
+            fileDisplayName(fileRef) { return String(fileRef).replace(/\\/g, '/').split('/').pop(); },
+
+            async warmup({ onStatus }) { /* Tauri は自己展開フローを別途 wireStartupExtraction() で処理する */ },
+
+            async openCsvDialog() { return invoke('open_csv_dialog').catch(() => null); },
+
+            async readHeaders(path) { return invoke('read_csv_headers', { path }).catch(() => []); },
+
+            // 学習/予測の完了・エラー・ログは Tauri イベントバスから届く。呼び出しごとに
+            // listen して、終わったら unlisten する(複数回学習しても購読が増え続けないように)。
+            async runTrain({ fileRef, targetCol, strategy, numJobs }, { onLog, onProgress, onComplete, onError }) {
+                const unlistens = [];
+                const cleanup = () => unlistens.forEach(u => u());
+                unlistens.push(await listen('log_data', (e) => {
+                    const data = String(e.payload);
+                    if (data.startsWith('PROGRESS:')) {
+                        const parts = data.split(':');
+                        const pct = parseInt(parts[1], 10);
+                        onProgress?.(isNaN(pct) ? null : pct, parts.slice(2).join(':'));
+                    } else onLog?.(data);
+                }));
+                unlistens.push(await listen('train_complete', (e) => { cleanup(); onComplete(e.payload); }));
+                unlistens.push(await listen('train_error',    (e) => { cleanup(); onError(String(e.payload)); }));
+                try {
+                    await invoke('run_train', { csvPath: fileRef, targetCol, strategy, numJobs });
+                } catch (e) { cleanup(); throw e; }
+            },
+
+            async cancelTrain() { return invoke('cancel_train').catch(() => {}); },
+
+            async runPredict({ fileRef }, { onLog, onComplete, onError }) {
+                const unlistens = [];
+                const cleanup = () => unlistens.forEach(u => u());
+                unlistens.push(await listen('log_data', (e) => onLog?.(String(e.payload))));
+                unlistens.push(await listen('predict_complete', (e) => { cleanup(); onComplete(e.payload); }));
+                unlistens.push(await listen('predict_error',    (e) => { cleanup(); onError(String(e.payload)); }));
+                try {
+                    await invoke('run_predict', { csvPath: fileRef });
+                } catch (e) { cleanup(); throw e; }
+            },
+
+            async exportModel({ fileStem }) { return invoke('export_robot', { fileStem }); },
+
+            // ネイティブ版はOSのドラッグ&ドロップ(tauri://drag-*)を使う。座標ベースの
+            // hover判定は既存実装をそのまま流用する。
+            wireDragAndDrop({ trainZone, predictZone, isBusyRef, predictBlockedRef, onDropTrain, onDropPredict }) {
+                function dragOverPosition(event) {
+                    const pos = (event.payload && (event.payload.position || event.payload)) || {};
+                    const x = pos.x || 0, y = pos.y || 0;
+                    if (x === 0 && y === 0) return;
+                    const dpr = window.devicePixelRatio || 1;
+                    const cx = x / dpr, cy = y / dpr;
+                    const tr = trainZone.getBoundingClientRect();
+                    const pr = predictZone.getBoundingClientRect();
+                    const ox = window.screenX || 0, oy = window.screenY || 0;
+                    const lx = cx - ox, ly = cy - oy;
+                    const predictBlocked = predictBlockedRef();
+                    const hitTrain = ((lx >= tr.left && lx <= tr.right && ly >= tr.top && ly <= tr.bottom) ||
+                                      (cx >= tr.left && cx <= tr.right && cy >= tr.top && cy <= tr.bottom)) &&
+                                     !isBusyRef();
+                    const hitPredict = ((lx >= pr.left && lx <= pr.right && ly >= pr.top && ly <= pr.bottom) ||
+                                        (cx >= pr.left && cx <= pr.right && cy >= pr.top && cy <= pr.bottom)) &&
+                                       !predictBlocked && !isBusyRef();
+                    trainZone.classList.toggle('hover', hitTrain);
+                    predictZone.classList.toggle('hover', hitPredict);
+                }
+                listen('tauri://drag-over', dragOverPosition);
+                listen('tauri://drag-leave', () => {
+                    trainZone.classList.remove('hover');
+                    predictZone.classList.remove('hover');
+                });
+                listen('tauri://drag-drop', async (event) => {
+                    const toPredict = predictZone.classList.contains('hover') &&
+                                      !predictZone.classList.contains('drop-zone-disabled') &&
+                                      !predictZone.classList.contains('drop-predict-blocked');
+                    trainZone.classList.remove('hover');
+                    predictZone.classList.remove('hover');
+                    if (isBusyRef()) return;
+                    const paths = Array.isArray(event.payload) ? event.payload : (event.payload?.paths || []);
+                    const path = paths[0];
+                    if (!path || !path.toLowerCase().endsWith('.csv')) return;
+                    if (toPredict) onDropPredict(path); else await onDropTrain(path);
+                });
+            },
+
+            async saveSampleCsvNative() { return invoke('save_sample_csv'); },
+
+            // 初回起動時の Python 自己展開フロー(exe専用)。
+            async wireStartupExtraction(cbs) {
+                try {
+                    const pyReady = await invoke('check_python_ready');
+                    if (pyReady) return false;
+                    cbs.onExtractionNeeded();
+                    await listen('extraction_progress', (e) => cbs.onExtractionProgress(e.payload));
+                    await listen('extraction_complete', () => cbs.onExtractionComplete());
+                    await listen('extraction_error', (e) => cbs.onExtractionError(String(e.payload)));
+                    return true;
+                } catch (_) { return false; }
+            },
+        };
+    }
+
+    // Web版(HTTP配信 / オフラインダブルクリック共通)。計算は Pyodide (WASM) 上で行う。
+    // treg-engine.js は ESモジュール(HTTP版)、offline-engine.js は window.TregEngine
+    // というグローバル(オフライン版・file://対応)で提供される。どちらも同じ関数シグネチャ
+    // (initEngine/train/predict/loadModel)を持つため、ここでは存在するほうを使うだけでよい。
+    function makeWebPlatform() {
+        let engine = null;
+        async function getEngine() {
+            if (engine) return engine;
+            engine = window.TregEngine || await import('./treg-engine.js');
+            return engine;
+        }
+
+        // File / サンプルCSV文字列を薄くラップした fileRef。
+        // { name, _file?: File, _text?: string }
+        async function fileText(fileRef) {
+            if (fileRef._text != null) return fileRef._text;
+            fileRef._text = await new Promise((resolve, reject) => {
+                const r = new FileReader();
+                r.onload = () => resolve(r.result);
+                r.onerror = () => reject(r.error);
+                r.readAsText(fileRef._file, 'utf-8');
+            });
+            return fileRef._text;
+        }
+
+        // Rust側 read_csv_headers と同じクォート対応の最小CSVパース。
+        function parseHeaderLine(line) {
+            const headers = []; let field = ''; let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const c = line[i];
+                if (inQuotes) {
+                    if (c === '"') {
+                        if (line[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
+                    } else field += c;
+                } else if (c === '"') inQuotes = true;
+                else if (c === ',') { headers.push(field.trim()); field = ''; }
+                else field += c;
+            }
+            headers.push(field.trim());
+            return headers.filter(h => h.length > 0);
+        }
+
+        let _lastTreg = null, _lastZip = null;
+        let _pickResolve = null;
+        const hiddenInput = document.createElement('input');
+        hiddenInput.type = 'file'; hiddenInput.accept = '.csv'; hiddenInput.style.display = 'none';
+        document.body.appendChild(hiddenInput);
+        hiddenInput.addEventListener('change', () => {
+            const f = hiddenInput.files[0];
+            hiddenInput.value = '';
+            if (_pickResolve) { const r = _pickResolve; _pickResolve = null; r(f ? { name: f.name, _file: f } : null); }
+        });
+
+        function download(bytes, name, type) {
+            const b = new Blob([bytes], { type: type || 'application/octet-stream' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(b); a.download = name; a.click();
+            URL.revokeObjectURL(a.href);
+        }
+
+        let _predictTemplateCache = null;
+        // オフライン版(ダブルクリック)は offline-embed.js に同梱済みのテンプレート文字列を使う。
+        // HTTP版は ./predict_template.html を同一オリジンから取得する。
+        // (旧: predict_native.exe にtregを追記する方式。Windows MOTW/SmartScreenで
+        //  未署名exeがブロックされる問題があったため、単体HTML+JS推論エンジン方式に置換。
+        //  詳細は web/js_predict_poc/README.md 参照)
+        async function getPredictTemplateText() {
+            if (_predictTemplateCache) return _predictTemplateCache;
+            if (window.TregEngine && window.TregEngine.getPredictTemplate) {
+                _predictTemplateCache = window.TregEngine.getPredictTemplate();
+                return _predictTemplateCache;
+            }
+            const res = await fetch('./predict_template.html');
+            if (!res.ok) throw new Error('predict_template.html の取得に失敗しました(HTTP ' + res.status + ')');
+            _predictTemplateCache = await res.text();
+            return _predictTemplateCache;
+        }
+
+        // Uint8Array -> base64。charCode の展開をチャンク分割し、大きめの.tregでも
+        // 呼び出しスタック上限(String.fromCharCode.apply の引数上限)に当たらないようにする。
+        function bytesToBase64(bytes) {
+            const CHUNK = 0x8000;
+            let binary = '';
+            for (let i = 0; i < bytes.length; i += CHUNK) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+            }
+            return btoa(binary);
+        }
+
+        return {
+            capabilities: { cancelTrain: false, sampleFlow: 'direct', exportKind: 'download', dragDrop: 'html5' },
+
+            fileDisplayName(fileRef) { return fileRef.name; },
+
+            async warmup({ onStatus }) {
+                const eng = await getEngine();
+                // 実際の起動ステージ数に応じて疑似パーセンテージを刻む(サーバー版と同じ演出)。
+                const stages = ['エンジンを起動中', '計算ライブラリを読込中', 'モデルコードを展開中', '準備完了'];
+                await eng.initEngine({
+                    onStatus: (msg) => {
+                        const idx = stages.findIndex(s => msg.startsWith(s));
+                        const pct = idx >= 0 ? Math.round(((idx + 1) / stages.length) * 95) : null;
+                        onStatus(msg, pct);
+                    }
+                });
+                onStatus('READY', 100);
+            },
+
+            async openCsvDialog() {
+                return new Promise((resolve) => { _pickResolve = resolve; hiddenInput.click(); });
+            },
+
+            async readHeaders(fileRef) {
+                try {
+                    const text = await fileText(fileRef);
+                    const firstLine = text.split(/\r?\n/).find(x => x.trim()) || '';
+                    return parseHeaderLine(firstLine);
+                } catch (_) { return []; }
+            },
+
+            async runTrain({ fileRef, targetCol, strategy }, { onLog, onProgress, onComplete, onError }) {
+                try {
+                    const eng = await getEngine();
+                    const csv = await fileText(fileRef);
+                    const { result, tregBytes, modelZipBytes } = await eng.train(csv, targetCol, strategy, { onLog, onProgress });
+                    _lastTreg = tregBytes; _lastZip = modelZipBytes;
+                    onComplete(result);
+                } catch (e) { onError(String(e.message || e)); }
+            },
+
+            async cancelTrain() { /* ブラウザ版は WASM 実行中の中断に対応していない */ },
+
+            async runPredict({ fileRef }, { onLog, onComplete, onError }) {
+                try {
+                    const eng = await getEngine();
+                    const csv = await fileText(fileRef);
+                    const { result, predictedCsv } = await eng.predict(csv, { onLog });
+                    // 以前はここで自動的にファイルダウンロードを発生させていたが、元のexe版には
+                    // 存在しない挙動(予測のたびに保存ダイアログ/ダウンロード通知が出る)だったため廃止。
+                    // 結果はプレビュー表示のみとし、ダウンロードはユーザーが明示的にボタンを押した
+                    // 場合だけ行う(predictDownloadBtn、onPredictComplete側で result._predictedCsv を読む)。
+                    result._predictedCsv = predictedCsv;
+                    onComplete(result);
+                } catch (e) { onError(String(e.message || e)); }
+            },
+
+            // predict_template.html(単体HTML内にJS推論エンジンを同梱したもの)の
+            // __TREG_BASE64__ プレースホルダを、学習済みモデルのtregバイト列(base64化)で
+            // 置き換えて書き出す。HTMLファイルはWindowsの「安全でない実行ファイル」判定
+            // (MOTW/SmartScreen)の対象外のため、未署名でも警告なしで開ける。
+            async exportModel({ fileStem }) {
+                if (!_lastTreg) throw new Error('モデルデータが見つかりません。再学習してください。');
+                const treg = _lastTreg instanceof Uint8Array ? _lastTreg : new Uint8Array(_lastTreg);
+                const treg64 = bytesToBase64(treg);
+                const tmpl = await getPredictTemplateText();
+                if (!tmpl.includes('__TREG_BASE64__')) throw new Error('predict_template.html の形式が想定と異なります(プレースホルダ不在)');
+                const label = 'T-regressor Web版 / ' + fileStem + ' / ' + new Date().toISOString();
+                const out = tmpl.replace('__TREG_BASE64__', treg64).replace('__EXPORT_LABEL__', label);
+                const name = fileStem + '.html';
+                download(new TextEncoder().encode(out), name, 'text/html');
+                return name;
+            },
+
+            // ブラウザの標準 HTML5 drag & drop。要素そのものに乗せる分、Tauri版のような
+            // 座標計算は不要(ブラウザが対象要素を教えてくれる)。
+            wireDragAndDrop({ trainZone, predictZone, isBusyRef, predictBlockedRef, onDropTrain, onDropPredict }) {
+                function wireZone(zone, disabledCheck, onDrop) {
+                    ['dragover', 'dragenter'].forEach(ev => zone.addEventListener(ev, (e) => {
+                        e.preventDefault();
+                        if (!isBusyRef() && !disabledCheck()) zone.classList.add('hover');
+                    }));
+                    ['dragleave', 'dragend'].forEach(ev => zone.addEventListener(ev, () => zone.classList.remove('hover')));
+                    zone.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        zone.classList.remove('hover');
+                        if (isBusyRef() || disabledCheck()) return;
+                        const f = e.dataTransfer.files[0];
+                        if (!f || !f.name.toLowerCase().endsWith('.csv')) return;
+                        onDrop({ name: f.name, _file: f });
+                    });
+                }
+                wireZone(trainZone, () => false, onDropTrain);
+                wireZone(predictZone, predictBlockedRef, onDropPredict);
+            },
+
+            // 「サンプルCSVを入手」= ブラウザ版は保存ダイアログを挟まず、直接読み込む。
+            async getSampleCsvFileRef() {
+                const eng = await getEngine();
+                const text = eng.getSampleCsv ? eng.getSampleCsv() : await (await fetch('./sample_data.csv')).text();
+                return { name: 'sample_data.csv', _text: text };
+            },
+
+            async wireStartupExtraction() { return false; /* Web版に自己展開フローはない */ },
+        };
+    }
+
+    const Platform = IS_TAURI ? makeTauriPlatform() : makeWebPlatform();
+
+    if (!IS_TAURI) {
+        // exe版のネイティブウィンドウサイズ(1100x720)に固定し、ブラウザウィンドウの余りは
+        // 外側の余白にする(ツールが引き伸ばされて間延びするのを防ぐ)。
+        document.documentElement.classList.add('web-shell');
+        document.body.classList.add('boxed');
+        // 1100x720の実寸(縦横比)を保ったまま、ウィンドウに収まる倍率をzoomで一括計算する。
+        // widthとheightを別々に決めると縦横比が崩れて内部の円形要素が楕円に見えてしまうため、
+        // 単一の倍率だけを掛けることで数学的に歪みが起きないようにしている。
+        function fitBoxedZoom() {
+            const margin = 24; // 画面端との最小余白
+            const z = Math.min((window.innerWidth - margin) / 1100, (window.innerHeight - margin) / 720);
+            document.body.style.setProperty('--app-zoom', Math.max(0.4, Math.min(1.25, z)).toFixed(3));
+        }
+        fitBoxedZoom();
+        window.addEventListener('resize', fitBoxedZoom);
+    }
+
+    // ── 簡易アクセス解析(任意・既定オフ、どちらも「ゼロ外部通信」の原則を壊さないよう
+    //    デフォルトは無効。使いたい方だけコードを設定すれば有効になる) ──────────────
+    // 個人情報やCookieを使わず、ページ閲覧数だけを匿名集計するプライバシー配慮型の解析。
+    // CSVやモデルの内容・予測結果は一切送信されない(送るのはURL/参照元/画面幅程度)。
+    //
+    // 選択肢1: GoatCounter (https://www.goatcounter.com/) — 無料アカウントのサイトコードを設定。
+    const GOATCOUNTER_CODE = ''; // 例: 'tregressor' → https://tregressor.goatcounter.com
+    if (!IS_TAURI && GOATCOUNTER_CODE) {
+        const gc = document.createElement('script');
+        gc.async = true;
+        gc.setAttribute('data-goatcounter', `https://${GOATCOUNTER_CODE}.goatcounter.com/count`);
+        gc.src = 'https://gc.zgo.at/count.js';
+        document.head.appendChild(gc);
+    }
+    // 選択肢2: Cloudflare Web Analytics (https://www.cloudflare.com/web-analytics/) — 無料・
+    // 無制限、DNS移管不要。Cloudflareの無料アカウントでサイトを追加すると発行される
+    // Beaconトークンをここに設定すると有効になる(GoatCounterと両方同時に有効化しても構わない)。
+    const CF_BEACON_TOKEN = ''; // 例: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    if (!IS_TAURI && CF_BEACON_TOKEN) {
+        const cf = document.createElement('script');
+        cf.defer = true;
+        cf.src = 'https://static.cloudflareinsights.com/beacon.min.js';
+        cf.setAttribute('data-cf-beacon', JSON.stringify({ token: CF_BEACON_TOKEN }));
+        document.head.appendChild(cf);
+    }
 
     // ── 起動オーバーレイ ──────────────────────────────────────────────────────────
     let _startupDone = false, _startupPct = 5, _extractionMode = false;
@@ -715,10 +1101,25 @@
             setTimeout(() => ov.remove(), 900);
         }, 300);
     }
-    setTimeout(() => _setStartup('リソース確認...', 35), 250);
-    setTimeout(() => _setStartup('前回モデルをスキャン...', 65), 600);
-    setTimeout(() => _setStartup('UI 初期化...', 85), 950);
-    _hideTimer = setTimeout(_hideStartup, 1350);
+    if (IS_TAURI) {
+        // exe版: 実体はほぼ一瞬で起動するため、体感用の疑似シーケンスを見せてから閉じる。
+        // (Python未展開の初回起動時は wireStartupExtraction() が本物の進捗に差し替える)
+        setTimeout(() => _setStartup('リソース確認...', 35), 250);
+        setTimeout(() => _setStartup('前回モデルをスキャン...', 65), 600);
+        setTimeout(() => _setStartup('UI 初期化...', 85), 950);
+        _hideTimer = setTimeout(_hideStartup, 1350);
+    } else {
+        // Web版: Pyodide(WASM)の実読込には数秒〜十数秒かかるため、実際の進捗を表示する。
+        (async () => {
+            try {
+                await Platform.warmup({ onStatus: (msg, pct) => _setStartup(msg, pct) });
+                _hideStartup();
+            } catch (e) {
+                const s = document.getElementById('suStatus');
+                if (s) { s.textContent = '起動に失敗しました: ' + (e.message || e); s.style.color = '#f87171'; }
+            }
+        })();
+    }
 
     const chatBubble          = document.getElementById('chatBubble');
     const chatText            = document.getElementById('chatText');
@@ -754,6 +1155,7 @@
     let selectedTarget = null;
     let csvHeaders     = [];
     let lastResult     = null;
+    let lastPredictedCsv = null, lastPredictedName = 'predicted.csv';
     let isBusy         = null;   // 'training' | 'predicting' | null
     let deployBlocked  = false;  // R²<0 のときデプロイ/予測を封鎖
 
@@ -1019,12 +1421,27 @@
     settingsOverlay.addEventListener('click', (e) => {
         if (e.target === settingsOverlay) settingsOverlay.style.display = 'none';
     });
+    if (!IS_TAURI) {
+        // Web版は WASM 単一スレッドで実行するため CPU並列数は意味を持たない → 無効化して明示する
+        const numJobsInput = document.getElementById('cpuNumJobsInput');
+        if (numJobsInput) { numJobsInput.disabled = true; numJobsInput.title = 'ブラウザ版では無効です（シングルスレッド実行）'; }
+    }
 
     // ── ヘルパー ─────────────────────────────────────────────────────────────
     function setPredictSub(text) { predictSubLabel.textContent = text; }
 
+    // 吹き出しは高さ上限(150px)を超えた分を非表示にする仕様(スクロールバーは出さない)ため、
+    // 動的に組み立てるメッセージ(列名一覧・モデル名など可変長の内容を含む)が万一長くなっても
+    // 上限内に収まるよう、文字数ベースで安全に切り詰める。通常の短い固定文言はこの上限に
+    // まず引っかからない想定(=普段は無音の安全弁)。
+    const CHAT_MSG_MAX_CHARS = 130;
+    function truncateChatMsg(text) {
+        if (typeof text !== 'string' || text.length <= CHAT_MSG_MAX_CHARS) return text;
+        return text.slice(0, CHAT_MSG_MAX_CHARS - 1) + '…';
+    }
+
     function setBubble(text, showSampleBtn) {
-        chatText.innerText = text;
+        chatText.innerText = truncateChatMsg(text);
         chatBubble.classList.remove('error-mode');
         sampleCsvBtn.style.display = showSampleBtn ? '' : 'none';
     }
@@ -1041,7 +1458,7 @@
         charBox.innerHTML = `<img src="${gifOk}?t=${Date.now()}">`;
         charBox.style.boxShadow = '0 0 45px rgba(239,68,68,0.5)';
         charBox.style.borderColor = 'rgba(239,68,68,0.5)';
-        chatText.innerText = text;
+        chatText.innerText = truncateChatMsg(text);
         chatBubble.classList.add('error-mode');
         sampleCsvBtn.style.display = 'none';
     }
@@ -1156,9 +1573,23 @@
             setPredictSub('↓ CSV をドロップ / クリック');
             // 学習完了直後は PREDICT のみパルス。DEPLOY は静的 ready 状態にとどめる
             exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready';
-            deployNote.textContent = '';
-            deployNote.className = 'deploy-note';
-            deployNote.style.color = '';
+            // 画面に表示中のモデル(best_model)と、実際に配布ファイルへ書き出されるモデルが
+            // 異なる場合(blend/rf/xt等 .treg 非対応のため代替モデルを使う場合)に、
+            // エクスポート前の時点で明示しておく(以前はコンソールログのみで気づけなかった)。
+            if (!result.export_available) {
+                deployNote.textContent = '⚠ 配布可能なモデルがありません';
+                deployNote.className = 'deploy-note active';
+                deployNote.style.color = '#f87171';
+            } else if (result.deploy_substituted) {
+                const r2Str = result.deployed_r2 != null ? result.deployed_r2.toFixed(4) : '?';
+                deployNote.textContent = `配布用モデルは ${result.deployed_model}(R²=${r2Str})を使用`;
+                deployNote.className = 'deploy-note active';
+                deployNote.style.color = '#f0a94e';
+            } else {
+                deployNote.textContent = '';
+                deployNote.className = 'deploy-note';
+                deployNote.style.color = '';
+            }
         }
     }
 
@@ -1169,6 +1600,7 @@
         const sl = document.querySelector('.scan-line');
         sl.style.animation = ''; sl.style.opacity = '';
         trainCsvPath = null; selectedTarget = null; csvHeaders = []; lastResult = null;
+        lastPredictedCsv = null; document.getElementById('predictDownloadBtn').style.display = 'none';
         subFileName.innerText = ''; predictFileName.innerText = '';
         document.getElementById('dataWarning').style.display = 'none';
         targetPanel.classList.remove('active');
@@ -1219,10 +1651,26 @@
 
     // ── サンプルCSVボタン ──────────────────────────────────────────────────────
     sampleCsvBtn.addEventListener('click', async () => {
+        if (Platform.capabilities.sampleFlow === 'direct') {
+            // Web版: 保存ダイアログを挟まず、そのまま①の学習フローに読み込む。
+            sampleCsvBtn.disabled = true;
+            sampleCsvBtn.textContent = '読込中...';
+            try {
+                const fileRef = await Platform.getSampleCsvFileRef();
+                sampleCsvBtn.disabled = false;
+                sampleCsvBtn.textContent = 'サンプルCSVを入手';
+                await handleTrainDrop(fileRef);
+            } catch (e) {
+                sampleCsvBtn.disabled = false;
+                sampleCsvBtn.textContent = 'サンプルCSVを入手';
+                setBubble(`サンプルCSVの読込に失敗した: ${e}`, true);
+            }
+            return;
+        }
         sampleCsvBtn.disabled = true;
         sampleCsvBtn.textContent = '保存中...';
         try {
-            const path = await invoke('save_sample_csv');
+            const path = await Platform.saveSampleCsvNative();
             sampleCsvBtn.disabled = false;
             if (path === null) {                      // ユーザーがダイアログをキャンセル
                 sampleCsvBtn.textContent = 'サンプルCSVを入手';
@@ -1238,75 +1686,35 @@
     });
 
 
-    // ── ① Tauri ドラッグ&ドロップ ────────────────────────────────────────────
-    // Tauri v2: position は物理ピクセル絶対座標のためウィンドウ位置が不明では
-    // 正確なゾーン判定ができない。drag-over で設定した hover 状態を使う。
-
-    function _dragOverPosition(event) {
-        // position が webview 相対か screen 絶対かは環境依存のため両方試みる。
-        // hover クラスのトグルは視覚フィードバック専用（drop 処理には使わない）。
-        const pos = (event.payload && (event.payload.position || event.payload)) || {};
-        const x = pos.x || 0, y = pos.y || 0;
-        if (x === 0 && y === 0) return;          // 座標なし → hover 変更しない
-        const dpr = window.devicePixelRatio || 1;
-        const cx = x / dpr, cy = y / dpr;
-        const tr = topDropZone.getBoundingClientRect();
-        const pr = predictZone.getBoundingClientRect();
-        // ウィンドウのスクリーン位置を考慮した補正（概算）
-        const ox = window.screenX || 0, oy = window.screenY || 0;
-        const lx = cx - ox, ly = cy - oy;
-        // 補正後・補正前どちらかで hit すれば hover を付ける
-        const predictBlocked = predictZone.classList.contains('drop-zone-disabled') ||
-                               predictZone.classList.contains('drop-predict-blocked');
-        const hitTrain = ((lx >= tr.left && lx <= tr.right && ly >= tr.top && ly <= tr.bottom) ||
-                          (cx >= tr.left && cx <= tr.right && cy >= tr.top && cy <= tr.bottom)) &&
-                         !isBusy;
-        const hitPredict = ((lx >= pr.left && lx <= pr.right && ly >= pr.top && ly <= pr.bottom) ||
-                            (cx >= pr.left && cx <= pr.right && cy >= pr.top && cy <= pr.bottom)) &&
-                           !predictBlocked && !isBusy;
-        topDropZone.classList.toggle('hover', hitTrain);
-        predictZone.classList.toggle('hover', hitPredict);
-    }
-
-    listen('tauri://drag-over', _dragOverPosition);
-
-    listen('tauri://drag-leave', () => {
-        topDropZone.classList.remove('hover');
-        predictZone.classList.remove('hover');
+    // ── ① ドラッグ&ドロップ配線（実装は Platform 側: exe=OSネイティブ座標判定 / Web=HTML5） ──
+    Platform.wireDragAndDrop({
+        trainZone: topDropZone,
+        predictZone: predictZone,
+        isBusyRef: () => !!isBusy,
+        predictBlockedRef: () => predictZone.classList.contains('drop-zone-disabled') ||
+                                  predictZone.classList.contains('drop-predict-blocked'),
+        onDropTrain: async (fileRef) => {
+            if (isBusy) {
+                setBubble(isBusy === 'training' ?
+                    '学習中だよ。終わるまで待つか、CANCELしてね。' :
+                    '予測の実行中だよ。終わるまで待ってね。', false);
+                return;
+            }
+            await handleTrainDrop(fileRef);
+        },
+        onDropPredict: (fileRef) => {
+            if (isBusy) {
+                setBubble('学習中だよ。終わるまで待つか、CANCELしてね。', false);
+                return;
+            }
+            handlePredictDrop(fileRef);
+        },
     });
 
-    listen('tauri://drag-drop', async (event) => {
-        // hover 状態を先に取得してからクリア
-        const toPredict = predictZone.classList.contains('hover') &&
-                          !predictZone.classList.contains('drop-zone-disabled') &&
-                          !predictZone.classList.contains('drop-predict-blocked');
-        topDropZone.classList.remove('hover');
-        predictZone.classList.remove('hover');
-
-        if (isBusy) {
-            setBubble(isBusy === 'training' ?
-                '学習中だよ。終わるまで待つか、CANCELしてね。' :
-                '予測の実行中だよ。終わるまで待ってね。', false);
-            return;
-        }
-
-        const paths = Array.isArray(event.payload) ? event.payload
-                    : (event.payload?.paths || []);
-        const path = paths[0];
-        if (!path || !path.toLowerCase().endsWith('.csv')) return;
-
-        // hover が predict ゾーンにあればそちらへ、それ以外は train（デフォルト）
-        if (toPredict) {
-            handlePredictDrop(path);
-        } else {
-            await handleTrainDrop(path);
-        }
-    });
-
-    async function handleTrainDrop(path) {
+    async function handleTrainDrop(fileRef) {
         if (isBusy) return;
-        const fileName = path.replace(/\\/g, '/').split('/').pop();
-        trainCsvPath = path;
+        const fileName = Platform.fileDisplayName(fileRef);
+        trainCsvPath = fileRef;
         subFileName.innerText = fileName.toUpperCase();
         topDropZone.className = 'drop-zone';
         trainBtn.disabled = true; trainBtn.className = 'btn';
@@ -1314,9 +1722,7 @@
         setPredictSub('学習後に使えます');
         predictFileName.innerText = '';
         exportBtn.disabled = true; exportBtn.className = 'btn';
-        try {
-            csvHeaders = await invoke('read_csv_headers', { path });
-        } catch (_) { csvHeaders = []; }
+        csvHeaders = await Platform.readHeaders(fileRef);
         if (!csvHeaders.length) {
             // ヘッダが読めない → セレクタを開かず入力からやり直せる状態に戻す
             trainCsvPath = null;
@@ -1333,10 +1739,10 @@
         inputNoteTimer = setTimeout(() => { inputNote.style.display = 'none'; }, 3000);
     }
 
-    function handlePredictDrop(path) {
+    function handlePredictDrop(fileRef) {
         if (isBusy || deployBlocked) return;
         isBusy = 'predicting';
-        const fileName = path.replace(/\\/g, '/').split('/').pop();
+        const fileName = Platform.fileDisplayName(fileRef);
         predictFileName.innerText = fileName.toUpperCase();
         predictZone.className = 'drop-zone drop-zone-disabled';
         setPredictSub('');
@@ -1349,7 +1755,7 @@
         sbProgressBar.style.width = '';
         sbProgressBar.style.animation = 'sbIndeterminate 1.5s infinite ease-in-out';
         setRobot(gifTraining, '予測中... ちょっと待ってね。', 'rgba(47,214,142,0.6)', false);
-        invoke('run_predict', { csvPath: path }).catch(e => {
+        function onFail(e) {
             isBusy = null;
             sbProgressBar.style.animation = '';
             sbProgressWrap.style.display = 'none';
@@ -1361,79 +1767,13 @@
             setPredictSub('↩ 再試行: CSVをドロップ');
             if (!deployBlocked) { exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready'; }
             setRobotError(`予測でエラーが起きた。\nCSVをもう一度ドロップしてみてね。`);
-        });
+        }
+        Platform.runPredict({ fileRef }, { onLog: onPredictLog, onComplete: onPredictComplete, onError: onFail })
+            .catch(onFail);
     }
 
     // ── ② 学習実行 ────────────────────────────────────────────────────────
-    function startTraining(strategyOverride) {
-        if (isBusy) return;
-        if (!trainCsvPath) {
-            setBubble('先に①の枠へCSVをドロップしてね。', false);
-            return;
-        }
-        isBusy = 'training';
-        trainBtn.disabled = true; trainBtn.className = 'btn'; trainBtn.style.display = 'none';
-        cancelBtn.style.display = '';
-        switchDashboard('initial');
-        const strategy = strategyOverride || modelStrategySelect.value;
-        const numJobs = Math.min(16, Math.max(1,
-            parseInt(document.getElementById('cpuNumJobsInput').value) || 4));
-        startTrainTimer();
-        setRobot(gifTraining, `学習中... しばらく待ってね`, 'rgba(79,127,224,0.6)', false);
-        invoke('run_train', { csvPath: trainCsvPath, targetCol: selectedTarget, strategy, numJobs })
-            .catch(e => {
-                isBusy = null;
-                stopTrainTimer(); setStatusReady();
-                cancelBtn.style.display = 'none'; trainBtn.style.display = '';
-                document.getElementById('errorMsg').innerText = String(e);
-                switchDashboard('error');
-                setRobotError(`学習でエラーが起きた。\n下のエラー内容を確認してね。`);
-            });
-    }
-
-    trainBtn.addEventListener('click', () => startTraining());
-
-    document.getElementById('retrainThoroughBtn').addEventListener('click', () => {
-        modelStrategySelect.value = 'thorough';
-        startTraining('thorough');
-    });
-
-    cancelBtn.addEventListener('click', () => {
-        isBusy = null;
-        stopTrainTimer(); setStatusReady();
-        cancelBtn.style.display = 'none'; trainBtn.style.display = '';
-        invoke('cancel_train').catch(() => {});
-        trainBtn.disabled = false; trainBtn.className = 'btn btn-train-ready action-pulse';
-        if (lastResult) {
-            // 学習は一時フォルダで行われるため、前回のモデル一式は無傷で残っている
-            applyTrainingResult(lastResult);
-            switchDashboard('trained');
-            setRobot(gifOk, '学習をキャンセルしたよ。前回の結果を表示中。', 'rgba(221,138,60,0.55)', false);
-        } else {
-            setRobot(gifOk, '学習をキャンセルしたよ。', 'rgba(221,138,60,0.55)', false);
-        }
-    });
-
-    // ── クリックして CSV 選択 ────────────────────────────────────────────────
-    topDropZone.addEventListener('click', async () => {
-        if (isBusy || topDropZone.classList.contains('drop-zone-disabled')) return;
-        const path = await invoke('open_csv_dialog').catch(() => null);
-        if (!path) return;
-        await handleTrainDrop(path);
-    });
-
-    predictZone.addEventListener('click', async () => {
-        if (isBusy ||
-            predictZone.classList.contains('drop-zone-disabled') ||
-            predictZone.classList.contains('drop-predict-blocked')) return;
-        const path = await invoke('open_csv_dialog').catch(() => null);
-        if (!path) return;
-        handlePredictDrop(path);
-    });
-
-    listen('log_data', (event) => {
-        const data = String(event.payload);
-        // 進捗マイルストーン（PROGRESS:<pct>:<label>）→ ステータスバーの実進捗
+    function onTrainLog(data) {
         if (data.startsWith('PROGRESS:')) {
             const parts = data.split(':');
             const pct = parseInt(parts[1], 10);
@@ -1452,10 +1792,17 @@
         if (log.includes('[gp] r²'))     setRobot(gifTraining, 'ガウス過程モデル 完了', 'rgba(79,127,224,0.6)', false);
         if (log.includes('[mlp]'))       setRobot(gifTraining, 'ニューラルネットを学習中...', 'rgba(79,127,224,0.6)', false);
         if (log.includes('[treg]'))      setRobot(gifTraining, 'モデルを保存中...', 'rgba(79,127,224,0.6)', false);
-    });
+    }
 
-    listen('train_complete', (event) => {
-        const result = event.payload;
+    function onTrainProgress(pct, label) {
+        if (pct != null) {
+            trainProgressPct = pct;
+            sbProgressBar.style.width = pct + '%';
+        }
+        if (label && sbLabel) sbLabel.textContent = label;
+    }
+
+    function onTrainComplete(result) {
         isBusy = null;
         stopTrainTimer();
         trainProgressPct = 100;
@@ -1478,21 +1825,82 @@
                 `学習完了！ R²=${r2Done.toFixed(3)}\n右の枠にCSVをドロップして予測しよう。`,
                 'rgba(240,169,78,0.55)', true);
         }
-    });
+    }
 
-    listen('train_error', (event) => {
-        const msg = String(event.payload);
+    function onTrainError(msg) {
         isBusy = null;
         stopTrainTimer(); setStatusReady();
         cancelBtn.style.display = 'none'; trainBtn.style.display = '';
         document.getElementById('errorMsg').innerText = msg;
         switchDashboard('error');
         setRobotError(`学習でエラーが起きた。\n下のエラー内容を確認してね。`);
+    }
+
+    function startTraining(strategyOverride) {
+        if (isBusy) return;
+        if (!trainCsvPath) {
+            setBubble('先に①の枠へCSVをドロップしてね。', false);
+            return;
+        }
+        isBusy = 'training';
+        trainBtn.disabled = true; trainBtn.className = 'btn'; trainBtn.style.display = 'none';
+        cancelBtn.style.display = Platform.capabilities.cancelTrain ? '' : 'none';
+        switchDashboard('initial');
+        const strategy = strategyOverride || modelStrategySelect.value;
+        const numJobs = Math.min(16, Math.max(1,
+            parseInt(document.getElementById('cpuNumJobsInput').value) || 4));
+        startTrainTimer();
+        setRobot(gifTraining, `学習中... しばらく待ってね`, 'rgba(79,127,224,0.6)', false);
+        Platform.runTrain(
+            { fileRef: trainCsvPath, targetCol: selectedTarget, strategy, numJobs },
+            { onLog: onTrainLog, onProgress: onTrainProgress, onComplete: onTrainComplete, onError: onTrainError }
+        ).catch(e => onTrainError(String(e.message || e)));
+    }
+
+    trainBtn.addEventListener('click', () => startTraining());
+
+    document.getElementById('retrainThoroughBtn').addEventListener('click', () => {
+        modelStrategySelect.value = 'thorough';
+        startTraining('thorough');
     });
 
-    // ── ③ 予測完了イベント ────────────────────────────────────────────────
-    listen('predict_complete', (event) => {
-        const result = event.payload;
+    cancelBtn.addEventListener('click', () => {
+        isBusy = null;
+        stopTrainTimer(); setStatusReady();
+        cancelBtn.style.display = 'none'; trainBtn.style.display = '';
+        Platform.cancelTrain();
+        trainBtn.disabled = false; trainBtn.className = 'btn btn-train-ready action-pulse';
+        if (lastResult) {
+            // 学習は一時フォルダで行われるため、前回のモデル一式は無傷で残っている
+            applyTrainingResult(lastResult);
+            switchDashboard('trained');
+            setRobot(gifOk, '学習をキャンセルしたよ。前回の結果を表示中。', 'rgba(221,138,60,0.55)', false);
+        } else {
+            setRobot(gifOk, '学習をキャンセルしたよ。', 'rgba(221,138,60,0.55)', false);
+        }
+    });
+
+    // ── クリックして CSV 選択 ────────────────────────────────────────────────
+    topDropZone.addEventListener('click', async () => {
+        if (isBusy || topDropZone.classList.contains('drop-zone-disabled')) return;
+        const fileRef = await Platform.openCsvDialog();
+        if (!fileRef) return;
+        await handleTrainDrop(fileRef);
+    });
+
+    predictZone.addEventListener('click', async () => {
+        if (isBusy ||
+            predictZone.classList.contains('drop-zone-disabled') ||
+            predictZone.classList.contains('drop-predict-blocked')) return;
+        const fileRef = await Platform.openCsvDialog();
+        if (!fileRef) return;
+        handlePredictDrop(fileRef);
+    });
+
+    // ── ③ 予測完了 ────────────────────────────────────────────────────────
+    function onPredictLog(_line) { /* 予測はログ表示なし（元実装どおり） */ }
+
+    function onPredictComplete(result) {
         isBusy = null;
         sbProgressBar.style.animation = '';
         sbProgressWrap.style.display = 'none';
@@ -1503,6 +1911,19 @@
 
         document.getElementById('predictRowsLabel').textContent =
             `${result.rows}件を予測 → ${result.output_name || ''}`;
+
+        // Web版はブラウザの制約上ファイルへ直接書き込めないため、result._predictedCsvに
+        // 予測結果CSVを保持しておき、ユーザーが明示的にボタンを押した時だけダウンロードする
+        // (以前は予測完了と同時に自動でダウンロードが始まっていたが、元のexe版には無い挙動
+        //  だったため廃止)。exe/Tauri版はPython側が直接ファイル保存済みなのでボタンは出さない。
+        const dlBtn = document.getElementById('predictDownloadBtn');
+        if (result._predictedCsv) {
+            lastPredictedCsv = result._predictedCsv;
+            lastPredictedName = result.output_name || 'predicted.csv';
+            dlBtn.style.display = '';
+        } else {
+            dlBtn.style.display = 'none';
+        }
 
         const cols = result.columns || [], rows = result.preview || [], targetCol = result.target || '';
         const thead = document.getElementById('previewHead'), tbody = document.getElementById('previewBody');
@@ -1527,34 +1948,20 @@
         document.getElementById('tabPredict').style.display = '';
         showTrainedTab('predict');
         if (!deployBlocked) { exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready action-pulse'; }
-        let doneMsg = `${result.rows}件を予測した！\n結果はCSVファイルに保存済み。`;
+        let doneMsg = result._predictedCsv
+            ? `${result.rows}件を予測した！\n「CSVをDL」ボタンで保存できるよ。`
+            : `${result.rows}件を予測した！\n結果はCSVファイルに保存済み。`;
         if (Array.isArray(result.missing_cols) && result.missing_cols.length > 0) {
             const shown = result.missing_cols.slice(0, 3).join(', ');
             doneMsg += `\n⚠ 学習時の列が見つからず中央値で補完: ${shown}${result.missing_cols.length > 3 ? ' ほか' : ''}`;
         }
         setRobot(gifCompleted, doneMsg, 'rgba(47,214,142,0.5)', false);
-    });
+    }
 
-    listen('predict_error', (event) => {
-        const msg = String(event.payload);
-        isBusy = null;
-        sbProgressBar.style.animation = '';
-        sbProgressWrap.style.display = 'none';
-        setStatusReady();
-        document.getElementById('pebMsg').textContent = msg;
-        document.getElementById('predictErrorBanner').style.display = '';
-        switchDashboard('trained');
-        predictZone.className = 'drop-zone drop-predict-retry action-pulse';
-        setPredictSub('↩ 再試行: CSVをドロップ');
-        if (!deployBlocked) { exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready'; }
-        setRobotError(`予測でエラーが起きた。\nCSVをもう一度ドロップしてみてね。`);
-    });
-
-    // ── 初回セットアップ（自己展開 EXE 専用） ─────────────────────────────────
+    // ── 初回セットアップ（自己展開 EXE 専用。Web版では常に false が返り何もしない） ──────
     (async () => {
-        try {
-            const pyReady = await invoke('check_python_ready');
-            if (!pyReady) {
+        await Platform.wireStartupExtraction({
+            onExtractionNeeded: () => {
                 _extractionMode = true;
                 clearTimeout(_hideTimer);
                 const bar    = document.getElementById('suProgressBar');
@@ -1563,33 +1970,38 @@
                 if (nameEl)   nameEl.textContent   = 'FIRST-RUN SETUP';
                 if (bar)    { bar.style.transition = 'width 0.4s ease'; bar.style.width = '2%'; }
                 if (status)   status.textContent   = 'Python 環境を展開中...';
-                // 展開完了まで UI を無効化
                 trainBtn.disabled  = true;
                 predictZone.classList.add('drop-zone-disabled');
                 exportBtn.disabled = true;
-                await listen('extraction_progress', (event) => {
-                    const p   = event.payload;
-                    const pct = p.percent || 0;
-                    if (bar)    bar.style.width    = pct + '%';
-                    if (status) status.textContent =
-                        `展開中... ${p.current || 0} / ${p.total || '?'} ファイル`;
-                });
-                await listen('extraction_complete', () => {
-                    if (bar)    bar.style.width    = '100%';
-                    if (status) status.textContent = 'セットアップ完了！';
-                    setTimeout(_hideStartup, 800);
-                });
-                await listen('extraction_error', (event) => {
-                    if (status) {
-                        status.textContent = 'エラー: ' + String(event.payload);
-                        status.style.color = '#f87171';
-                    }
-                });
-            }
-        } catch (_) { /* invoke 失敗 → 通常起動フローに任せる */ }
+            },
+            onExtractionProgress: (p) => {
+                const bar = document.getElementById('suProgressBar');
+                const status = document.getElementById('suStatus');
+                const pct = p.percent || 0;
+                if (bar)    bar.style.width    = pct + '%';
+                if (status) status.textContent = `展開中... ${p.current || 0} / ${p.total || '?'} ファイル`;
+            },
+            onExtractionComplete: () => {
+                const bar = document.getElementById('suProgressBar');
+                const status = document.getElementById('suStatus');
+                if (bar)    bar.style.width    = '100%';
+                if (status) status.textContent = 'セットアップ完了！';
+                setTimeout(_hideStartup, 800);
+            },
+            onExtractionError: (msg) => {
+                const status = document.getElementById('suStatus');
+                if (status) { status.textContent = 'エラー: ' + msg; status.style.color = '#f87171'; }
+            },
+        });
     })();
 
-    // ── ④ デプロイ ────────────────────────────────────────────────────────
+    // ── ③b 予測結果CSVのダウンロード(ユーザーが明示的に押した時だけ) ──────────
+    document.getElementById('predictDownloadBtn').addEventListener('click', () => {
+        if (!lastPredictedCsv) return;
+        download(lastPredictedCsv, lastPredictedName, 'text/csv');
+    });
+
+    // ── ④ デプロイ / モデルのダウンロード ───────────────────────────────────
     exportBtn.addEventListener('click', async () => {
         exportBtn.disabled = true; exportBtn.classList.remove('action-pulse'); exportBtn.className = 'btn';
         sbDot.className = 'sb-dot warn';
@@ -1604,20 +2016,41 @@
                 String(now.getSeconds()).padStart(2, '0');
             const code = (Number(ymdhms) % 46656).toString(36).toLowerCase().padStart(3, '0');
             const fileStem = 'model_' + code;
-            const folderPath = await invoke('export_robot', { fileStem });
-            if (folderPath === null) {
-                // ユーザーがキャンセル
+            const savedPath = await Platform.exportModel({ fileStem });
+            if (savedPath === null) {
+                // ユーザーがキャンセル（exe版の保存ダイアログのみ発生しうる）
                 setStatusReady();
                 exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready';
                 return;
             }
-            setStatusDeployed(folderPath);
+            setStatusDeployed(savedPath);
             exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready';
-            deployNote.textContent = '✓ 配布完了'; deployNote.className = 'deploy-note active';
+            // 画面のモデル(best_model)と配布ファイルの中身(deployed_model)が異なる場合は
+            // 「配布完了」だけでなく、常に何が書き出されたかをここでも明示する。
+            const substituted = !!(lastResult && lastResult.deploy_substituted);
+            deployNote.textContent = substituted
+                ? `✓ 配布完了(${lastResult.deployed_model} を使用)`
+                : '✓ 配布完了';
+            deployNote.className = 'deploy-note active';
             deployNote.style.color = '#f0a94e';
-            const msg = modelStrategySelect.value === 'quick' ?
-                `モデルを保存した！\n精度をさらに上げたい場合はじっくりモードに切り替えてね。` :
+            // 吹き出しの高さ上限(150px≒文字数上限CHAT_MSG_MAX_CHARS)に収まるよう、
+            // 各パーツは短く保つ(詳細な理由はdeployNoteの常設表示に譲る)。
+            let msg = modelStrategySelect.value === 'quick' ?
+                `モデルを保存した！\nさらに上げたいならじっくりモードへ。` :
                 `モデルを保存した！`;
+            if (substituted) {
+                const r2Str = lastResult.deployed_r2 != null ? lastResult.deployed_r2.toFixed(4) : '?';
+                // 注意: best_model表示名は同じでも(例:「Linear (Ridge)」)、多項式特徴を
+                // 使った設定など「今回学習された条件」次第で配布可否が変わる。
+                // 「このモデル種別は非対応」と断定すると誤解を招くため、条件依存の表現にする。
+                msg += `\n※今回の設定では画面表示中の${lastResult.best_model}は書き出せず、` +
+                       `${lastResult.deployed_model}(R²=${r2Str})を代わりに使用。`;
+            }
+            if (!IS_TAURI) {
+                // 単体HTMLファイルなので、ダブルクリックで開くだけで使える(ネット接続不要)。
+                // 旧exe版で必要だった「ブロック解除」操作はHTML化により不要になった。
+                msg += `\nダブルクリックで開くだけで使えるよ(ネット不要)。`;
+            }
             setRobot(gifCompleted, msg, 'rgba(240,169,78,0.6)', false);
         } catch (e) {
             setStatusReady();

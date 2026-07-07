@@ -1,0 +1,53 @@
+name: 予測ロジック数値パリティ検証
+
+# 予測ロジック(JS版 predict-core.js / predict_template.html / .treg 書き出し)に
+# 触れる変更が入ったら、C++参照実装(native_predictor/predict_native_v2.cpp)との
+# 数値一致を必ず自動検証する。3系統(ネイティブC++ / Python(Pyodide) / JS)の実装が
+# ズレたまま気づかずマージ・配布されることを防ぐためのゲート。
+#
+# ローカルでの手動実行: cd web/js_predict_poc && npm install && npm test
+
+on:
+  push:
+    paths:
+      - "web/js_predict_poc/**"
+      - "web/predict_template.html"
+      - "native_predictor/**"
+      - "web/py/train_bridge.py"
+      - ".github/workflows/predict-parity.yml"
+  pull_request:
+    paths:
+      - "web/js_predict_poc/**"
+      - "web/predict_template.html"
+      - "native_predictor/**"
+      - "web/py/train_bridge.py"
+      - ".github/workflows/predict-parity.yml"
+  workflow_dispatch: {}
+
+jobs:
+  matrix-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: Node.js セットアップ
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: テスト依存関係インストール(jsdom)
+        working-directory: web/js_predict_poc
+        run: npm install
+
+      - name: predict-core.js 単体パリティテスト(7行 x 4種別)
+        working-directory: web/js_predict_poc
+        run: node run_parity.js
+
+      - name: predict-core.js 網羅的マトリクステスト(302行 x 40設定)
+        working-directory: web/js_predict_poc
+        run: node run_matrix_test.js
+
+      - name: predict_template.html(本番配布物)の網羅的マトリクステスト
+        working-directory: web/js_predict_poc
+        run: node run_html_matrix_test.js
