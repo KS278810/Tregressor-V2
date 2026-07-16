@@ -198,6 +198,17 @@ fn start_python_extraction(app: AppHandle) {
 
 // ── treg:// URI スキームハンドラ ──────────────────────────────────────────────
 
+// tauri.conf.json の app.security.csp と同一内容を保つこと。カスタムプロトコル
+// (treg://) 経由の応答には tauri.conf.json の csp 設定が自動付与されないため、
+// ここで明示的にヘッダを付与しない限りCSPが実質無効になっていた(M-2対応)。
+// index.html は @font-face で data: URI のフォントを埋め込んでいるため
+// font-src 'self' data: を含める。
+const TREG_CSP: &str = "default-src 'self' ipc: http://ipc.localhost; \
+img-src 'self' data:; style-src 'self' 'unsafe-inline'; \
+script-src 'self' 'unsafe-inline'; font-src 'self' data:; \
+connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; \
+base-uri 'self'; form-action 'self'";
+
 fn serve_treg(path: &str) -> tauri::http::Response<Vec<u8>> {
     let (data, mime): (&[u8], &str) = match path {
         "/" | "/index.html" | "" => (EMB_INDEX_HTML, "text/html; charset=utf-8"),
@@ -207,11 +218,13 @@ fn serve_treg(path: &str) -> tauri::http::Response<Vec<u8>> {
         "/reference/robo2_completed.gif" => (EMB_GIF_DONE,     "image/gif"),
         _ => return tauri::http::Response::builder()
                 .status(404)
+                .header("Content-Security-Policy", TREG_CSP)
                 .body(b"Not Found".to_vec())
                 .unwrap(),
     };
     tauri::http::Response::builder()
         .header("Content-Type", mime)
+        .header("Content-Security-Policy", TREG_CSP)
         .status(200)
         .body(data.to_vec())
         .unwrap()
