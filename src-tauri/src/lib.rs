@@ -7,7 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -39,10 +39,20 @@ struct TrainProcess(Mutex<Option<(Child, Arc<AtomicBool>)>>);
 struct PredictProcess(Mutex<Option<(Child, Arc<AtomicBool>)>>);
 
 fn take_and_kill(slot: &Mutex<Option<(Child, Arc<AtomicBool>)>>) {
-    if let Some((mut child, cancelled)) = slot.lock().unwrap().take() {
+    // Mutexがpoison化(他スレッドがlock中にpanic)していても、子プロセスの後始末は
+    // 継続できるべきなので、素直に中身を取り出して回収する。
+    if let Some((mut child, cancelled)) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
         cancelled.store(true, Ordering::SeqCst);
         kill_process(&mut child);
+        wait_in_background(child);
     }
+}
+
+// taskkillでプロセスを終了させた後、child.wait()を呼ばないままChildをdropすると
+// (Windows実装上は問題ないが)ゾンビ化やハンドルリークの温床になりうるため、
+// 別スレッドでwait()して確実にハンドルを解放する。
+fn wait_in_background(mut child: Child) {
+    thread::spawn(move || { let _ = child.wait(); });
 }
 
 // ── パス解決 ─────────────────────────────────────────────────────────────────
@@ -263,10 +273,11 @@ async fn run_train(
     // 二重呼び出しで先発の子プロセスがどこにも記録されないまま孤児化しうる。
     let cancelled = Arc::new(AtomicBool::new(false));
     let (stdout, stderr) = {
-        let mut slot = train_proc.0.lock().unwrap();
+        let mut slot = train_proc.0.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((mut old_child, old_cancelled)) = slot.take() {
             old_cancelled.store(true, Ordering::SeqCst);
             kill_process(&mut old_child);
+            wait_in_background(old_child);
         }
         let mut child = cmd.spawn().map_err(|e| format!("Python起動失敗: {e}"))?;
         let stdout = child.stdout.take().unwrap();
@@ -283,7 +294,7 @@ async fn run_train(
         for line in BufReader::new(stderr).lines().flatten() {
             if !line.is_empty() {
                 let _ = app3.emit("log_data", format!("[err] {line}"));
-                let mut t = tail_w.lock().unwrap();
+                let mut t = tail_w.lock().unwrap_or_else(|e| e.into_inner());
                 t.push(line);
                 if t.len() > 12 { t.remove(0); }
             }
@@ -313,7 +324,7 @@ async fn run_train(
         // これがないと UI は「学習中...」のまま永遠に止まる。
         if !finished && !cancelled.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(700)); // stderr スレッドの取りこぼし防止
-            let tail = err_tail.lock().unwrap().join("\n");
+            let tail = err_tail.lock().unwrap_or_else(|e| e.into_inner()).join("\n");
             let msg = if tail.is_empty() {
                 "学習プロセスが結果を返さずに終了しました。CSV の内容を確認してください。".to_string()
             } else {
@@ -352,10 +363,11 @@ async fn run_predict(
     // kill→spawn→store を単一ロック区間に（中-14、run_trainと同様）。
     let cancelled = Arc::new(AtomicBool::new(false));
     let (stdout, stderr) = {
-        let mut slot = pred_proc.0.lock().unwrap();
+        let mut slot = pred_proc.0.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((mut old_child, old_cancelled)) = slot.take() {
             old_cancelled.store(true, Ordering::SeqCst);
             kill_process(&mut old_child);
+            wait_in_background(old_child);
         }
         let mut child = cmd.spawn().map_err(|e| format!("Python起動失敗: {e}"))?;
         let stdout = child.stdout.take().unwrap();
@@ -371,7 +383,7 @@ async fn run_predict(
         for line in BufReader::new(stderr).lines().flatten() {
             if !line.is_empty() {
                 let _ = app3.emit("log_data", format!("[err] {line}"));
-                let mut t = tail_w.lock().unwrap();
+                let mut t = tail_w.lock().unwrap_or_else(|e| e.into_inner());
                 t.push(line);
                 if t.len() > 12 { t.remove(0); }
             }
@@ -394,7 +406,7 @@ async fn run_predict(
         }
         if !finished && !cancelled.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(700));
-            let tail = err_tail.lock().unwrap().join("\n");
+            let tail = err_tail.lock().unwrap_or_else(|e| e.into_inner()).join("\n");
             let msg = if tail.is_empty() {
                 "予測プロセスが結果を返さずに終了しました。".to_string()
             } else {
@@ -571,10 +583,30 @@ async fn export_robot(_app: AppHandle, file_stem: String) -> Result<Option<Strin
 
 pub fn run() {
     tauri::Builder::default()
+        // 多重起動ガード。2つ目以降の起動は即終了させ、既存インスタンスの
+        // メインウィンドウへフォーカスを移譲する。Windows向けの仕様上、
+        // 他のプラグインより前に登録する必要がある。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .manage(TrainProcess(Mutex::new(None)))
         .manage(PredictProcess(Mutex::new(None)))
         .register_uri_scheme_protocol("treg", |_ctx, request| {
             serve_treg(request.uri().path())
+        })
+        // ウィンドウを閉じる際に学習/予測の子プロセス(pythonw、DETACHED_PROCESS)を
+        // 確実にkillする。これがないと孤児化したpythonwが%LOCALAPPDATA%\T-regressor\
+        // trained_model に書き続け、再起動後のexport_robotが新旧混在モデルを配布exeに
+        // 焼いてしまう事故につながる(High-6対応)。
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let app = window.app_handle();
+                take_and_kill(&app.state::<TrainProcess>().0);
+                take_and_kill(&app.state::<PredictProcess>().0);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             check_python_ready,
