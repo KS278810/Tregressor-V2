@@ -2,8 +2,9 @@ name: 予測ロジック数値パリティ検証
 
 # 予測ロジック(JS版 predict-core.js / predict_template.html / .treg 書き出し)に
 # 触れる変更が入ったら、C++参照実装(native_predictor/predict_native_v2.cpp)との
-# 数値一致を必ず自動検証する。3系統(ネイティブC++ / Python(Pyodide) / JS)の実装が
-# ズレたまま気づかずマージ・配布されることを防ぐためのゲート。
+# 数値一致を必ず自動検証する。2系統(ネイティブC++ / JS)の実装がズレたまま気づかず
+# マージ・配布されることを防ぐためのゲート(type4/5のみ、run_matrix_test.js内で
+# 別途Python独立実装との突合せも行う。詳細はweb/js_predict_poc/README.md参照)。
 #
 # ローカルでの手動実行: cd web/js_predict_poc && npm install && npm test
 
@@ -14,6 +15,11 @@ on:
       - "web/predict_template.html"
       - "native_predictor/**"
       - "web/py/train_bridge.py"
+      - "web/py/predict_template.py"
+      - "web/py/_light.py"
+      - "train_bridge.py"
+      - "predict_template.py"
+      - "_light.py"
       - ".github/workflows/predict-parity.yml"
   pull_request:
     paths:
@@ -21,6 +27,11 @@ on:
       - "web/predict_template.html"
       - "native_predictor/**"
       - "web/py/train_bridge.py"
+      - "web/py/predict_template.py"
+      - "web/py/_light.py"
+      - "train_bridge.py"
+      - "predict_template.py"
+      - "_light.py"
       - ".github/workflows/predict-parity.yml"
   workflow_dispatch: {}
 
@@ -40,6 +51,47 @@ jobs:
         working-directory: web/js_predict_poc
         run: npm install
 
+      # 高-8: 以前は C++参照実装を一切コンパイルせず、コミット済みの凍結された
+      # matrix_cpp_out/*_pred.csv とだけ比較していたため、predict_native_v2.cpp を
+      # 壊す変更が入ってもCIが検出できなかった(「3系統一致ゲート」が実質不成立)。
+      # ここで実際に g++ ビルド→現行の matrix/*.treg で予測を再実行→
+      # matrix_cpp_out/*_pred.csv を上書き、してから JS 側との突合せに進む。
+      - name: C++参照実装をビルド(predict_native_v2.cpp)
+        working-directory: native_predictor
+        run: g++ -O2 -std=c++17 predict_native_v2.cpp -o predict_native_ref
+
+      - name: C++参照実装でmatrix_cpp_outを再生成(302行 x 40設定)
+        working-directory: web/js_predict_poc
+        run: |
+          set -e
+          BIN=../../native_predictor/predict_native_ref
+          mkdir -p matrix_cpp_out
+          node -e "JSON.parse(require('fs').readFileSync('matrix/_manifest.json','utf-8')).forEach(n=>console.log(n))" > /tmp/manifest.txt
+          while IFS= read -r name; do
+            [ -z "$name" ] && continue
+            treg="matrix/${name}.treg"
+            if [ ! -f "$treg" ]; then
+              echo "SKIP(.tregなし): $name"
+              continue
+            fi
+            tmp_csv="/tmp/${name}.csv"
+            cp stress_test.csv "$tmp_csv"
+            "$BIN" "$tmp_csv" "$treg"
+            mv "/tmp/${name}_pred.csv" "matrix_cpp_out/${name}_pred.csv"
+          done < /tmp/manifest.txt
+          echo "再生成後の差分(意図しないドリフトがあれば確認すること):"
+          git diff --stat -- matrix_cpp_out/ || true
+      # 補足(高-7、今回のスコープ外): matrix/_manifest.json の40フィクスチャは
+      # linear/lgbm/gp/mlp(type 0〜3)のみなので上のループで全件C++再生成できるが、
+      # predict_native_v2.cpp は .treg type 4(linear_poly)/ type 5(blend)を
+      # まだ読めない。type 4/5 のフィクスチャは matrix/_manifest_pyref.json 側に分離し
+      # (現状 blend_lgbm_linear_log1p_roundFalse.treg の1件)、C++ではなく
+      # Python独立実装(matrix_python_out/)との突合せを run_matrix_test.js 内で
+      # 別途行っている(高-N1: blend .tregのy逆変換二重適用の再発防止用フィクスチャ)。
+      # linear_poly(type4)はまだ未追加。
+      # TODO(高-7): C++に type 4/5 を実装(JSから移植、blendは自己完結ネスト.tregの
+      # 再帰ロード)し、この再生成ループと matrix フィクスチャに統合する。
+
       - name: predict-core.js 単体パリティテスト(7行 x 4種別)
         working-directory: web/js_predict_poc
         run: node run_parity.js
@@ -51,3 +103,10 @@ jobs:
       - name: predict_template.html(本番配布物)の網羅的マトリクステスト
         working-directory: web/js_predict_poc
         run: node run_html_matrix_test.js
+
+      # E14: CSVエンコーディング境界ケース(大きなスケールの値/cp932/BOM/半角カナ混在ヘッダ)
+      # のパリティ検証。フィクスチャは encoding_matrix/ にコミット済み(gen_encoding_fixtures.py
+      # で再生成可能)。cp932フィクスチャはnative実装が非対応のためJS側のみ検証する。
+      - name: エンコーディング境界ケースのパリティテスト(E14)
+        working-directory: web/js_predict_poc
+        run: node run_encoding_matrix_test.js ../../native_predictor/predict_native_ref

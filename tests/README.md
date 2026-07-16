@@ -1,7 +1,11 @@
 # T-regressor 検証スイート
 
-コード改修後の**回帰検出**用テスト。埋め込みPython（`dist_portable`）で実行するため、
-改修したら **先に `build_portable.ps1` でリビルド** してから回す（スクリプトはexeに埋め込まれるため）。
+コード改修後の**回帰検出**用テスト。`dist_portable\T-regressor\python-embed\python.exe` で
+実行するが、`verify_rebuild.py`/`test_harness.py` はいずれもプロジェクトルート直下の
+`train_bridge.py`/`predict_template.py` を直接呼び出す（exeに埋め込まれたコピーではない）ため、
+**`.py`ファイルだけの改修であれば `build_portable.ps1` でのリビルドは不要**で、そのまま実行できる。
+リビルドが必要なのは、`native_predictor/`（C++、`predict_native.exe`）を変更した場合や、
+`python-embed` 自体のセットアップ（依存パッケージ等）をやり直す場合のみ。
 
 ## 実行方法
 
@@ -23,7 +27,9 @@ $py = ".\dist_portable\T-regressor\python-embed\python.exe"
 
 - **quick不変**: easy300 で FE が走らない・`.treg` が v3・外部R²>0.95・時間<15s
 - **thorough改善**: hard600 で外部R²が quick+0.02 以上（自動FE・ランダムサーチ・6モデルblendの効果）
-- **native parity**: deployモデルと同型のとき Python予測と native exe予測が一致（rel<2e-3）
+- **native parity**: deployモデルと同型のとき Python予測と native exe予測が一致（rel<2e-3）。
+  `predict_native.exe`はtype0-3(linear/lgbm/gp/mlp)のみ対応のため、デプロイモデルが
+  type4/5(linear_poly/blend)になった場合はnative検証自体をスキップする(高-N2)
 - **エッジ**: 15行thorough / 純ノイズ / 整数歪みy（log1p+smear+round+FE+native）
 
 所要 約3〜5分（thorough学習を複数回走らせるため）。
@@ -31,7 +37,9 @@ $py = ".\dist_portable\T-regressor\python-embed\python.exe"
 ### `test_harness.py` — 詳細統合テスト（25項目）
 CLI境界・バイナリ整合・エラー処理を細かく突く。
 
-- RESULT_JSON の strict parse（NaN/Inf混入検出）、`trained_model_tmp` 残置なし
+- RESULT_JSON が構文的にパース可能であることの確認（json.loadsはNaN/Infinityをデフォルトで
+  受理するため、NaN/Inf混入自体の検出はできない点に注意。それらの排除は
+  train_bridge.py側のisfiniteガードが担う）、`trained_model_tmp` 残置なし
 - **C1回帰**: LGBM-best データで native出力が定数化しないこと（`Tree=N` パーサの回帰テスト）
 - **C2回帰**: 15特徴量スクリーニング時に `.treg` の n_feat がモデル実次元と一致
 - **C3**: Blend の in-app 予測が学習時 OOF と整合（best が Blend のとき）

@@ -97,7 +97,8 @@ def treg_header():
         b = f.read(10)
     return b[4], b[5]  # version, type
 
-TYPE_NAMES = {0: "linear", 1: "lgbm", 2: "gp", 3: "mlp"}
+TYPE_NAMES = {0: "linear", 1: "lgbm", 2: "gp", 3: "mlp", 4: "linear_poly", 5: "blend"}
+NATIVE_TYPES = {0, 1, 2, 3, 4, 5}  # predict_native.exe (C++) が読める .treg モデル型
 
 # ═══ 1. quick 回帰チェック (easy300) ═══════════════════════════════════════════
 print("■ 1. quick 回帰チェック (easy300) — 挙動不変の確認", flush=True)
@@ -138,16 +139,20 @@ check("thorough外部R²がquick+0.02以上", r2_t >= r2_q + 0.02, f"Δ={r2_t - 
 print(f"  INFO: thorough時間 {el_t:.1f}s（負荷変動あり・参考値。合否には使わない）", flush=True)
 
 # native parity (in-appモデルとdeployモデルが同型の場合のみ直接比較)
-nat = native_predict(te, "hard")
-check("native予測成功", nat is not None)
-if nat is not None and rj_t["model_type"] == TYPE_NAMES.get(mtype_t):
-    diff = np.max(np.abs(nat - preds_t))
-    rel = diff / max(np.std(te["y"].values), 1e-9)
-    check("native parity (hard, FEあり)", rel < 2e-3, f"maxdiff={diff:.5f} rel={rel:.5f}")
-elif nat is not None:
-    r2_nat = r2_score(te["y"], nat)
-    print(f"  [情報] in-app={rj_t['model_type']} ≠ deploy={TYPE_NAMES.get(mtype_t)} → parityはR²健全性のみ: native R²={r2_nat:.4f}", flush=True)
-    check("native R²健全 (hard)", r2_nat > max(0.3, r2_q - 0.1), f"R²={r2_nat:.4f}")
+if mtype_t not in NATIVE_TYPES:
+    print(f"  [情報] deployモデル型={TYPE_NAMES.get(mtype_t, mtype_t)} はpredict_native.exe未対応"
+          f"（type4=linear_poly/type5=blend）のためnative検証をスキップします", flush=True)
+else:
+    nat = native_predict(te, "hard")
+    check("native予測成功", nat is not None)
+    if nat is not None and rj_t["model_type"] == TYPE_NAMES.get(mtype_t):
+        diff = np.max(np.abs(nat - preds_t))
+        rel = diff / max(np.std(te["y"].values), 1e-9)
+        check("native parity (hard, FEあり)", rel < 2e-3, f"maxdiff={diff:.5f} rel={rel:.5f}")
+    elif nat is not None:
+        r2_nat = r2_score(te["y"], nat)
+        print(f"  [情報] in-app={rj_t['model_type']} ≠ deploy={TYPE_NAMES.get(mtype_t)} → parityはR²健全性のみ: native R²={r2_nat:.4f}", flush=True)
+        check("native R²健全 (hard)", r2_nat > max(0.3, r2_q - 0.1), f"R²={r2_nat:.4f}")
 
 # ═══ 3. smooth150 thorough — GP系デプロイ + FE + native ═══════════════════════
 print("■ 3. smooth150 thorough (GP向き小データ)", flush=True)
@@ -160,16 +165,20 @@ r2_s = r2_score(te["y"], preds_s) if preds_s is not None else -9
 ver_s, mtype_s = treg_header()
 print(f"  [結果] R²={r2_s:.4f} ({el_s:.1f}s, {rj_s['best_model']}) treg v{ver_s}/{TYPE_NAMES.get(mtype_s)}", flush=True)
 check("smooth 外部R² > 0.9", r2_s > 0.9, f"R²={r2_s:.4f}")
-nat_s = native_predict(te, "smooth")
-if nat_s is not None and preds_s is not None and rj_s["model_type"] == TYPE_NAMES.get(mtype_s):
-    diff = np.max(np.abs(nat_s - preds_s))
-    rel = diff / max(np.std(te["y"].values), 1e-9)
-    check("native parity (smooth)", rel < 2e-3, f"maxdiff={diff:.5f} rel={rel:.5f}")
-elif nat_s is not None:
-    r2_nat = r2_score(te["y"], nat_s)
-    check("native R²健全 (smooth)", r2_nat > 0.8, f"in-app={rj_s['model_type']} deploy={TYPE_NAMES.get(mtype_s)} R²={r2_nat:.4f}")
+if mtype_s not in NATIVE_TYPES:
+    print(f"  [情報] deployモデル型={TYPE_NAMES.get(mtype_s, mtype_s)} はpredict_native.exe未対応"
+          f"（type4=linear_poly/type5=blend）のためnative検証をスキップします", flush=True)
 else:
-    check("native予測成功 (smooth)", False)
+    nat_s = native_predict(te, "smooth")
+    if nat_s is not None and preds_s is not None and rj_s["model_type"] == TYPE_NAMES.get(mtype_s):
+        diff = np.max(np.abs(nat_s - preds_s))
+        rel = diff / max(np.std(te["y"].values), 1e-9)
+        check("native parity (smooth)", rel < 2e-3, f"maxdiff={diff:.5f} rel={rel:.5f}")
+    elif nat_s is not None:
+        r2_nat = r2_score(te["y"], nat_s)
+        check("native R²健全 (smooth)", r2_nat > 0.8, f"in-app={rj_s['model_type']} deploy={TYPE_NAMES.get(mtype_s)} R²={r2_nat:.4f}")
+    else:
+        check("native予測成功 (smooth)", False)
 
 # ═══ 4. エッジケース ═══════════════════════════════════════════════════════════
 print("■ 4. エッジケース", flush=True)
@@ -199,12 +208,16 @@ Xte["y"] = 0
 preds_i, _ = py_predict(Xte)
 check("整数y予測が整数", preds_i is not None and np.all(np.mod(preds_i, 1.0) == 0))
 ver_i, mtype_i = treg_header()
-nat_i = native_predict(Xte, "int")
-if nat_i is not None and rj_i["model_type"] == TYPE_NAMES.get(mtype_i):
-    diff = np.max(np.abs(nat_i - preds_i))
-    check("native parity (int/smear/round)", diff <= 1.0, f"maxdiff={diff:.4f}")
-elif nat_i is not None:
-    check("native整数出力", np.all(np.mod(nat_i, 1.0) == 0))
+if mtype_i not in NATIVE_TYPES:
+    print(f"  [情報] deployモデル型={TYPE_NAMES.get(mtype_i, mtype_i)} はpredict_native.exe未対応"
+          f"（type4=linear_poly/type5=blend）のためnative検証をスキップします", flush=True)
+else:
+    nat_i = native_predict(Xte, "int")
+    if nat_i is not None and rj_i["model_type"] == TYPE_NAMES.get(mtype_i):
+        diff = np.max(np.abs(nat_i - preds_i))
+        check("native parity (int/smear/round)", diff <= 1.0, f"maxdiff={diff:.4f}")
+    elif nat_i is not None:
+        check("native整数出力", np.all(np.mod(nat_i, 1.0) == 0))
 
 print("\n═══ 結果 ═══", flush=True)
 if FAILS:

@@ -15,6 +15,13 @@ MODEL_DIR = os.path.join(ROOT, "trained_model")
 SP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_work_harness")  # 生成物を隔離
 shutil.rmtree(SP, ignore_errors=True); os.makedirs(SP)
 
+# 低-M16: quickモードでも use_poly は行数/特徴数だけで決まる(train_bridge.py参照)ため
+# 小規模データでは linear_poly(type4)、thoroughならblend(type5)もデプロイされ得る。
+# 固定辞書の直接インデックスだとその場合KeyErrorでハーネス自体が異常終了していた。
+# T3のif rc==0ブロックが実行されない場合でもT4側から参照できるよう、モジュール
+# トップレベルで定義しておく。
+TYPE_NAMES = {0: "linear", 1: "lgbm", 2: "gp", 3: "mlp", 4: "linear_poly", 5: "blend"}
+
 PASS, FAIL = [], []
 
 def check(name, cond, detail=""):
@@ -33,7 +40,10 @@ def run_train(csv, target, strategy, timeout=600):
     rj = None
     for line in out.splitlines():
         if line.startswith("RESULT_JSON:"):
-            rj = json.loads(line[len("RESULT_JSON:"):])  # strict: NaN/Inf なら例外
+            rj = json.loads(line[len("RESULT_JSON:"):])
+            # 注意: json.loadsはNaN/Infinityをデフォルトで受理するため、上の行は
+            # 「構文的にパース可能」の確認であり、NaN/Inf混入の検出にはならない
+            # (NaN/Inf自体の排除はtrain_bridge.py側のisfiniteガードで行っている)。
     return p.returncode, out, (p.stderr or ""), rj
 
 def run_predict_template(csv):
@@ -134,7 +144,7 @@ if rc == 0:
     # deploy されたモデルの実使用列数を pkl/meta から取得
     import pickle
     actual_dim = None
-    tm = {0: "linear", 1: "lgbm", 2: "gp", 3: "mlp"}[mtype]
+    tm = TYPE_NAMES.get(mtype, f"unknown(type{mtype})")
     if tm == "gp":
         with open(os.path.join(MODEL_DIR, "gp_model.pkl"), "rb") as f:
             actual_dim = len(pickle.load(f)["feat_cols"])
@@ -144,13 +154,19 @@ if rc == 0:
     elif tm == "lgbm":
         with open(os.path.join(MODEL_DIR, "lgbm_meta.json"), encoding="utf-8") as f:
             actual_dim = len(json.load(f)["feat_cols"])
-    elif tm == "linear":
+    elif tm == "linear" or tm == "linear_poly":
+        # poly-Ridgeの特徴情報もlinear_model.pklに同梱される(use_poly=Trueのケース)
         with open(os.path.join(MODEL_DIR, "linear_model.pkl"), "rb") as f:
             actual_dim = len(pickle.load(f)["feat_cols"])
+    elif tm == "blend":
+        # blendは複数サブモデルの合成で単一のn_feat比較にはなじまない(.tregのn_feat=0が
+        # 正当な値、predict-core.js/treg-writer参照)ため次元チェック自体をスキップする。
+        pass
     print(f"    deploy_type={tm} treg_n_feat={n_feat} actual_dim={actual_dim}")
-    check("T3 .treg n_feat == モデル実次元", n_feat == actual_dim, f"{n_feat} != {actual_dim}")
+    if tm != "blend":
+        check("T3 .treg n_feat == モデル実次元", n_feat == actual_dim, f"{n_feat} != {actual_dim}")
 
-    # native parity
+    # native parity: predict_native.exeはtype0-5(linear_poly/blend含む)全対応
     pred_in3 = os.path.join(SP, "t3_pred_in.csv")
     d3.drop(columns=["y"]).head(30).to_csv(pred_in3, index=False)
     ndf = run_native(pred_in3)
@@ -179,8 +195,10 @@ if rj4:
     print(f"    best={rj4['best_model']} r2={rj4['r2']}")
 if rc == 0:
     ver, mtype, n_feat = read_treg_header(os.path.join(MODEL_DIR, "model.treg"))
-    tm = {0: "linear", 1: "lgbm", 2: "gp", 3: "mlp"}[mtype]
+    # 低-M16: T3と同じくquickモードでもuse_poly/blendになり得るため固定辞書直索引は避ける
+    tm = TYPE_NAMES.get(mtype, f"unknown(type{mtype})")
     print(f"    deploy_type={tm}")
+    # native parity: predict_native.exeはtype0-5(linear_poly/blend含む)全対応
     pred_in4 = os.path.join(SP, "t4_pred_in.csv")
     d4.drop(columns=["y"]).head(30).to_csv(pred_in4, index=False)
     ndf = run_native(pred_in4)
