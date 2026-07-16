@@ -141,21 +141,27 @@ def _sanitize_json(obj):
     return obj
 
 
-def _y_true_for(eval_kind, df, df_train, df_val, target_column):
+def _y_true_for(eval_kind, y_raw_all, tr_idx0, va_idx0):
+    """winsorize(外れ値クリップ)前の生yから、評価対象行を取り出す。
+    以前は winsorize 後の df/df_train/df_val から取っており、学習側で外れ値を
+    丸め込んだ後の「甘くなった正解値」に対してR²/RMSE/MAEを計算していたため、
+    実データに対する精度より楽観的な数値が出ていた(性能アップ計画Phase2/評価の
+    楽観バイアス低減)。y_raw_all は df と同じ行順序を保つ(winsorizeは値の書き換えのみで
+    行の並べ替え・削除は行わないため、tr_idx0/va_idx0とそのまま対応する)。"""
     if eval_kind == 'oof':
-        return df[target_column].values
-    if eval_kind == 'val' and df_val is not None:
-        return df_val[target_column].values
+        return y_raw_all
+    if eval_kind == 'val' and va_idx0 is not None and len(va_idx0) > 0:
+        return y_raw_all[va_idx0]
     if eval_kind == 'train':
-        return df_train[target_column].values
+        return y_raw_all[tr_idx0]
     return None
 
 
-def _eval_metrics(val_preds, eval_kind, df, df_train, df_val, target_column):
+def _eval_metrics(val_preds, eval_kind, y_raw_all, tr_idx0, va_idx0):
     """評価指標（RMSE/MAE/eval_on/eval_rows/y_true）を計算する。eval_kind は明示指定。"""
-    y_true = _y_true_for(eval_kind, df, df_train, df_val, target_column)
+    y_true = _y_true_for(eval_kind, y_raw_all, tr_idx0, va_idx0)
     if val_preds is None or y_true is None or len(y_true) != len(val_preds):
-        return 0.0, 0.0, (eval_kind or 'train'), len(df_train), None
+        return 0.0, 0.0, (eval_kind or 'train'), len(tr_idx0), None
     rmse_val = float(np.sqrt(mean_squared_error(y_true, val_preds)))
     mae_val  = float(mean_absolute_error(y_true, val_preds))
     return rmse_val, mae_val, eval_kind, len(y_true), y_true
@@ -368,6 +374,27 @@ def _clean_model_files(model_dir, keep_type):
                     os.remove(p)
 
 
+# ─── CSV 読み込み（日本語Excel既定のShift-JISフォールバック） ───────────────────
+
+def _read_csv_with_encoding_fallback(csv_path):
+    """UTF-8として妥当かをまずバイト列で検査し、無効なら Shift-JIS(cp932) として読む。
+    日本語Excelが既定で書き出すShift-JIS CSVがUTF-8として「�」化けしたまま
+    サイレントに学習が完走してしまうのを防ぐ(中-7)。"""
+    with open(csv_path, 'rb') as f:
+        raw = f.read()
+    try:
+        raw.decode('utf-8')
+        df = pd.read_csv(csv_path, encoding='utf-8')
+    except UnicodeDecodeError:
+        print(f"[Python] CSVがUTF-8として不正 → Shift-JIS(cp932)として読み込みます", flush=True)
+        df = pd.read_csv(csv_path, encoding='cp932')
+    # 列選択UI（frontend/index.html・lib.rs）はヘッダの前後空白をtrimして送信するため、
+    # pandas側の列名もtrimして揃える。非対称のままだと「表示された列を選んだのに
+    # ターゲット列が存在しません」エラーになる(中-M7)。
+    df.columns = df.columns.str.strip()
+    return df
+
+
 # ─── ターゲット列の解決と検証 ──────────────────────────────────────────────────
 
 def _resolve_and_validate_target(df, target_column_arg):
@@ -407,11 +434,16 @@ def _resolve_and_validate_target(df, target_column_arg):
 
 # ─── Y 変換 ──────────────────────────────────────────────────────────────────
 
-def _detect_y_transform(y: np.ndarray):
+def _detect_y_transform(y: np.ndarray, y_full: np.ndarray = None):
+    """skew判定は y（fold0-train等の部分集合で可）で行うが、log1p適用可否のmin>=0判定は
+    y_full（全行）で行う。負値行が別foldに落ちても log1p(負値)=NaN が学習ターゲットに
+    混入するのを防ぐため。y_full省略時はyそのものを使う（後方互換）。"""
+    if y_full is None:
+        y_full = y
     from _light import skew as scipy_skew
     sk = float(scipy_skew(y))
     print(f"[YTransform] Y skewness={sk:.3f}", flush=True)
-    if sk > SKEW_THRESH and float(y.min()) >= 0:
+    if sk > SKEW_THRESH and float(y_full.min()) >= 0:
         print(f"[YTransform] log1p 変換を適用（skewness={sk:.2f} > {SKEW_THRESH}, min≥0）", flush=True)
         return 'log1p', {}
     if abs(sk) > SKEW_THRESH:
@@ -683,7 +715,8 @@ def _try_linear(df_train, df_val, target_col, model_dir, y_transform='none', y_p
                              "feat_cols": top_feats, "target_col": target_col,
                              "use_poly": True, "medians": med_dict}, f)
             print(f"[Linear] poly alpha={model.alpha_:.3g}", flush=True)
-            info = {"eval_kind": "oof", "used_cols": top_feats, "medians": med_dict, "exportable": False}
+            # poly-Ridge も 'linear_poly' 専用フォーマットで .treg 書き出し可能
+            info = {"eval_kind": "oof", "used_cols": top_feats, "medians": med_dict, "exportable": True}
             return round(oof_r2, 4), feat_list, "linear", oof_preds, info
 
         # ── 単一 train/val ────────────────────────────────────────────────
@@ -726,7 +759,8 @@ def _try_linear(df_train, df_val, target_col, model_dir, y_transform='none', y_p
                              "use_poly": True, "medians": med_dict}, f)
             n_feats_poly = X_tr_s.shape[1]
             print(f"[Linear] poly R²={lin_r2:.4f}  α={model.alpha_:.3g}  poly_feats={n_feats_poly}", flush=True)
-            info = {"eval_kind": eval_kind, "used_cols": top_feats, "medians": med_dict, "exportable": False}
+            # poly-Ridge も 'linear_poly' 専用フォーマットで .treg 書き出し可能
+            info = {"eval_kind": eval_kind, "used_cols": top_feats, "medians": med_dict, "exportable": True}
             return round(lin_r2, 4), feat_list, "linear", y_pred, info
 
         # Standard Ridge (no poly)
@@ -836,7 +870,7 @@ def _try_lgbm(df_train, df_val, target_col, model_dir, use_grid=False, use_oof=F
                     r2_p = float(r2_score(df_full[target_col].values[touched], oof_p[touched]))
                     print(f"  予選{pidx}/{len(param_grid)}: R²={r2_p:.4f} "
                           f"(leaves={param_override['num_leaves']}, lr={param_override['learning_rate']})", flush=True)
-                    prelim_scores.append(r2_p)
+                    prelim_scores.append(r2_p if np.isfinite(r2_p) else -np.inf)
                 top_idx = np.argsort(prelim_scores)[::-1][:LGBM_FINALISTS]
                 param_grid_final = [param_grid[i] for i in top_idx]
                 print(f"[LightGBM] 予選通過 {len(param_grid_final)} 候補 → 全{n_splits}foldで本戦", flush=True)
@@ -1187,7 +1221,7 @@ def _try_mlp(df_train, df_val, target_col, model_dir, use_grid=False, use_oof=Fa
                     except Exception:
                         r2_p = -np.inf
                     print(f"  予選{pidx}/{len(param_grid)}: R²={r2_p:.4f} (alpha={param_spec.get('alpha'):.2g})", flush=True)
-                    prelim_scores.append(r2_p)
+                    prelim_scores.append(r2_p if np.isfinite(r2_p) else -np.inf)
                 top_idx = np.argsort(prelim_scores)[::-1][:MLP_FINALISTS]
                 param_list = [param_grid[i] for i in top_idx]
                 print(f"[MLP] 予選通過 {len(param_list)} 候補 → 全{n_splits}foldで本戦", flush=True)
@@ -1321,7 +1355,9 @@ def _try_sktree(kind, df_train, target_col, model_dir,
              for i in range(len(feat_cols))],
             key=lambda x: x["pct"], reverse=True)[:10]
 
-        info = {"eval_kind": "oof", "used_cols": feat_cols, "medians": med_dict, "exportable": False}
+        # LGBM-RF/XT はテキストモデル形式がLightGBMネイティブと同一のため .treg 書き出し可能
+        # (_load_export_source が 'lgbm' にエイリアスして _parse_lgbm_to_treg_bytes を再利用)
+        info = {"eval_kind": "oof", "used_cols": feat_cols, "medians": med_dict, "exportable": True}
         return round(oof_r2, 4), feat_list, kind, oof_preds, info
 
     except Exception as e:
@@ -1398,6 +1434,15 @@ def _parse_lgbm_to_treg_bytes(model_txt_path):
     m = re.search(r'^end of trees\s*$', content, re.MULTILINE)
     body = content[:m.start()] if m else content
 
+    # LightGBM の RF モード(boosting_type='rf'、LGBM-RF/LGBM-XT が使用)はヘッダに
+    # 'average_output' フラグが立ち、Booster.predict() は「全木の出力の平均」を返す
+    # (通常のGBDTは各木の leaf_value に shrinkage が既に畳み込まれているため単純な総和でよいが、
+    #  RFモードは畳み込まれていない生の平均のため、木の本数で割る必要がある)。
+    # .treg / JS側の predictLgbm は常に「全木の総和」として読むため、ここで
+    # leaf_value を木の本数であらかじめ割っておくことで、フォーマット・読み込み側は
+    # 一切変更せずに済む。
+    average_output = bool(re.search(r'^average_output\s*$', content, re.MULTILINE))
+
     parts = re.split(r'(?m)^Tree=(\d+)\s*$', body)
     if len(parts) < 3:
         raise ValueError("no 'Tree=N' blocks found (unexpected LightGBM model text format)")
@@ -1452,6 +1497,11 @@ def _parse_lgbm_to_treg_bytes(model_txt_path):
     if not trees:
         raise ValueError("parsed 0 trees")
 
+    if average_output:
+        inv_n = 1.0 / len(trees)
+        for t in trees:
+            t['leaf_value'] = [v * inv_n for v in t['leaf_value']]
+
     buf = bytearray()
     buf += struct.pack('<II', len(trees), 0)
     for t in trees:
@@ -1471,162 +1521,293 @@ def _parse_lgbm_to_treg_bytes(model_txt_path):
 
 
 def _load_export_source(model_type, model_dir):
-    """モデル種別に応じて (feat_cols, medians, payload) を pkl / sidecar から自己取得する。
-    poly-linear は native 非対応のため None を返す。"""
+    """モデル種別に応じて (feat_cols, medians, payload, export_type) を pkl / sidecar から
+    自己取得する。export_type は .treg 上の実書式ファミリ:
+      - poly-Ridge は 'linear_poly'（標準化後に多項式展開する専用フォーマット）
+      - LGBM-RF/LGBM-XT は木構造・予測規則が LightGBM ネイティブ形式と同一のため
+        'lgbm' にエイリアスする（LightGBM は boosting_type='rf' でもテキストモデル形式・
+        「木の出力を足し合わせる」推論規則は通常の GBDT と変わらないため）
+    未対応の種別（未知の model_type）のみ None を返す。"""
     import pickle
     if model_type == 'linear':
         with open(os.path.join(model_dir, 'linear_model.pkl'), 'rb') as pf:
             d = pickle.load(pf)
-        if d.get('use_poly'):
-            return None
-        return d['feat_cols'], d.get('medians', {}), d
+        export_type = 'linear_poly' if d.get('use_poly') else 'linear'
+        return d['feat_cols'], d.get('medians', {}), d, export_type
     if model_type == 'lgbm':
         with open(os.path.join(model_dir, 'lgbm_meta.json'), encoding='utf-8') as f:
             meta = json.load(f)
-        return meta['feat_cols'], meta.get('medians', {}), None
+        return meta['feat_cols'], meta.get('medians', {}), {'model_txt': 'lgbm_model.txt'}, 'lgbm'
+    if model_type in ('rf', 'xt'):
+        with open(os.path.join(model_dir, f'{model_type}_meta.json'), encoding='utf-8') as f:
+            meta = json.load(f)
+        return (meta['feat_cols'], meta.get('medians', {}),
+                {'model_txt': f'{model_type}_model.txt'}, 'lgbm')
     if model_type == 'gp':
         with open(os.path.join(model_dir, 'gp_model.pkl'), 'rb') as pf:
             d = pickle.load(pf)
-        return d['feat_cols'], d.get('medians', {}), d
+        return d['feat_cols'], d.get('medians', {}), d, 'gp'
     if model_type == 'mlp':
         with open(os.path.join(model_dir, 'mlp_model.pkl'), 'rb') as pf:
             d = pickle.load(pf)
-        return d['feat_cols'], d.get('medians', {}), d
+        return d['feat_cols'], d.get('medians', {}), d, 'mlp'
     return None
+
+
+_TREG_TYPE_MAP = {'linear': 0, 'lgbm': 1, 'gp': 2, 'mlp': 3, 'linear_poly': 4, 'blend': 5}
+_TREG_OP_MAP   = {'mul': 0, 'sq': 1, 'sign': 2}
+
+
+def _write_treg_stream(f, export_type, feat_cols, medians, payload, model_dir,
+                       target_col, y_transform, y_params, smear, y_clip, round_output,
+                       x_clip_all, derived_recipe):
+    """1モデル分の完全な .treg バイト列（'TREG' ヘッダ込み）をファイルライクな f に書く。
+    export_type=='blend' の場合、payload['members'] の各要素を「後処理なしの自己完結した
+    入れ子 .treg ブロブ」として再帰的に埋め込む（この関数自身を再帰呼び出しする）。
+    派生特徴（自動FE）を使うモデルは v4（レシピブロック付き）、それ以外は v3 で書く。"""
+    import struct
+    n_feat = len(feat_cols)
+
+    # このモデルが実際に使う派生特徴のみ書き出す（ソース列の x_clip 境界も同梱）
+    feat_set = set(feat_cols)
+    used_derived = [r for r in derived_recipe
+                    if r['name'] in feat_set and r['op'] in _TREG_OP_MAP]
+    file_version = 4 if used_derived else 3
+
+    f.write(b'TREG')
+    f.write(struct.pack('<BB', file_version, _TREG_TYPE_MAP[export_type]))
+    f.write(struct.pack('<I', n_feat))
+
+    if file_version >= 4:
+        f.write(struct.pack('<I', len(used_derived)))
+        for r in used_derived:
+            cols = r['cols']
+            col_a = cols[0]
+            col_b = cols[1] if len(cols) > 1 else ''
+            a_lo, a_hi = x_clip_all.get(col_a, (-X_CLIP_SENTINEL, X_CLIP_SENTINEL))
+            b_lo, b_hi = (x_clip_all.get(col_b, (-X_CLIP_SENTINEL, X_CLIP_SENTINEL))
+                          if col_b else (-X_CLIP_SENTINEL, X_CLIP_SENTINEL))
+            f.write(struct.pack('<B', _TREG_OP_MAP[r['op']]))
+            _write_str_treg(f, r['name'])
+            _write_str_treg(f, col_a)
+            f.write(struct.pack('<ff', float(a_lo), float(a_hi)))
+            _write_str_treg(f, col_b)
+            f.write(struct.pack('<ff', float(b_lo), float(b_hi)))
+
+    if export_type == 'linear':
+        d = payload
+        f.write(np.array(d['scaler'].center_, dtype=np.float32).tobytes())
+        f.write(np.array(d['scaler'].scale_,  dtype=np.float32).tobytes())
+        f.write(np.array(d['model'].coef_,    dtype=np.float32).tobytes())
+        f.write(struct.pack('<f', float(d['model'].intercept_)))
+
+    elif export_type == 'linear_poly':
+        # poly-Ridge は RobustScaler で標準化した後の値に PolynomialFeatures(degree=2) を
+        # 適用した特徴で学習されている(poly.fit_transform(scaler.fit_transform(X)))。
+        # RidgeCV.predict() 自体はセンタリングを intercept_ に畳み込み済みなので、推論側は
+        # 「標準化 → (単項 or 標準化後の値どうしの積/二乗) → coef_ 内積 + intercept_」の
+        # 1パスで再現できる。既存の DOP_MUL/DOP_SQ 派生特徴(生値ベースで掛け合わせてから
+        # モデル側でスケーリングする方式)とは演算順序が異なるため専用フォーマットにする。
+        # 項の並びは _light.PolynomialFeatures.transform と同一
+        # ([単項(i昇順)] + [i<=jの積(i昇順→j昇順)]、i==jは二乗)にし、model.coef_ の
+        # 並びとそのまま対応させる。単項は (i, -1) として区別する。
+        d = payload
+        scaler = d['scaler']
+        model = d['model']
+        f.write(np.array(scaler.center_, dtype=np.float32).tobytes())
+        f.write(np.array(scaler.scale_,  dtype=np.float32).tobytes())
+        terms = [(i, -1) for i in range(n_feat)]
+        for i in range(n_feat):
+            for j in range(i, n_feat):
+                terms.append((i, j))
+        f.write(struct.pack('<I', len(terms)))
+        for (ta, tb) in terms:
+            f.write(struct.pack('<ii', ta, tb))
+        f.write(np.array(model.coef_, dtype=np.float32).tobytes())
+        f.write(struct.pack('<f', float(model.intercept_)))
+
+    elif export_type == 'lgbm':
+        # 'lgbm' 本体に加え LGBM-RF/LGBM-XT もここに来る
+        # (payload['model_txt'] で実ファイル名を切り替えるだけで、木構造の読み書き規則は
+        # 完全に同一のため専用の分岐は不要)。
+        lgbm_bytes = _parse_lgbm_to_treg_bytes(
+            os.path.join(model_dir, payload['model_txt']))
+        f.write(lgbm_bytes)
+
+    elif export_type == 'gp':
+        d = payload
+        scaler = d['scaler']
+        gp     = d['model']   # _light.LightGP
+        sv = float(gp.sigma_var)
+        ls = np.atleast_1d(np.array(gp.length_scale, dtype=float))
+        if len(ls) != n_feat:
+            ls = np.full(n_feat, float(ls.mean()) if len(ls) else 1.0)
+        f.write(np.array(scaler.mean_,  dtype=np.float32).tobytes())
+        f.write(np.array(scaler.scale_, dtype=np.float32).tobytes())
+        f.write(ls.astype(np.float32).tobytes())
+        f.write(struct.pack('<f', sv))
+        y_mean = float(getattr(gp, 'y_mean_', 0.0))
+        y_std  = float(getattr(gp, 'y_std_',  1.0))
+        f.write(struct.pack('<ff', y_mean, y_std))
+        n_train = len(gp.X_train_)
+        f.write(struct.pack('<I', n_train))
+        f.write(gp.X_train_.astype(np.float32).tobytes())
+        f.write(gp.alpha_.astype(np.float32).tobytes())
+
+    elif export_type == 'mlp':
+        d = payload
+        pipeline = d['pipeline']
+        scaler   = pipeline['scaler']
+        mlp      = pipeline['mlp']
+        f.write(np.array(scaler.mean_,  dtype=np.float32).tobytes())
+        f.write(np.array(scaler.scale_, dtype=np.float32).tobytes())
+        n_layers = len(mlp.coefs_)
+        f.write(struct.pack('<I', n_layers))
+        for i, (W, b) in enumerate(zip(mlp.coefs_, mlp.intercepts_)):
+            n_in, n_out = W.shape
+            act = 1 if i == n_layers - 1 else 0
+            f.write(struct.pack('<IIB', n_in, n_out, act))
+            f.write(W.astype(np.float32).tobytes())
+            f.write(b.astype(np.float32).tobytes())
+
+    elif export_type == 'blend':
+        # 各メンバーは「後処理なし(smear=1, y_clip=無制限, round無し)」の自己完結した
+        # .treg ブロブとして書き、外側(このブロックの外、末尾の共通post-processingブロック)
+        # で加重和にのみ実際の smear/y_clip/round_output を適用する
+        # (train_bridge._fit_blend_oof / predict_template.py._predict_blend と同じ2段構成:
+        #  各メンバー自身のy_transform逆変換は個別に行うが、最終後処理は合成後に1回だけ)。
+        import io
+        members = payload['members']
+        f.write(struct.pack('<I', len(members)))
+        for m in members:
+            buf = io.BytesIO()
+            _write_treg_stream(buf, m['export_type'], m['feat_cols'], m['medians'], m['payload'],
+                               model_dir, target_col, y_transform, y_params,
+                               1.0, (-X_CLIP_SENTINEL, X_CLIP_SENTINEL), False,
+                               x_clip_all, derived_recipe)
+            blob = buf.getvalue()
+            f.write(struct.pack('<f', float(m['weight'])))
+            f.write(struct.pack('<I', len(blob)))
+            f.write(blob)
+
+    else:
+        raise ValueError(f"unknown export_type: {export_type}")
+
+    # Y 逆変換情報 (v2)
+    # blend の外側トレーラは常に 'none' にする: メンバーは上の再帰呼び出し
+    # (_write_treg_stream の 'blend' 分岐内、y_transform=実値のまま)で
+    # 個別に実スケールへ逆変換済みのため、外側でもう一度適用すると二重逆変換になる
+    # (predict-core.js の predictBlend は加重和後、外側 predictRow が invYTransform を
+    #  1回適用する設計 — 外側は smear/y_clip/round のみを担当する)。
+    Y_TRANSFORM_MAP = {'none': 0, 'log1p': 1, 'yeo_johnson': 2}
+    eff_yt = 'none' if export_type == 'blend' else y_transform
+    f.write(struct.pack('<B', Y_TRANSFORM_MAP.get(eff_yt, 0)))
+    if eff_yt == 'yeo_johnson':
+        f.write(struct.pack('<f', float(y_params.get('lambda', 1.0))))
+
+    # 予測後処理情報 (v3): 整数丸め / smearing補正 / Y観測レンジclip / Xクリップ
+    f.write(struct.pack('<B', 1 if round_output else 0))
+    f.write(struct.pack('<f', float(smear)))
+    f.write(struct.pack('<ff', float(y_clip[0]), float(y_clip[1])))
+    f.write(struct.pack('<I', n_feat))
+    for col in feat_cols:
+        lo, hi = x_clip_all.get(col, (-X_CLIP_SENTINEL, X_CLIP_SENTINEL))
+        f.write(struct.pack('<ff', float(lo), float(hi)))
+
+    _write_str_treg(f, target_col)
+    f.write(struct.pack('<I', n_feat))
+    for col in feat_cols:
+        _write_str_treg(f, col)
+    f.write(struct.pack('<I', n_feat))
+    for col in feat_cols:
+        _write_str_treg(f, col)
+        f.write(struct.pack('<d', float(medians.get(col, 0.0))))
 
 
 def _export_treg(model_type, model_dir, target_col, y_transform='none', y_params=None,
                  smear=1.0, y_clip=(-X_CLIP_SENTINEL, X_CLIP_SENTINEL),
                  round_output=False, x_clip_all=None, derived_recipe=None):
     """モデル pkl / sidecar から実使用列・median を自己取得し、次元整合した .treg を書く。
-    派生特徴（自動FE）を使うモデルは v4（レシピブロック付き）、それ以外は v3 で書く。"""
-    supported = ('linear', 'lgbm', 'gp', 'mlp')
-    if model_type not in supported:
-        print(f"[TREG] {model_type} は native 非対応のためスキップ", flush=True)
-        return False
-
+    linear(poly含む)/lgbm/gp/mlp/rf/xt 全種別に対応(blend は _export_treg_blend を使う)。"""
     y_params = y_params or {}
     x_clip_all = x_clip_all or {}
     derived_recipe = derived_recipe or []
-    import struct
     out_path = os.path.join(model_dir, "model.treg")
     tmp_path = out_path + ".tmp"
-    TYPE_MAP = {'linear': 0, 'lgbm': 1, 'gp': 2, 'mlp': 3}
-    OP_MAP   = {'mul': 0, 'sq': 1, 'sign': 2}
 
     try:
         src = _load_export_source(model_type, model_dir)
         if src is None:
-            print(f"[TREG] polynomial linear は native 非対応のためスキップ", flush=True)
+            print(f"[TREG] {model_type} は非対応のためスキップ", flush=True)
             return False
-        feat_cols, medians, payload = src
-        n_feat = len(feat_cols)
-
-        # このモデルが実際に使う派生特徴のみ書き出す（ソース列の x_clip 境界も同梱）
-        feat_set = set(feat_cols)
-        used_derived = [r for r in derived_recipe
-                        if r['name'] in feat_set and r['op'] in OP_MAP]
-        file_version = 4 if used_derived else 3
+        feat_cols, medians, payload, export_type = src
 
         with open(tmp_path, 'wb') as f:
-            f.write(b'TREG')
-            f.write(struct.pack('<BB', file_version, TYPE_MAP[model_type]))
-            f.write(struct.pack('<I', n_feat))
-
-            if file_version >= 4:
-                f.write(struct.pack('<I', len(used_derived)))
-                for r in used_derived:
-                    cols = r['cols']
-                    col_a = cols[0]
-                    col_b = cols[1] if len(cols) > 1 else ''
-                    a_lo, a_hi = x_clip_all.get(col_a, (-X_CLIP_SENTINEL, X_CLIP_SENTINEL))
-                    b_lo, b_hi = (x_clip_all.get(col_b, (-X_CLIP_SENTINEL, X_CLIP_SENTINEL))
-                                  if col_b else (-X_CLIP_SENTINEL, X_CLIP_SENTINEL))
-                    f.write(struct.pack('<B', OP_MAP[r['op']]))
-                    _write_str_treg(f, r['name'])
-                    _write_str_treg(f, col_a)
-                    f.write(struct.pack('<ff', float(a_lo), float(a_hi)))
-                    _write_str_treg(f, col_b)
-                    f.write(struct.pack('<ff', float(b_lo), float(b_hi)))
-
-            if model_type == 'linear':
-                d = payload
-                f.write(np.array(d['scaler'].center_, dtype=np.float32).tobytes())
-                f.write(np.array(d['scaler'].scale_,  dtype=np.float32).tobytes())
-                f.write(np.array(d['model'].coef_,    dtype=np.float32).tobytes())
-                f.write(struct.pack('<f', float(d['model'].intercept_)))
-
-            elif model_type == 'lgbm':
-                lgbm_bytes = _parse_lgbm_to_treg_bytes(
-                    os.path.join(model_dir, 'lgbm_model.txt'))
-                f.write(lgbm_bytes)
-
-            elif model_type == 'gp':
-                d = payload
-                scaler = d['scaler']
-                gp     = d['model']   # _light.LightGP
-                sv = float(gp.sigma_var)
-                ls = np.atleast_1d(np.array(gp.length_scale, dtype=float))
-                if len(ls) != n_feat:
-                    ls = np.full(n_feat, float(ls.mean()) if len(ls) else 1.0)
-                f.write(np.array(scaler.mean_,  dtype=np.float32).tobytes())
-                f.write(np.array(scaler.scale_, dtype=np.float32).tobytes())
-                f.write(ls.astype(np.float32).tobytes())
-                f.write(struct.pack('<f', sv))
-                y_mean = float(getattr(gp, 'y_mean_', 0.0))
-                y_std  = float(getattr(gp, 'y_std_',  1.0))
-                f.write(struct.pack('<ff', y_mean, y_std))
-                n_train = len(gp.X_train_)
-                f.write(struct.pack('<I', n_train))
-                f.write(gp.X_train_.astype(np.float32).tobytes())
-                f.write(gp.alpha_.astype(np.float32).tobytes())
-
-            elif model_type == 'mlp':
-                d = payload
-                pipeline = d['pipeline']
-                scaler   = pipeline['scaler']
-                mlp      = pipeline['mlp']
-                f.write(np.array(scaler.mean_,  dtype=np.float32).tobytes())
-                f.write(np.array(scaler.scale_, dtype=np.float32).tobytes())
-                n_layers = len(mlp.coefs_)
-                f.write(struct.pack('<I', n_layers))
-                for i, (W, b) in enumerate(zip(mlp.coefs_, mlp.intercepts_)):
-                    n_in, n_out = W.shape
-                    act = 1 if i == n_layers - 1 else 0
-                    f.write(struct.pack('<IIB', n_in, n_out, act))
-                    f.write(W.astype(np.float32).tobytes())
-                    f.write(b.astype(np.float32).tobytes())
-
-            # Y 逆変換情報 (v2)
-            Y_TRANSFORM_MAP = {'none': 0, 'log1p': 1, 'yeo_johnson': 2}
-            f.write(struct.pack('<B', Y_TRANSFORM_MAP.get(y_transform, 0)))
-            if y_transform == 'yeo_johnson':
-                f.write(struct.pack('<f', float(y_params.get('lambda', 1.0))))
-
-            # 予測後処理情報 (v3): 整数丸め / smearing補正 / Y観測レンジclip / Xクリップ
-            f.write(struct.pack('<B', 1 if round_output else 0))
-            f.write(struct.pack('<f', float(smear)))
-            f.write(struct.pack('<ff', float(y_clip[0]), float(y_clip[1])))
-            f.write(struct.pack('<I', n_feat))
-            for col in feat_cols:
-                lo, hi = x_clip_all.get(col, (-X_CLIP_SENTINEL, X_CLIP_SENTINEL))
-                f.write(struct.pack('<ff', float(lo), float(hi)))
-
-            _write_str_treg(f, target_col)
-            f.write(struct.pack('<I', n_feat))
-            for col in feat_cols:
-                _write_str_treg(f, col)
-            f.write(struct.pack('<I', n_feat))
-            for col in feat_cols:
-                _write_str_treg(f, col)
-                f.write(struct.pack('<d', float(medians.get(col, 0.0))))
+            _write_treg_stream(f, export_type, feat_cols, medians, payload, model_dir,
+                               target_col, y_transform, y_params, smear, y_clip, round_output,
+                               x_clip_all, derived_recipe)
 
         os.replace(tmp_path, out_path)
         size_kb = os.path.getsize(out_path) // 1024
-        print(f"[TREG] {model_type} → model.treg ({size_kb} KB, {n_feat}特徴量)", flush=True)
+        print(f"[TREG] {model_type} → model.treg ({size_kb} KB, {len(feat_cols)}特徴量)", flush=True)
         return True
     except Exception as e:
         print(f"[TREG] エクスポート失敗 ({model_type}): {e}", flush=True)
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        return False
+
+
+def _export_treg_blend(model_dir, target_col, candidates, y_transform='none', y_params=None,
+                       smear=1.0, y_clip=(-X_CLIP_SENTINEL, X_CLIP_SENTINEL),
+                       round_output=False, x_clip_all=None, derived_recipe=None):
+    """blend_meta.pkl のメンバー構成をもとに、各メンバーを自己完結した入れ子 .treg として
+    埋め込んだアンサンブル用 .treg を書く。1メンバーでも書き出せなければ全体を失敗とする
+    （部分的なブレンドは学習時に最適化した重み構成と乖離するため中途半端な出力を避ける）。"""
+    import pickle
+    y_params = y_params or {}
+    x_clip_all = x_clip_all or {}
+    derived_recipe = derived_recipe or []
+    out_path = os.path.join(model_dir, "model.treg")
+    tmp_path = out_path + ".tmp"
+
+    try:
+        with open(os.path.join(model_dir, "blend_meta.pkl"), "rb") as f:
+            bm = pickle.load(f)
+        names = bm["models"]
+        weights_map = bm.get("weights", {})
+
+        members = []
+        for name in names:
+            if name not in candidates:
+                raise ValueError(f"Blend サブモデル '{name}' が候補に見つかりません")
+            member_model_type = candidates[name][2]
+            src = _load_export_source(member_model_type, model_dir)
+            if src is None:
+                raise ValueError(f"Blend サブモデル '{name}' ({member_model_type}) を書き出せません")
+            m_feat_cols, m_medians, m_payload, m_export_type = src
+            members.append({
+                "export_type": m_export_type, "feat_cols": m_feat_cols,
+                "medians": m_medians, "payload": m_payload,
+                "weight": float(weights_map.get(name, 0.0)),
+            })
+        if len(members) < 2:
+            raise ValueError("Blend の書き出し可能サブモデルが2未満です")
+
+        with open(tmp_path, 'wb') as f:
+            _write_treg_stream(f, 'blend', [], {}, {"members": members}, model_dir,
+                               target_col, y_transform, y_params, smear, y_clip, round_output,
+                               x_clip_all, derived_recipe)
+
+        os.replace(tmp_path, out_path)
+        size_kb = os.path.getsize(out_path) // 1024
+        print(f"[TREG] blend({len(members)}メンバー) → model.treg ({size_kb} KB)", flush=True)
+        return True
+    except Exception as e:
+        print(f"[TREG] エクスポート失敗 (blend): {e}", flush=True)
         try:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
@@ -1652,7 +1833,7 @@ if __name__ == '__main__':
 
     print(f"[Python] CSV を解析中... {csv_path}", flush=True)
     _emit_progress(3, "CSVを読み込み中")
-    df = pd.read_csv(csv_path)
+    df = _read_csv_with_encoding_fallback(csv_path)
 
     # ── ターゲット解決・検証（カテゴリエンコードより前） ─────────────────────
     df, target_column, n_target_na = _resolve_and_validate_target(df, target_column)
@@ -1699,7 +1880,8 @@ if __name__ == '__main__':
     y_transform = 'none'
     y_params    = {}
     try:
-        y_transform, y_params = _detect_y_transform(df[target_column].values[tr_idx0])
+        y_transform, y_params = _detect_y_transform(df[target_column].values[tr_idx0],
+                                                     df[target_column].values)
     except Exception as e:
         print(f"[YTransform] 検出失敗 → 変換スキップ: {e}", flush=True)
 
@@ -1805,13 +1987,13 @@ if __name__ == '__main__':
                 gp_res  = fut_gp.result()
                 mlp_res = fut_mlp.result()
 
-    if lin[0] is not None:
+    if lin[0] is not None and np.isfinite(lin[0]):
         candidates['Linear (Ridge)'] = lin
-    if lgb_res[0] is not None:
+    if lgb_res[0] is not None and np.isfinite(lgb_res[0]):
         candidates['LightGBM'] = lgb_res
-    if gp_res[0] is not None:
+    if gp_res[0] is not None and np.isfinite(gp_res[0]):
         candidates['GaussianProcess (ARD-RBF)'] = gp_res
-    if mlp_res[0] is not None:
+    if mlp_res[0] is not None and np.isfinite(mlp_res[0]):
         candidates['MLP'] = mlp_res
 
     # ── LightGBM バギング多様化メンバー（RF / ExtraTrees モード、thorough のみ） ──
@@ -1821,12 +2003,12 @@ if __name__ == '__main__':
         rf_res = _try_sktree('rf', df_train, target_column, model_dir,
                              y_transform=y_transform, y_params=y_params,
                              df_all=df_all_for_models, splits=splits_for_models, num_jobs=num_jobs)
-        if rf_res[0] is not None:
+        if rf_res[0] is not None and np.isfinite(rf_res[0]):
             candidates['LGBM-RF'] = rf_res
         xt_res = _try_sktree('xt', df_train, target_column, model_dir,
                              y_transform=y_transform, y_params=y_params,
                              df_all=df_all_for_models, splits=splits_for_models, num_jobs=num_jobs)
-        if xt_res[0] is not None:
+        if xt_res[0] is not None and np.isfinite(xt_res[0]):
             candidates['LGBM-XT'] = xt_res
 
     # ── Blend（OOF-NNLS: 重みfitと評価を全行OOFで行う） ───────────────────────
@@ -1835,9 +2017,11 @@ if __name__ == '__main__':
         blend_result = _fit_blend_oof(candidates, df[target_column].values)
         if blend_result is not None:
             blend_r2, blend_names, blend_weights, blend_oof, blend_feats = blend_result
-            blend_info = {"eval_kind": "oof", "used_cols": [], "medians": {}, "exportable": False}
-            candidates['Blend (Ensemble)'] = (round(blend_r2, 4), blend_feats, 'blend',
-                                              blend_oof, blend_info)
+            # Blend も各メンバーを入れ子.tregとして埋め込む _export_treg_blend で書き出し可能
+            if np.isfinite(blend_r2):
+                blend_info = {"eval_kind": "oof", "used_cols": [], "medians": {}, "exportable": True}
+                candidates['Blend (Ensemble)'] = (round(blend_r2, 4), blend_feats, 'blend',
+                                                  blend_oof, blend_info)
             import pickle as _pkl
             with open(os.path.join(model_dir, "blend_meta.pkl"), "wb") as f:
                 _pkl.dump({"models": blend_names,
@@ -1849,14 +2033,14 @@ if __name__ == '__main__':
         print("ERROR: 有効なモデルが1つも訓練できませんでした", flush=True)
         sys.exit(1)
 
-    best_name = max(candidates, key=lambda k: candidates[k][0])
+    best_name = max(candidates, key=lambda k: candidates[k][0] if np.isfinite(candidates[k][0]) else -np.inf)
 
     # ── Blend 採用マージン: 単体最良を BLEND_MARGIN 以上上回った時のみ採用 ──────
     #    (OOF で僅差勝ちしても未知データでは同等以下になりやすいため)
     if best_name == 'Blend (Ensemble)':
         singles = {k: v for k, v in candidates.items() if k != 'Blend (Ensemble)'}
         if singles:
-            best_single = max(singles, key=lambda k: singles[k][0])
+            best_single = max(singles, key=lambda k: singles[k][0] if np.isfinite(singles[k][0]) else -np.inf)
             diff = candidates[best_name][0] - singles[best_single][0]
             if diff < BLEND_MARGIN:
                 print(f"[Blend] 単体最良 ({best_single}) とのOOF差 {diff:+.4f} < {BLEND_MARGIN} "
@@ -1876,7 +2060,7 @@ if __name__ == '__main__':
 
     # ── 評価 + 予測後処理（表示 R² は後処理適用後の予測で再計算） ──────────────
     eval_kind = best_info.get("eval_kind", "train") if best_info else "train"
-    y_true_eval = _y_true_for(eval_kind, df, df_train, df_val, target_column)
+    y_true_eval = _y_true_for(eval_kind, y_raw_all, tr_idx0, va_idx0)
 
     smear, y_clip_lo, y_clip_hi, round_output = _fit_postprocess_params(
         best_preds, y_true_eval, y_transform, y_raw_all, target_is_integer)
@@ -1886,7 +2070,7 @@ if __name__ == '__main__':
     if best_preds is not None and y_true_eval is not None and len(y_true_eval) == len(best_preds):
         corrected = _apply_postprocess(best_preds, smear, y_clip_lo, y_clip_hi, round_output)
         rmse_val, mae_val, eval_on_str, eval_rows, _ = _eval_metrics(
-            corrected, eval_kind, df, df_train, df_val, target_column)
+            corrected, eval_kind, y_raw_all, tr_idx0, va_idx0)
         r2_report = round(float(r2_score(y_true_eval, corrected)), 4)
 
         yt = np.asarray(y_true_eval, dtype=float)
@@ -1902,7 +2086,7 @@ if __name__ == '__main__':
                             "pred": [round(float(v), 4) for v in yp]}
     else:
         rmse_val, mae_val, eval_on_str, eval_rows, _ = _eval_metrics(
-            best_preds, eval_kind, df, df_train, df_val, target_column)
+            best_preds, eval_kind, y_raw_all, tr_idx0, va_idx0)
 
     meta_payload = _sanitize_json({
         "model_type":      model_type,
@@ -1959,32 +2143,75 @@ if __name__ == '__main__':
         "gp_format":          "pkl" if model_type == 'gp' else None,
         "scatter":            scatter_data,
         "y_range":            [round(float(np.min(y_raw_all)), 4), round(float(np.max(y_raw_all)), 4)],
+        # 配布ファイル（HTML/native exe）は .treg にカテゴリエンコーダを持たないため
+        # カテゴリ列を実質使えない（高-M1）。UI側でデプロイ前後に警告を出すためのフラグ。
+        "cat_columns":        list(cat_encoders.keys()) if cat_encoders else [],
+        # 学習時に比較した候補モデル一覧（R²降順）。以前はbest_modelしかUIに出せず、
+        # 「なぜこのモデルが選ばれたか」がユーザーから見えなかった(評価レポート5視点の
+        # 提案項目)。r2はcandidates内のOOF/検証スコア(=表示R²と評価データが異なる場合が
+        # あるため参考値。厳密な比較はr2_rawとは別軸)。
+        "candidate_models": [
+            {
+                "name": k,
+                "r2": round(float(v[0]), 4) if np.isfinite(v[0]) else None,
+                "model_type": v[2],
+                "is_best": (k == best_name),
+            }
+            for k, v in sorted(
+                candidates.items(),
+                key=lambda kv: kv[1][0] if np.isfinite(kv[1][0]) else -np.inf,
+                reverse=True,
+            )
+        ],
     }
 
-    # ── デプロイ用 .treg: native 対応の中で最良のモデルで生成 ──────────────────
-    #    smear はそのデプロイモデル自身の検証予測から再フィットする
+    # ── デプロイ用 .treg: 表示モデル(best_name)を最優先で書き出す ──────────────
+    #    全モデル種別が .treg 対応済みのため通常は best_name がそのまま書き出せる。
+    #    まれに技術的な失敗（壊れたsidecarファイル等）があった場合のみ、次善の
+    #    候補（R²降順）へフォールバックする。単純にR²降順で探すと、Blend採用
+    #    マージン（BLEND_MARGIN）によって表示上は単体モデルへ格下げされたのに
+    #    デプロイだけBlendになる、という安全策と矛盾する逆転が起こり得るため、
+    #    best_name を必ず先頭にする。
+    #    smear はそのデプロイモデル自身の検証予測から再フィットする。
     _emit_progress(96, "モデルを保存中")
-    deploy_candidates = sorted(
-        [(n, v) for n, v in candidates.items()
-         if v[4] is not None and v[4].get("exportable", False)],
-        key=lambda x: x[1][0], reverse=True)
+    exportable_candidates = {n: v for n, v in candidates.items()
+                             if v[4] is not None and v[4].get("exportable", False)}
+    deploy_order = [best_name] + sorted(
+        [n for n in exportable_candidates if n != best_name],
+        key=lambda n: exportable_candidates[n][0], reverse=True)
 
     exported = False
-    for dep_name, (dep_r2, _, dep_type, dep_preds, dep_info) in deploy_candidates:
-        dep_y_true = _y_true_for(dep_info.get("eval_kind", "train"), df, df_train, df_val, target_column)
+    dep_name, dep_r2 = None, None  # exportable_candidates が空の場合でも未定義参照にならないよう初期化
+    for dep_name in deploy_order:
+        if dep_name not in exportable_candidates:
+            continue
+        dep_r2, _, dep_type, dep_preds, dep_info = exportable_candidates[dep_name]
+        dep_y_true = _y_true_for(dep_info.get("eval_kind", "train"), y_raw_all, tr_idx0, va_idx0)
         dep_smear, _, _, _ = _fit_postprocess_params(
             dep_preds, dep_y_true, y_transform, y_raw_all, target_is_integer)
-        ok = _export_treg(dep_type, model_dir, target_column, y_transform, y_params,
-                          dep_smear, (y_clip_lo, y_clip_hi), round_output, x_clip_bounds,
-                          derived_recipe=derived_recipe)
+        if dep_type == 'blend':
+            ok = _export_treg_blend(model_dir, target_column, candidates, y_transform, y_params,
+                                    dep_smear, (y_clip_lo, y_clip_hi), round_output, x_clip_bounds,
+                                    derived_recipe=derived_recipe)
+        else:
+            ok = _export_treg(dep_type, model_dir, target_column, y_transform, y_params,
+                              dep_smear, (y_clip_lo, y_clip_hi), round_output, x_clip_bounds,
+                              derived_recipe=derived_recipe)
         if ok:
             exported = True
             if dep_name != best_name:
-                print(f"[TREG] 表示モデル({best_name})は native 非対応 → "
+                print(f"[TREG] 表示モデル({best_name})の書き出しに失敗 → "
                       f"デプロイは {dep_name} (R²={dep_r2:.4f}) を使用", flush=True)
             break
     if not exported:
         print("[TREG] WARNING: デプロイ可能なモデルが存在しません", flush=True)
+
+    # UI側(フロントエンド)が「画面の精度」と「配布ファイルの精度」が食い違う場合に
+    # ユーザーへ明示できるよう、置換の有無を result に含める(旧: コンソールログのみ)。
+    result["export_available"] = exported
+    result["deployed_model"] = dep_name if exported else None
+    result["deployed_r2"] = round(float(dep_r2), 4) if exported and dep_r2 is not None else None
+    result["deploy_substituted"] = bool(exported and dep_name != best_name)
 
     # ── 後片付け ─────────────────────────────────────────────────────────────
     if model_type == 'blend':
