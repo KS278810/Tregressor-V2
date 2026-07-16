@@ -25,7 +25,11 @@ Write-Host "[1/2] アイコンリソースをコンパイル中 (windres)..." -F
 if ($LASTEXITCODE -ne 0) { throw "windres 失敗" }
 
 Write-Host "[2/2] ビルド中 (g++)..." -ForegroundColor Cyan
-& $GxxExe -O2 -std=c++17 -static -mwindows -s $Src $ResObj -o $OutExe
+# -std=gnu++17: 中-M2で使う _wfopen 等のMinGW非標準拡張(stdio.h上で__STRICT_ANSI__に
+#   よってガードされている)を見えるようにするため、厳格ANSIモードを敷く -std=c++17
+#   ではなく gnu++17 を使う(言語機能自体はC++17のまま、CRT拡張のみ追加で見える化)。
+# -lshell32: CommandLineToArgvW(cp932外の文字を含むCSVパスのD&D対応、中-M2)に必要。
+& $GxxExe -O2 -std=gnu++17 -static -mwindows -s $Src $ResObj -lshell32 -o $OutExe
 if ($LASTEXITCODE -ne 0) { throw "g++ ビルド失敗" }
 
 Remove-Item $ResObj -ErrorAction SilentlyContinue
