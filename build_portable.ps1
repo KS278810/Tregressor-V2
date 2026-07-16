@@ -39,7 +39,7 @@ function Write-Step([int]$n, [int]$total, [string]$msg) {
 }
 
 # ════════════════════════════════════════════════════════════
-# [1/3] python-embed 確認
+# [1/4] python-embed 確認
 # ════════════════════════════════════════════════════════════
 Write-Step 1 4 "python-embed 確認"
 
@@ -77,9 +77,26 @@ if ($testResult -notmatch "OK") {
 Write-Host "     必須パッケージ インポート: OK (lightgbm/numpy/pandas/scipy)" -ForegroundColor Green
 
 # ════════════════════════════════════════════════════════════
-# [2/3] cargo tauri build --no-bundle
+# [2/4] embed Python の pruning（不要ファイル削除で配布容量を削減）
 # ════════════════════════════════════════════════════════════
-Write-Step 2 4 "cargo tauri build --no-bundle"
+# cargo tauri build（build.rs が python-embed を zip 化して EXE に埋め込む）より前に
+# 実行する。以前は cargo tauri build の後段でpruningしていたため、pruning未実施の
+# python-embed（scipy本体・sklearn等を含む肥大化した状態）を初回ビルド時にそのまま
+# zip化・EXE埋め込みしてしまう可能性があった(中-13)。pruning は dist_portable\...\python-embed
+# に対して完結する処理で、cargo tauri build の出力には依存しないため安全に前倒しできる。
+Write-Step 2 4 "embed Python の pruning"
+
+$pruneScript = Join-Path $Root "prune_embed.ps1"
+if (Test-Path $pruneScript) {
+    & $pruneScript -PythonEmbed $PythonEmbed
+} else {
+    Write-Host "     prune_embed.ps1 が見つからないためスキップ" -ForegroundColor Yellow
+}
+
+# ════════════════════════════════════════════════════════════
+# [3/4] cargo tauri build --no-bundle
+# ════════════════════════════════════════════════════════════
+Write-Step 3 4 "cargo tauri build --no-bundle"
 
 Push-Location $Root
 try {
@@ -105,9 +122,9 @@ $exeSizeMB = [math]::Round((Get-Item $TauriExe).Length / 1MB, 1)
 Write-Host "     ビルド完了: t-regressor.exe ($exeSizeMB MB)" -ForegroundColor Green
 
 # ════════════════════════════════════════════════════════════
-# [3/3] 配布フォルダを更新
+# [4/4] 配布フォルダを更新
 # ════════════════════════════════════════════════════════════
-Write-Step 3 4 "配布フォルダを更新"
+Write-Step 4 4 "配布フォルダを更新"
 
 New-Item -ItemType Directory -Force $Dist | Out-Null
 
@@ -141,18 +158,6 @@ if (Test-Path $nativeSrc) {
     New-Item -ItemType Directory -Force $nativeDest | Out-Null
     Copy-Item $nativeSrc (Join-Path $nativeDest "predict_native.exe") -Force
     Write-Host "     native_dist/ 更新"
-}
-
-# ════════════════════════════════════════════════════════════
-# [4/4] embed Python の pruning（不要ファイル削除で配布容量を削減）
-# ════════════════════════════════════════════════════════════
-Write-Step 4 4 "embed Python の pruning"
-
-$pruneScript = Join-Path $Root "prune_embed.ps1"
-if (Test-Path $pruneScript) {
-    & $pruneScript -PythonEmbed $PythonEmbed
-} else {
-    Write-Host "     prune_embed.ps1 が見つからないためスキップ" -ForegroundColor Yellow
 }
 
 $distSizeMB = [math]::Round(
