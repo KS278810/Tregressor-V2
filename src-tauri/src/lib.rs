@@ -64,13 +64,20 @@ fn res_dir() -> PathBuf {
     PathBuf::from(base).join("T-regressor")
 }
 
-fn python_exe() -> PathBuf {
+fn python_exe() -> Result<PathBuf, String> {
     let res = res_dir().join("python-embed");
     // pythonw.exe はコンソールウィンドウを表示しない（GUIサブシステム）
     let pw = res.join("pythonw.exe");
-    if pw.exists() { return pw; }
+    if pw.exists() { return Ok(pw); }
     let p = res.join("python.exe");
-    if p.exists() { p } else { PathBuf::from("python") }
+    if p.exists() { return Ok(p); }
+    // 展開が壊れて埋め込みpythonが無い場合にPATH上の任意のpythonへ黙って
+    // フォールバックしていた旧実装は、ユーザー環境の別Pythonで学習/予測が動いてしまい
+    // 原因不明の挙動不一致(バージョン差・パッケージ有無)を生んでいた(Low L-4対応)。
+    // 埋め込みpython不在は展開処理の異常なので、ここで明示的にエラーを返し
+    // フロントに表示させる。
+    Err("埋め込みPythonが見つかりません。インストールが壊れている可能性があります。\
+         アプリを再起動しても解決しない場合は再インストールしてください。".to_string())
 }
 
 fn model_dir_path() -> PathBuf { res_dir().join("trained_model") }
@@ -267,7 +274,7 @@ async fn run_train(
     }
 
     let num_jobs = num_jobs.clamp(1, 16);
-    let python = python_exe();
+    let python = python_exe()?;
     let script = res_dir().join("train_bridge.py");
     let mut cmd = Command::new(&python);
     cmd.args([
@@ -365,7 +372,7 @@ async fn run_predict(
         return Err("無効なファイルパスです".to_string());
     }
 
-    let python = python_exe();
+    let python = python_exe()?;
     let script = res_dir().join("predict_template.py");
     let mut cmd = Command::new(&python);
     cmd.args([script.to_str().unwrap_or("predict_template.py"), &csv_path])
