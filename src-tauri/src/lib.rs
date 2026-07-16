@@ -414,13 +414,27 @@ async fn cancel_predict(pred_proc: State<'_, PredictProcess>) -> Result<(), Stri
 
 #[tauri::command]
 async fn read_csv_headers(path: String) -> Result<Vec<String>, String> {
-    let raw = std::fs::read(&path).map_err(|e| e.to_string())?;
-    let text = if raw.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        String::from_utf8_lossy(&raw[3..]).into_owned()
-    } else {
-        String::from_utf8_lossy(&raw).into_owned()
+    // ヘッダ抽出のためにファイル全量を読む必要はない。BufReaderで先頭行のみを
+    // 読み取ることで、数GB級CSVでもメモリスパイクを起こさない(High-5対応)。
+    let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    let mut reader = BufReader::new(file);
+    let mut raw: Vec<u8> = Vec::new();
+    reader.read_until(b'\n', &mut raw).map_err(|e| e.to_string())?;
+    if raw.last() == Some(&b'\n') { raw.pop(); }
+    if raw.last() == Some(&b'\r') { raw.pop(); }
+    let body: &[u8] = if raw.starts_with(&[0xEF, 0xBB, 0xBF]) { &raw[3..] } else { &raw[..] };
+
+    // まずUTF-8として妥当かを検査し、無効なら日本語Excel既定のcp932(Shift-JIS)として
+    // デコードする。frontend/index.html の fileText() 内と同じ判定方針
+    // (train_bridge.py._read_csv_with_encoding_fallbackとも整合)。
+    // encoding_rs::SHIFT_JIS はWHATWG "shift_jis"ラベル(実質cp932相当)としてデコードする。
+    let first = match String::from_utf8(body.to_vec()) {
+        Ok(s) => s,
+        Err(_) => {
+            let (decoded, _enc, _had_errors) = encoding_rs::SHIFT_JIS.decode(body);
+            decoded.into_owned()
+        }
     };
-    let first = text.lines().next().unwrap_or("").to_string();
 
     // クォート対応の最小CSVパース（"a,b" のようなカンマ入り列名を分断しない）
     let mut headers: Vec<String> = Vec::new();
