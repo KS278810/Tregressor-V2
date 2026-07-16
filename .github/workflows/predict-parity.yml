@@ -20,6 +20,7 @@ on:
       - "train_bridge.py"
       - "predict_template.py"
       - "_light.py"
+      - "web/sample_data.csv"
       - ".github/workflows/predict-parity.yml"
   pull_request:
     paths:
@@ -32,6 +33,7 @@ on:
       - "train_bridge.py"
       - "predict_template.py"
       - "_light.py"
+      - "web/sample_data.csv"
       - ".github/workflows/predict-parity.yml"
   workflow_dispatch: {}
 
@@ -46,6 +48,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+
+      # root↔web/py 同期ゲート: train_bridge.py/_light.py/predict_template.py は
+      # プロジェクトルートと web/py/ に同一内容で複製配置されている(exe版とWeb版で
+      # Pythonランタイムの配置場所が異なるため、CLAUDE.mdルール2)。ルート側だけ変更して
+      # web/py/へのコピーを忘れると、exe版とWeb版で予測ロジックが黙って乖離する。
+      - name: root↔web/py 同期チェック
+        run: |
+          set -e
+          fail=0
+          diff -q train_bridge.py web/py/train_bridge.py || fail=1
+          diff -q _light.py web/py/_light.py || fail=1
+          diff -q predict_template.py web/py/predict_template.py || fail=1
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::train_bridge.py / _light.py / predict_template.py がルートと web/py/ で一致していません。"
+            echo "::error::ルール: ルート側を編集してweb/py/へコピーすること(CLAUDE.mdルール2参照)。"
+            exit 1
+          fi
+          echo "OK: ルートとweb/py/の3ファイルは一致しています。"
 
       - name: テスト依存関係インストール(jsdom)
         working-directory: web/js_predict_poc
@@ -109,3 +129,79 @@ jobs:
       - name: エンコーディング境界ケースのパリティテスト(E14)
         working-directory: web/js_predict_poc
         run: node run_encoding_matrix_test.js ../../native_predictor/predict_native_ref
+
+  # 中-M4: これまでのCIは「.tregを読む3実装(native/JS/Python独立実装)同士」の閉じた
+  # 比較のみで、「画面のR²(アプリ内Python予測、predict_template.py)と配布物(.treg)の
+  # 予測が同じ」という一気通貫の保証がなかった。ここで実際に web/sample_data.csv を
+  # train_bridge.py で学習し、同じ予測用CSVに対する (a) predict_template.py の出力と
+  # (b) native(g++ビルド)/JS の出力を相対誤差で突き合わせる。
+  e2e-app-treg-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Node.js セットアップ
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Python依存関係インストール(train_bridge.py実行に必要な最小構成)
+        run: pip install numpy pandas lightgbm scipy threadpoolctl
+
+      - name: C++参照実装をビルド(predict_native_v2.cpp)
+        working-directory: native_predictor
+        run: g++ -O2 -std=c++17 predict_native_v2.cpp -o predict_native_ref
+
+      - name: 学習(web/sample_data.csv, quickモード) → trained_model/model.treg
+        run: |
+          set -e
+          rm -rf trained_model trained_model_tmp
+          python train_bridge.py web/sample_data.csv rent_10kyen 0 quick 1
+          test -f trained_model/model.treg
+          test -f trained_model/model_meta.json
+
+      - name: 予測用CSVを準備(学習用CSVと同じ列構成の複製)
+        run: |
+          mkdir -p /tmp/e2e
+          cp web/sample_data.csv /tmp/e2e/input.csv
+
+      - name: (a) アプリ内Python予測(predict_template.py)
+        run: python predict_template.py /tmp/e2e/input.csv
+
+      - name: (b) native予測(predict_native_ref、入力csv→input_pred.csv)
+        run: TREG_NO_GUI=1 ./native_predictor/predict_native_ref /tmp/e2e/input.csv trained_model/model.treg
+
+      - name: (c) JS予測(predict-core.js経由、run_e2e_predict.js)
+        run: node web/js_predict_poc/run_e2e_predict.js /tmp/e2e/input.csv trained_model/model.treg /tmp/e2e/input_js.csv
+
+      - name: 3経路(Python/native/JS)の予測値を相対誤差で突合
+        run: |
+          python tests/e2e_compare_predictions.py rent_10kyen \
+            /tmp/e2e/input_predicted.csv /tmp/e2e/input_pred.csv /tmp/e2e/input_js.csv \
+            --tol-abs 1e-5 --tol-rel 1e-4
+
+  # 体制レバー3(観点4): test_light_parity.py(_light.py が sklearn/scipy と数値一致することを
+  # 検証する安全性ゲート)がこれまでCIに組み込まれておらず、ローカルで手動実行するしかなかった。
+  # ubuntu-latest + pip の素のCPythonで動くため、最も安価に追加できるゲート。
+  light-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python依存関係インストール(numpy/scipy/scikit-learn)
+        run: pip install numpy scipy scikit-learn
+
+      - name: _light.py が sklearn/scipy と数値一致することを検証
+        run: python tests/test_light_parity.py
