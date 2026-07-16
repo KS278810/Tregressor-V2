@@ -60,7 +60,7 @@ jobs:
         working-directory: native_predictor
         run: g++ -O2 -std=c++17 predict_native_v2.cpp -o predict_native_ref
 
-      - name: C++参照実装でmatrix_cpp_outを再生成(302行 x 40設定)
+      - name: C++参照実装でmatrix_cpp_outを再生成(302行 x 46設定)
         working-directory: web/js_predict_poc
         run: |
           set -e
@@ -81,22 +81,21 @@ jobs:
           done < /tmp/manifest.txt
           echo "再生成後の差分(意図しないドリフトがあれば確認すること):"
           git diff --stat -- matrix_cpp_out/ || true
-      # 補足(高-7、今回のスコープ外): matrix/_manifest.json の40フィクスチャは
-      # linear/lgbm/gp/mlp(type 0〜3)のみなので上のループで全件C++再生成できるが、
-      # predict_native_v2.cpp は .treg type 4(linear_poly)/ type 5(blend)を
-      # まだ読めない。type 4/5 のフィクスチャは matrix/_manifest_pyref.json 側に分離し
-      # (現状 blend_lgbm_linear_log1p_roundFalse.treg の1件)、C++ではなく
-      # Python独立実装(matrix_python_out/)との突合せを run_matrix_test.js 内で
-      # 別途行っている(高-N1: blend .tregのy逆変換二重適用の再発防止用フィクスチャ)。
-      # linear_poly(type4)はまだ未追加。
-      # TODO(高-7): C++に type 4/5 を実装(JSから移植、blendは自己完結ネスト.tregの
-      # 再帰ロード)し、この再生成ループと matrix フィクスチャに統合する。
+      # 高-3(2026-07-16): 以前はここに「predict_native_v2.cppは.treg type 4(linear_poly)/
+      # type 5(blend)をまだ読めないため、matrix/_manifest.json の40フィクスチャは
+      # type 0〜3のみ」という注記があったが、Phase2でC++にtype4/5の読込(整合性検査・
+      # blend再帰深さ制限込み)を実装済みのため既に矛盾する古い記述だった。現在は
+      # matrix/_manifest.json に type4(linear_poly)3設定・type5(blend)3設定
+      # (既存のblend_lgbm_linear_log1p_roundFalseを含めれば計46設定)を統合済みで、
+      # 上のループでC++参照実装による再生成・突合せが行われる。
+      # matrix/_manifest_pyref.json (Python独立実装 matrix_python_out/ との突合せ経路)は
+      # 現状空で、将来C++がまだ対応しない新しい.treg型が追加された場合のための予備。
 
       - name: predict-core.js 単体パリティテスト(7行 x 4種別)
         working-directory: web/js_predict_poc
         run: node run_parity.js
 
-      - name: predict-core.js 網羅的マトリクステスト(302行 x 40設定)
+      - name: predict-core.js 網羅的マトリクステスト(302行 x 46設定)
         working-directory: web/js_predict_poc
         run: node run_matrix_test.js
 
