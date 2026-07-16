@@ -28,7 +28,8 @@
   - **じっくり** — 交差検証・自動特徴量生成・ハイパラ探索・複数モデルのアンサンブル(Blend)で精度を追求
 - **学習済みモデルを単体ファイル化** — Pythonの知識がない相手にも、ダブルクリック
   （またはCSVをドラッグ&ドロップ）するだけで使える予測専用ファイルを書き出せる。
-  **選ばれたモデルがどの種類であっても**そのまま書き出せる（2026-07〜）
+  **exe版・Web版とも、選ばれたモデルがどの種類であっても**そのまま書き出せる
+  （多項式Ridge・Blend(アンサンブル)含め全種別対応、2026-07-15〜。詳細は「動作の仕組み」節を参照）
 - **インストール不要で配布可能** — exe版はPython環境ごと自己完結、Web版はブラウザのみで動作
 - **サーバー送信なし** — 学習データ・モデルはどちらの版でも利用者の端末外に出ない
 
@@ -67,8 +68,12 @@ Web版の詳細（2つの配布形態の違い、公開手順、既知の制約�
   - Web版: 依存ゼロのJavaScript（[`web/js_predict_poc/predict-core.js`](web/js_predict_poc/predict-core.js)
     と数値的に同一のロジックが `predict_template.html` にインライン化）。`.treg` はBase64化してHTML内に埋め込む
 - **`.treg`形式**: 独自のコンパクトバイナリ形式。線形(Ridge)・多項式Ridge・LightGBM系
-  (GBDT/RandomForest/ExtraTrees)・ガウス過程・MLP・アンサンブル(Blend)の全モデル種別に対応
-  （2026-07拡張。詳細は [`web/js_predict_poc/README.md`](web/js_predict_poc/README.md)）
+  (GBDT/RandomForest/ExtraTrees)・ガウス過程・MLP・アンサンブル(Blend)の全モデル種別を
+  `train_bridge.py`（ルート/`web/py/`共通）が書き出せる（2026-07拡張。詳細は
+  [`web/js_predict_poc/README.md`](web/js_predict_poc/README.md)）。**読み取り側もexe版・
+  Web版とも全6種別対応**（exe版C++予測エンジン`native_predictor/predict_native_v2.cpp`は
+  2026-07-15に多項式Ridge/Blend(入れ子.tregの再帰読み込み)を追加し、Web版JS予測エンジンと
+  対応範囲が揃った）
 
 ## 開発者向け：ビルド方法
 
@@ -139,11 +144,14 @@ node build_offline.mjs
 └── prune_embed.ps1         Python実行環境の依存スリム化スクリプト
 ```
 
-`train_bridge.py` 等がルートと `web/py/` に重複して存在するのは意図的です。exe版の予測エンジン
-（`native_predictor/predict_native_v2.cpp`）は現状4モデル種別（linear/lgbm/gp/mlp）のみ対応のため、
-ルート側は多項式Ridge/Blend等の新しい `.treg` 書き出しを行わない古い挙動のまま据え置いています
-（`web/py/train_bridge.py` の方が新しい機能を持ちますが、それはWeb版のJS予測エンジンが全6種別に
-対応しているためです）。学習ロジック本体（特徴量生成・CV・ハイパラ探索など）は両者で同一です。
+`train_bridge.py` 等がルートと `web/py/` に重複して存在するのは意図的です（exe版とWeb版で
+Pythonランタイムの配置場所が異なるための複製）。2026-07の同期以降、**両ファイルは内容が
+完全に一致**しており、多項式Ridge/Blendを含む全6モデル種別の `.treg` 書き出しをどちらも行います。
+読み取り側（exe版の予測エンジン `native_predictor/predict_native_v2.cpp` とWeb版JS予測エンジン
+`web/js_predict_poc/predict-core.js`）も2026-07-15より全6種別に対応しており、exe書き出し
+（`export_robot`）・HTML書き出しのどちらでも、学習結果がどのモデル種別であってもそのまま
+配布できます。学習ロジック本体（特徴量生成・CV・ハイパラ探索など）は両者で同一です。
+両ファイルの差分は `diff train_bridge.py web/py/train_bridge.py` で随時確認できます。
 
 ## ライセンス
 
