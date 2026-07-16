@@ -502,14 +502,29 @@ static float predict_mlp(const MLPModel& m, const float* x, int d) {
 // (train_bridge._write_treg_stream / predict-core.js predictLinearPoly と同一ロジック)。
 static float predict_linear_poly(const LinearPolyModel& m, const float* x, int d) {
     std::vector<float> s(d);
+    // 高-N2(2026-07-16): float同士の減算→除算を素朴に行うと、2回の丸め(減算の丸め・
+    // 除算の丸め)が積み重なる。JS版(predict-core.js predictLinearPoly)は
+    // x[i]/center[i]/scale[i]をいずれもJS数値(=倍精度で保持された値)として扱い、
+    // (x[i]-center[i])/scale[i] 全体を倍精度で計算してから Float32Array 代入時に
+    // 1回だけ丸める。極端な入力値(例: x=1e6 と小さいcenter/scaleの組)ではこの
+    // 丸め回数の差が無視できない誤差になる(linear_poly_derived_*フィクスチャで
+    // 実測、round_output=Trueの丸め後比較で~3.8e3の不一致として顕在化)。
+    // predict_linear/predict_mlp と同様に「倍精度で計算→最後に1回だけfloatへ」に
+    // 統一し、JS側と丸めのタイミングを揃える。
     for (int i = 0; i < d; i++)
-        s[i] = (x[i] - m.center[i]) / m.scale[i];
+        s[i] = (float)(((double)x[i] - (double)m.center[i]) / (double)m.scale[i]);
 
     double sum = m.intercept;
     const size_t n = m.coef.size();
     for (size_t t = 0; t < n; t++) {
         int32_t a = m.term_a[t], b = m.term_b[t];
-        float val = (b < 0) ? s[a] : s[a] * s[b];
+        // 高-N2(2026-07-16): 積・二乗項 s[a]*s[b] を float(単精度) で計算してから
+        // coef との積に回すと、単精度どうしの積が丸められてから加算されるため、
+        // JS側(predict-core.js predictLinearPoly、s[a]/s[b]はFloat32Arrayだが積は
+        // JS数値=倍精度で計算される)と極端な入力値(標準化後の値が大きくなる列)で
+        // 有意な不一致が生じることが type4 パリティフィクスチャ(linear_poly_derived_*)の
+        // 追加で判明した。積演算自体を double に上げてJS側と同一の丸め経路にする。
+        double val = (b < 0) ? (double)s[a] : (double)s[a] * (double)s[b];
         sum += (double)m.coef[t] * val;
     }
     return (float)sum;

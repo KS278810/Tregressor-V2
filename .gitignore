@@ -22,6 +22,12 @@ native_predictor/*.o
 native_predictor/*.obj
 native_predictor/predict_native.exe
 
+# C++参照実装の検証用ビルド(predict-parity.ymlがCI上で毎回ビルドする。配布物には含めない)
+native_predictor/predict_native_ref
+native_predictor/predict_native_ref.exe
+web/js_predict_poc/predict_native_ref
+web/js_predict_poc/predict_native_ref.exe
+
 # Python
 __pycache__/
 *.pyc
