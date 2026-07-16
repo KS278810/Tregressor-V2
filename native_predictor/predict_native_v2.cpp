@@ -2,7 +2,8 @@
  * predict_native_v2.cpp
  * T-regressor ネイティブ推論器 (外部依存ゼロ)
  *
- * 対応モデル: Linear (Ridge), LightGBM, GP (ARD-RBF), MLP (sklearn)
+ * 対応モデル: Linear (Ridge), LightGBM, GP (ARD-RBF), MLP (sklearn),
+ *            Linear-Poly (多項式Ridge), Blend (アンサンブル、他モデルの入れ子)
  * モデル形式: .treg バイナリ (EXE テールへの自己埋め込みまたはファイル指定)
  *
  * EXE テール形式:
@@ -24,6 +25,8 @@
 #include <algorithm>
 #include <numeric>
 #include <limits>
+#include <iomanip>
+#include <memory>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -44,7 +47,8 @@ static void fatal(const char* msg) { fprintf(stderr, "ERROR: %s\n", msg); }
 // ── マジック ──────────────────────────────────────────────────────────────────
 static const char TREG_MAGIC[4]  = {'T','R','E','G'};
 static const char EXE_MAGIC[8]   = {'T','R','E','G','_','E','M','B'};
-enum ModelType  { MT_LINEAR = 0, MT_LGBM = 1, MT_GP = 2, MT_MLP = 3 };
+enum ModelType  { MT_LINEAR = 0, MT_LGBM = 1, MT_GP = 2, MT_MLP = 3,
+                  MT_LINEAR_POLY = 4, MT_BLEND = 5 };
 enum YTransform { YT_NONE = 0, YT_LOG1P = 1, YT_YEO_JOHNSON = 2 };
 
 // ── バイナリリーダー（境界チェック付き） ──────────────────────────────────────
@@ -115,6 +119,28 @@ struct LGBMTree {
 
 struct LGBMModel { std::vector<LGBMTree> trees; };
 
+// linear_poly (多項式Ridge): RobustScaler相当のcenter/scale → 多項式項(単項 or
+// 標準化後の値どうしの積/二乗) → coef内積 + intercept。項の並びは
+// _light.PolynomialFeatures.transform と同一(train_bridge._write_treg_stream参照)、
+// term_b<0 は「単項(term_aそのまま)」を表す。
+struct LinearPolyModel {
+    std::vector<float>   center, scale;
+    std::vector<int32_t> term_a, term_b;
+    std::vector<float>   coef;
+    float intercept = 0;
+};
+
+// blend (アンサンブル): 各メンバーは後処理なし(smear=1, y_clip=無制限, round無し)の
+// 自己完結した入れ子 .treg ブロブとして埋め込まれている(train_bridge._export_treg_blend
+// 参照)。TregModel はまだ完全定義されていないため、メンバーは unique_ptr で保持する
+// (再帰的な木構造。JS版 predict-core.js の loadTreg/predictRow と同じ設計)。
+struct TregModel;
+struct BlendMember {
+    float weight = 1.0f;
+    std::unique_ptr<TregModel> model;
+};
+struct BlendModel { std::vector<BlendMember> members; };
+
 // v4: 自動特徴量（学習時に生成した派生特徴のレシピ）
 enum DerivedOp { DOP_MUL = 0, DOP_SQ = 1, DOP_SIGN = 2 };
 struct DerivedFeat {
@@ -142,10 +168,12 @@ struct TregModel {
     float   y_clip_lo    = -3.4e38f, y_clip_hi = 3.4e38f;
     std::vector<float> x_clip_lo, x_clip_hi;
 
-    LinearModel linear;
-    GPModel     gp;
-    MLPModel    mlp;
-    LGBMModel   lgbm;
+    LinearModel     linear;
+    GPModel         gp;
+    MLPModel        mlp;
+    LGBMModel       lgbm;
+    LinearPolyModel linear_poly;
+    BlendModel      blend;
 };
 
 // ── .treg デシリアライズ ──────────────────────────────────────────────────────
@@ -165,7 +193,9 @@ static bool load_treg(const uint8_t* data, size_t size, TregModel& out) {
         fatal("このexeより新しいモデル形式です。\n最新版のT-regressorで書き出したexeを使用してください。");
         return false;
     }
-    if (d < 1 || d > 100000) return false;
+    // blend(アンサンブル)は自身の直接の特徴ベクトルを持たない(各メンバーが個別に持つ)ため
+    // n_feat=0 が正当な値になる(JS版 predict-core.js loadTreg と同じ判定)。
+    if (d > 100000 || (out.type != MT_BLEND && d < 1)) return false;
 
     // v4: 派生特徴レシピ（自動FE）
     if (out.file_version >= 4) {
@@ -244,6 +274,45 @@ static bool load_treg(const uint8_t* data, size_t size, TregModel& out) {
             layer.W = r.read_floats((size_t)layer.n_in * layer.n_out);
             layer.b = r.read_floats(layer.n_out);
         }
+    } else if (out.type == MT_LINEAR_POLY) {
+        out.linear_poly.center = r.read_floats(d);
+        out.linear_poly.scale  = r.read_floats(d);
+        uint32_t n_terms = r.read<uint32_t>();
+        if (r.fail || n_terms > 1000000) return false;
+        out.linear_poly.term_a.resize(n_terms);
+        out.linear_poly.term_b.resize(n_terms);
+        for (uint32_t i = 0; i < n_terms; i++) {
+            int32_t ta = r.read<int32_t>();
+            int32_t tb = r.read<int32_t>();
+            // term_b<0 は「単項」を表す正当な値。それ以外は両方とも [0, d) の範囲内で
+            // なければならない。信頼できるwriter(train_bridge._write_treg_stream)は
+            // 常にこの範囲内の値しか書かないが、壊れた.treg/将来のwriterのバグに対して
+            // predict_linear_poly() 側の s[a]/s[b] が範囲外読み出しにならないよう
+            // ここで明示的に拒否する(他の可変長フィールドと同様の防御)。
+            if (r.fail || ta < 0 || ta >= d || (tb >= 0 && tb >= d)) return false;
+            out.linear_poly.term_a[i] = ta;
+            out.linear_poly.term_b[i] = tb;
+        }
+        out.linear_poly.coef = r.read_floats(n_terms);
+        out.linear_poly.intercept = r.read<float>();
+
+    } else if (out.type == MT_BLEND) {
+        // 各メンバーは「重み(f32) + ブロブ長(u32) + 自己完結した入れ子.treg」の並び。
+        // load_treg をブロブ範囲に対して再帰呼び出しし、読み終えたら r.pos をブロブ長分
+        // 進める(ネストしたReaderはブロブ先頭からの相対posで独立に動くため)。
+        uint32_t n_members = r.read<uint32_t>();
+        if (r.fail || n_members > 1000) return false;
+        for (uint32_t i = 0; i < n_members; i++) {
+            float weight = r.read<float>();
+            uint32_t blob_len = r.read<uint32_t>();
+            if (r.fail || r.pos + blob_len > r.size) return false;
+            auto member = std::make_unique<TregModel>();
+            if (!load_treg(r.data + r.pos, blob_len, *member)) return false;
+            r.pos += blob_len;
+            out.blend.members.push_back(BlendMember{weight, std::move(member)});
+        }
+        if (out.blend.members.size() < 2) return false;
+
     } else {
         return false;  // 未知のモデル型
     }
@@ -263,6 +332,11 @@ static bool load_treg(const uint8_t* data, size_t size, TregModel& out) {
         out.y_clip_lo    = r.read<float>();
         out.y_clip_hi    = r.read<float>();
         uint32_t n_fc_clip = r.read<uint32_t>();
+        // 他の可変長配列(n_fc/n_med等)と同様の上限検査が無かったため、破損した.tregで
+        // n_fc_clipに巨大な値が入っていると resize() が std::bad_alloc/length_error を
+        // 送出し、main()側で未捕捉のまま abort()(exit=134、-mwindowsビルドでは
+        // メッセージも出ず無言クラッシュ)していた(低-M12)。
+        if (r.fail || n_fc_clip > 100000) return false;
         out.x_clip_lo.resize(n_fc_clip);
         out.x_clip_hi.resize(n_fc_clip);
         for (uint32_t i = 0; i < n_fc_clip; i++) {
@@ -289,6 +363,10 @@ static bool load_treg(const uint8_t* data, size_t size, TregModel& out) {
 }
 
 // ── 推論 ─────────────────────────────────────────────────────────────────────
+// predict() が y_transform 逆変換を(blendメンバーも含め再帰的に)適用するため、
+// 定義(Y逆変換セクション、このファイルの後方)より前方宣言しておく。
+static float inv_ytransform(float pred, YTransform yt, float lam);
+
 static float predict_linear(const LinearModel& m, const float* x, int d) {
     float s = m.intercept;
     for (int i = 0; i < d; i++) {
@@ -358,6 +436,24 @@ static float predict_mlp(const MLPModel& m, const float* x, int d) {
     return h.empty() ? 0.0f : h[0];
 }
 
+// linear_poly (多項式Ridge): 標準化 → (単項 or 標準化後の値どうしの積/二乗) →
+// coef内積 + intercept。term_b<0 は単項(s[term_a]そのまま)を表す
+// (train_bridge._write_treg_stream / predict-core.js predictLinearPoly と同一ロジック)。
+static float predict_linear_poly(const LinearPolyModel& m, const float* x, int d) {
+    std::vector<float> s(d);
+    for (int i = 0; i < d; i++)
+        s[i] = (x[i] - m.center[i]) / (m.scale[i] + 1e-8f);
+
+    double sum = m.intercept;
+    const size_t n = m.coef.size();
+    for (size_t t = 0; t < n; t++) {
+        int32_t a = m.term_a[t], b = m.term_b[t];
+        float val = (b < 0) ? s[a] : s[a] * s[b];
+        sum += (double)m.coef[t] * val;
+    }
+    return (float)sum;
+}
+
 // v4 派生特徴: ソース列を（学習時と同じ境界で）クリップして取得。欠損は NaN。
 static double clipped_source(const std::map<std::string, double>& row,
                              const std::string& col, float lo, float hi) {
@@ -386,35 +482,67 @@ static double compute_derived(const DerivedFeat& df, const std::map<std::string,
     return std::isfinite(v) ? v : std::numeric_limits<double>::quiet_NaN();
 }
 
+// blend(アンサンブル)のメンバーは後処理なし(smear=1, y_clip=無制限, round無し)の
+// 自己完結した .treg として書き出されているため、predict() をメンバーごとに再帰
+// 呼び出しして得た「実スケールの予測」(＝各メンバー自身のy_transform逆変換済み)を
+// 重み付き和するだけでよい。最終的な smear/y_clip/round_output は呼び出し元の
+// predict()(外側のblendモデル自身)側で一度だけ適用される
+// (JS版 predict-core.js の predictBlend/predictRow と同一設計)。
+static float predict(const TregModel& model, const std::map<std::string, double>& row);
+
+static float predict_blend(const BlendModel& m, const std::map<std::string, double>& row) {
+    double sum = 0.0;
+    for (const auto& mem : m.members)
+        sum += (double)mem.weight * predict(*mem.model, row);
+    return (float)sum;
+}
+
 static float predict(const TregModel& model, const std::map<std::string, double>& row) {
-    const int d = (int)model.feat_cols.size();
-    std::vector<float> x(d);
-    for (int i = 0; i < d; i++) {
-        double val = std::numeric_limits<double>::quiet_NaN();
-        auto dit = model.derived_idx.find(model.feat_cols[i]);
-        if (dit != model.derived_idx.end()) {
-            val = compute_derived(model.derived[dit->second], row);
-        } else {
-            auto it = row.find(model.feat_cols[i]);
-            if (it != row.end()) val = it->second;
+    float pred;
+    if (model.type == MT_BLEND) {
+        // blendは自身の直接の特徴ベクトルを持たない(各メンバーが個別に持つ)ため、
+        // ここでは x を組み立てない。
+        pred = predict_blend(model.blend, row);
+    } else {
+        const int d = (int)model.feat_cols.size();
+        std::vector<float> x(d);
+        for (int i = 0; i < d; i++) {
+            double val = std::numeric_limits<double>::quiet_NaN();
+            auto dit = model.derived_idx.find(model.feat_cols[i]);
+            if (dit != model.derived_idx.end()) {
+                val = compute_derived(model.derived[dit->second], row);
+            } else {
+                auto it = row.find(model.feat_cols[i]);
+                if (it != row.end()) val = it->second;
+            }
+            if (!std::isnan(val)) {
+                x[i] = (float)val;
+            } else {
+                auto mit = model.medians.find(model.feat_cols[i]);
+                x[i] = (mit != model.medians.end()) ? (float)mit->second : 0.0f;
+            }
+            // 学習時と同じ X クリッピング（1-99パーセンタイル）を適用
+            if (i < (int)model.x_clip_lo.size())
+                x[i] = std::min(std::max(x[i], model.x_clip_lo[i]), model.x_clip_hi[i]);
         }
-        if (!std::isnan(val)) {
-            x[i] = (float)val;
-        } else {
-            auto mit = model.medians.find(model.feat_cols[i]);
-            x[i] = (mit != model.medians.end()) ? (float)mit->second : 0.0f;
+        switch (model.type) {
+            case MT_LINEAR:      pred = predict_linear(model.linear, x.data(), d); break;
+            case MT_LGBM:        pred = predict_lgbm(model.lgbm, x.data()); break;
+            case MT_GP:          pred = predict_gp(model.gp, x.data()); break;
+            case MT_MLP:         pred = predict_mlp(model.mlp, x.data(), d); break;
+            case MT_LINEAR_POLY: pred = predict_linear_poly(model.linear_poly, x.data(), d); break;
+            default:             pred = 0.0f; break;
         }
-        // 学習時と同じ X クリッピング（1-99パーセンタイル）を適用
-        if (i < (int)model.x_clip_lo.size())
-            x[i] = std::min(std::max(x[i], model.x_clip_lo[i]), model.x_clip_hi[i]);
     }
-    switch (model.type) {
-        case MT_LINEAR: return predict_linear(model.linear, x.data(), d);
-        case MT_LGBM:   return predict_lgbm(model.lgbm, x.data());
-        case MT_GP:     return predict_gp(model.gp, x.data());
-        case MT_MLP:    return predict_mlp(model.mlp, x.data(), d);
-        default:        return 0.0f;
-    }
+    // Y 逆変換 (log1p / Yeo-Johnson) + 予測後処理 (smearing補正 / Y観測レンジclip / 整数丸め)。
+    // blendの外側モデルは y_transform=NONE で書かれる(各メンバーで既に逆変換済みのため
+    // 二重変換を避ける、train_bridge._write_treg_stream 参照)ので、ここでの適用は
+    // メンバーごとに個別・外側で一度、という2段構成が自然に成立する。
+    pred = inv_ytransform(pred, model.y_transform, model.yeo_lambda);
+    pred *= model.smear;
+    pred = std::min(std::max(pred, model.y_clip_lo), model.y_clip_hi);
+    if (model.round_output) pred = std::round(pred);
+    return pred;
 }
 
 // ── Y 逆変換 ─────────────────────────────────────────────────────────────────
@@ -469,14 +597,41 @@ struct CsvData {
 };
 
 static std::string trim_csv_field(std::string s) {
-    // BOM, CR, LF, quotes
-    while (!s.empty() && ((unsigned char)s[0] == 0xEF || (unsigned char)s[0] == 0xBB ||
-                           (unsigned char)s[0] == 0xBF || s[0] == '\r' || s[0] == '\n'))
-        s = s.substr(1);
-    while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == '"' || s.back() == '\''))
+    // CR, LF のみを外側から除去する。
+    // 旧実装は「先頭バイトが0xEF/0xBB/0xBFのいずれかなら1バイト削る」を全フィールドに
+    // 適用しており、半角カナ・全角英数字などUTF-8の1バイト目がたまたま0xEFと一致する
+    // 文字（例: "ｺｽﾄ"=EF BD BA、"１号機"=EF BC 91）の先頭バイトを誤ってBOMの残骸と
+    // 見なして剥ぎ取り、ヘッダ名が破損してfeat_cols不一致→全行median予測になっていた
+    // (中-M5)。BOM除去はヘッダ行全体に対して1回だけ、3バイト連続一致時のみ行う
+    // (parse_csv側で実施)。
+    while (!s.empty() && (s.back() == '\r' || s.back() == '\n'))
         s.pop_back();
-    while (!s.empty() && (s[0] == '"' || s[0] == '\''))
-        s = s.substr(1);
+    // 前後の空白(半角スペース・タブ)をトリムする。pandas側(df.columns.str.strip()、
+    // 中-M7)・フロントエンド(frontend/index.html parseHeaderLine の .trim()相当)・
+    // lib.rs(read_csv_headers)はいずれも空白をトリムするため、ここで揃えないと
+    // 「x1, y」のようなヘッダを持つCSVで native exe だけ " y" のまま残り、
+    // feat_colsと不一致→サイレントmedian予測になる(独立検証で発見の残余非対称)。
+    auto is_ws = [](unsigned char c) { return c == ' ' || c == '\t'; };
+    size_t start = 0, end = s.size();
+    while (start < end && is_ws((unsigned char)s[start])) start++;
+    while (end > start && is_ws((unsigned char)s[end - 1])) end--;
+    s = s.substr(start, end - start);
+    // クォート除去も先頭 " または ' を無条件に1文字ずつ剥いでいたため、'開始不一致'な
+    // フィールド（引用符で囲まれていない、末尾にアポストロフィを含むだけの通常文字列）
+    // まで壊していた。ダブルクォートで前後を囲まれている場合のみペアで除去する。
+    if (s.size() >= 2 && s.front() == '"' && s.back() == '"') {
+        s = s.substr(1, s.size() - 2);
+    }
+    return s;
+}
+
+// ファイル冒頭のUTF-8 BOM(EF BB BF)を、3バイト連続一致時のみ1回だけ除去する。
+// trim_csv_fieldのように個々のバイト値だけで判定すると、半角カナ・全角文字の
+// UTF-8エンコード1バイト目(0xEF)を誤ってBOMと誤認してしまう(中-M5)。
+static std::string strip_utf8_bom_once(const std::string& s) {
+    if (s.size() >= 3 && (unsigned char)s[0] == 0xEF &&
+        (unsigned char)s[1] == 0xBB && (unsigned char)s[2] == 0xBF)
+        return s.substr(3);
     return s;
 }
 
@@ -485,6 +640,7 @@ static CsvData parse_csv(const std::string& path) {
     std::ifstream file(path);
     std::string line;
     if (!std::getline(file, line)) return result;
+    line = strip_utf8_bom_once(line);
 
     std::stringstream hss(line);
     std::string col;
@@ -499,8 +655,21 @@ static CsvData parse_csv(const std::string& path) {
         int idx = 0;
         while (std::getline(rss, val, ',') && idx < (int)result.headers.size()) {
             val = trim_csv_field(val);
-            try { row[result.headers[idx]] = std::stod(val); }
-            catch (...) { row[result.headers[idx]] = std::numeric_limits<double>::quiet_NaN(); }
+            // std::stod は "12abc" のような末尾に余分な文字がある文字列でも先頭の
+            // "12" だけを解釈して例外を投げずに成功してしまう。Web版JS(Number()ベースの
+            // 全体一致)・Python版(pd.to_numeric)は同じセルをNaN(欠損→median補完)として
+            // 扱うため、native版だけ不正な数値プレフィックスをそのまま使ってしまい
+            // 挙動が食い違っていた(中-10)。posを見て文字列全体が数値として消費されて
+            // いない場合はNaN扱いにし、他の実装と揃える。
+            try {
+                size_t consumed = 0;
+                double v = std::stod(val, &consumed);
+                while (consumed < val.size() && std::isspace((unsigned char)val[consumed])) consumed++;
+                row[result.headers[idx]] = (consumed == val.size())
+                    ? v : std::numeric_limits<double>::quiet_NaN();
+            } catch (...) {
+                row[result.headers[idx]] = std::numeric_limits<double>::quiet_NaN();
+            }
             idx++;
         }
         result.rows.push_back(row);
@@ -509,7 +678,11 @@ static CsvData parse_csv(const std::string& path) {
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
-int main(int argc, char* argv[]) {
+// 実体は run() に置き、main() はそれを try/catch で包むだけにする(低-M12)。
+// 破損した.treg(境界検査をすり抜けた巨大なn_fc_clip等)がstd::bad_alloc/length_errorを
+// 送出すると、以前は未捕捉のままabort()していた(exit=134、-mwindowsビルドでは
+// メッセージも出ず無言クラッシュ)。ここで捕捉しfatal()でユーザーに知らせる。
+static int run(int argc, char* argv[]) {
     if (argc < 2) {
         fatal("CSVファイルをこのEXEにドラッグ＆ドロップしてください。");
         return 1;
@@ -562,19 +735,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // 欠損補完して予測
+    // 欠損補完して予測(Y逆変換・smearing補正・観測レンジclip・整数丸めは predict() 内で
+    // 適用済み。blendの場合はメンバーごとの逆変換 → 外側の後処理、の順で再帰的に行われる)。
     std::vector<float> preds;
     preds.reserve(csv.rows.size());
     for (const auto& row : csv.rows)
         preds.push_back(predict(model, row));
-
-    // Y 逆変換 (log1p / Yeo-Johnson) + 予測後処理 (smearing補正 / 観測レンジclip / 整数丸め)
-    for (auto& p : preds) {
-        p = inv_ytransform(p, model.y_transform, model.yeo_lambda);
-        p *= model.smear;
-        p = std::min(std::max(p, model.y_clip_lo), model.y_clip_hi);
-        if (model.round_output) p = std::round(p);
-    }
 
     // 出力 CSV 作成: 入力 CSV と同じディレクトリに {stem}_pred.csv
     std::string csv_dir, csv_stem;
@@ -601,6 +767,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // ostream既定のprecision(6)のままだと百万円台以上の値が"1.23457e+06"のように
+    // 有効桁6桁+指数表記へ丸められ、round_output=trueでも印字段階で非整数化して
+    // 誤差が出る(中-M6)。float の全桁を再現できる max_digits10=9 を設定する。
+    out_file << std::setprecision(9);
+
     std::string header_line;
     std::getline(in_file, header_line);
     while (!header_line.empty() && (header_line.back() == '\r' || header_line.back() == '\n'))
@@ -621,4 +792,18 @@ int main(int argc, char* argv[]) {
 
     // 完了通知は表示しない。結果はカレントフォルダ（CSVと同じ場所）へ静かに出力する。
     return 0;
+}
+
+int main(int argc, char* argv[]) {
+    try {
+        return run(argc, argv);
+    } catch (const std::exception& e) {
+        std::string msg = std::string("予期しないエラーが発生しました:\n") + e.what() +
+                           "\n\nモデルファイルまたはCSVが壊れている可能性があります。";
+        fatal(msg.c_str());
+        return 1;
+    } catch (...) {
+        fatal("予期しないエラーが発生しました。\nモデルファイルまたはCSVが壊れている可能性があります。");
+        return 1;
+    }
 }
