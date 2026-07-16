@@ -89,14 +89,27 @@ fn extract_scripts(dir: &PathBuf) -> std::io::Result<()> {
 fn start_python_extraction(app: AppHandle) {
     let dir = res_dir();
     thread::spawn(move || {
+        // 以前は python-embed に直接展開しており、(a) 旧バージョンにあって新バージョンに
+        // 無くなったファイルが削除されずに残る(新旧混在)、(b) 展開中に旧python.exeが
+        // まだ動いていて対象ファイルがロックされていると File::create() が失敗し、
+        // 中途半端に上書きされた状態が残る、という問題があった(低-M13)。
+        // ここでは python-embed.tmp に一旦フル展開し、全ファイルの展開に成功した場合だけ
+        // 本番の python-embed と一括で入れ替える(rename)。展開失敗時は python-embed
+        // 自体には一切手を付けないため、次回起動時も直前の正常な状態のまま再展開できる。
         let py_dir = dir.join("python-embed");
-        let _ = std::fs::create_dir_all(&py_dir);
+        let tmp_dir = dir.join("python-embed.tmp");
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
+            let _ = app.emit("extraction_error", format!("展開用フォルダの作成に失敗しました: {e}"));
+            return;
+        }
 
         let cursor = std::io::Cursor::new(EMB_PYTHON_ZIP);
         let mut archive = match zip::ZipArchive::new(cursor) {
             Ok(a) => a,
             Err(e) => {
                 let _ = app.emit("extraction_error", e.to_string());
+                let _ = std::fs::remove_dir_all(&tmp_dir);
                 return;
             }
         };
@@ -104,6 +117,7 @@ fn start_python_extraction(app: AppHandle) {
         let total = archive.len();
         if total == 0 {
             let _ = app.emit("extraction_error", "python-embed が埋め込まれていません");
+            let _ = std::fs::remove_dir_all(&tmp_dir);
             return;
         }
 
@@ -113,7 +127,7 @@ fn start_python_extraction(app: AppHandle) {
                 Ok(f) => f,
                 Err(_) => { had_error = true; continue; }
             };
-            let out_path = py_dir.join(f.name());
+            let out_path = tmp_dir.join(f.name());
             if f.is_dir() {
                 if std::fs::create_dir_all(&out_path).is_err() { had_error = true; }
             } else {
@@ -135,13 +149,38 @@ fn start_python_extraction(app: AppHandle) {
             }
         }
 
-        // 展開に失敗したファイルがある場合は .version を書かない
-        // （次回起動時に再展開させて自己修復できるようにする）
+        // 展開に失敗したファイルがある場合は tmp を破棄し、本番の python-embed は
+        // 一切変更せず終了する（次回起動時に tmp から再展開させて自己修復する）。
         if had_error {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
             let _ = app.emit("extraction_error",
                 "一部ファイルの展開に失敗しました。ディスク容量を確認して再起動してください。");
             return;
         }
+
+        // tmp → 本番への入れ替え。旧フォルダが存在する場合は一旦退避してから削除する
+        // ことで、rename失敗時に「両方存在しない」状態にならないようにする。
+        if py_dir.exists() {
+            let old_dir = dir.join("python-embed.old");
+            let _ = std::fs::remove_dir_all(&old_dir);
+            if let Err(e) = std::fs::rename(&py_dir, &old_dir) {
+                let _ = app.emit("extraction_error",
+                    format!("旧python-embedの退避に失敗しました: {e}"));
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                return;
+            }
+            if let Err(e) = std::fs::rename(&tmp_dir, &py_dir) {
+                // 入れ替え失敗時は旧フォルダを復元してロールバックする
+                let _ = std::fs::rename(&old_dir, &py_dir);
+                let _ = app.emit("extraction_error", format!("python-embedの入れ替えに失敗しました: {e}"));
+                return;
+            }
+            let _ = std::fs::remove_dir_all(&old_dir);
+        } else if let Err(e) = std::fs::rename(&tmp_dir, &py_dir) {
+            let _ = app.emit("extraction_error", format!("python-embedの配置に失敗しました: {e}"));
+            return;
+        }
+
         let _ = std::fs::write(res_dir().join(".version"), EMBED_VERSION);
         let _ = app.emit("extraction_complete", ());
     });
@@ -185,7 +224,10 @@ fn kill_process(child: &mut Child) {
 
 #[tauri::command]
 async fn check_python_ready() -> bool {
-    res_dir().join("python-embed").join("python.exe").exists()
+    // python.exe の存在だけでは、旧版展開済み環境にバージョン更新配布した際に
+    // バックグラウンド再展開中の状態を「準備完了」と誤認してしまう(中-12)。
+    // 展開完了は version_ok() (.version の内容一致) でのみ判定する。
+    version_ok()
 }
 
 #[tauri::command]
@@ -200,7 +242,6 @@ async fn run_train(
     if !csv_path.to_lowercase().ends_with(".csv") {
         return Err("無効なファイルパスです".to_string());
     }
-    take_and_kill(&train_proc.0);
 
     let num_jobs = num_jobs.clamp(1, 16);
     let python = python_exe();
@@ -218,11 +259,21 @@ async fn run_train(
         .env("PYTHONUTF8", "1").env("PYTHONIOENCODING", "utf-8");
     #[cfg(windows)] cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
 
-    let mut child = cmd.spawn().map_err(|e| format!("Python起動失敗: {e}"))?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
+    // kill→spawn→store を単一ロック区間に（中-14）。分離していると、ほぼ同時の
+    // 二重呼び出しで先発の子プロセスがどこにも記録されないまま孤児化しうる。
     let cancelled = Arc::new(AtomicBool::new(false));
-    *train_proc.0.lock().unwrap() = Some((child, cancelled.clone()));
+    let (stdout, stderr) = {
+        let mut slot = train_proc.0.lock().unwrap();
+        if let Some((mut old_child, old_cancelled)) = slot.take() {
+            old_cancelled.store(true, Ordering::SeqCst);
+            kill_process(&mut old_child);
+        }
+        let mut child = cmd.spawn().map_err(|e| format!("Python起動失敗: {e}"))?;
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+        *slot = Some((child, cancelled.clone()));
+        (stdout, stderr)
+    };
 
     // stderr: ログ転送しつつ末尾を保持（クラッシュ時のエラーメッセージに使う）
     let err_tail: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
@@ -289,7 +340,6 @@ async fn run_predict(
     if !csv_path.to_lowercase().ends_with(".csv") {
         return Err("無効なファイルパスです".to_string());
     }
-    take_and_kill(&pred_proc.0);
 
     let python = python_exe();
     let script = res_dir().join("predict_template.py");
@@ -299,11 +349,20 @@ async fn run_predict(
         .env("PYTHONUTF8", "1").env("PYTHONIOENCODING", "utf-8");
     #[cfg(windows)] cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
 
-    let mut child = cmd.spawn().map_err(|e| format!("Python起動失敗: {e}"))?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
+    // kill→spawn→store を単一ロック区間に（中-14、run_trainと同様）。
     let cancelled = Arc::new(AtomicBool::new(false));
-    *pred_proc.0.lock().unwrap() = Some((child, cancelled.clone()));
+    let (stdout, stderr) = {
+        let mut slot = pred_proc.0.lock().unwrap();
+        if let Some((mut old_child, old_cancelled)) = slot.take() {
+            old_cancelled.store(true, Ordering::SeqCst);
+            kill_process(&mut old_child);
+        }
+        let mut child = cmd.spawn().map_err(|e| format!("Python起動失敗: {e}"))?;
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+        *slot = Some((child, cancelled.clone()));
+        (stdout, stderr)
+    };
 
     let err_tail: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let app3 = app.clone();
@@ -445,8 +504,35 @@ async fn export_robot(_app: AppHandle, file_stem: String) -> Result<Option<Strin
     let treg_path  = trained.join("model.treg");
     let native_exe = res_dir().join("native_dist").join("predict_native.exe");
 
-    if !treg_path.exists() || !native_exe.exists() {
+    // 「model.treg が無い」と「native_exeが無い」は原因が違う(前者は未学習、後者は
+    // 展開/ビルドの問題)ため、誤誘導しないよう別メッセージにする(低-M15)。
+    if !treg_path.exists() {
         return Err("model.treg が見つかりません。再学習してください。".to_string());
+    }
+    if !native_exe.exists() {
+        return Err("予測用の実行ファイル(predict_native.exe)が見つかりません。\
+                     インストールが壊れている可能性があります。再インストールしてください。".to_string());
+    }
+
+    // model.treg は1回だけ読み、型検査(head)とexeへの埋め込み(treg_bytes)の両方に使う。
+    // 以前は型検査時と埋め込み時の2回に分けてファイルを読んでおり、その間(ユーザーが
+    // 保存先ダイアログを操作している間を含む長い区間)に別の学習が完了してmodel.tregが
+    // 別モデルに置き換わると、型検査をすり抜けたexe書き出しが起こり得た(TOCTOU、低-M15)。
+    let treg_bytes = std::fs::read(&treg_path).map_err(|e| e.to_string())?;
+
+    // predict_native.exe (C++) は .treg のモデル型バイト(ヘッダ6バイト目、'TREG'+version+type)
+    // として type0(linear)〜type5(blend、type4=linear_poly含む)まで実装している
+    // (predict_native_v2.cpp ModelType 参照)。それ以外(将来のフォーマット拡張等)は
+    // 動かないexeを「正常生成」してしまう事故を防ぐため、埋め込み前に型を検査する。
+    if treg_bytes.len() < 6 || &treg_bytes[0..4] != b"TREG" {
+        return Err("model.treg の形式が不正です。再学習してください。".to_string());
+    }
+    let model_type = treg_bytes[5];
+    if model_type > 5 {
+        return Err(
+            "このモデル種別はexe書き出しに未対応です。\
+             HTML版の書き出しをご利用ください。".to_string()
+        );
     }
 
     let stem = if file_stem.is_empty() { "model".to_string() } else { file_stem };
@@ -462,7 +548,6 @@ async fn export_robot(_app: AppHandle, file_stem: String) -> Result<Option<Strin
 
     let dest_file = match dest_file { Some(p) => p, None => return Ok(None) };
     let exe_bytes  = std::fs::read(&native_exe).map_err(|e| e.to_string())?;
-    let treg_bytes = std::fs::read(&treg_path).map_err(|e| e.to_string())?;
     std::fs::write(&dest_file, embed_treg_into_exe(&exe_bytes, &treg_bytes))
         .map_err(|e| e.to_string())?;
     Ok(Some(dest_file.to_string_lossy().to_string()))

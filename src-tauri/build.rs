@@ -48,24 +48,39 @@ fn create_zip(src: &Path, dest: &Path) {
     zip.finish().expect("ZIP finish 失敗");
 }
 
+// 以前はディレクトリ読み取り失敗・zipへの追加失敗・ファイル読み取り失敗をすべて
+// 無言で無視しており(`let _ = ...` / `if ... .is_ok()`)、python-embed.zipが一部
+// ファイル欠損のまま「正常にビルド成功」してしまい、その欠損入りzipがexeへ焼かれる
+// (エンドユーザーの実機で初めて発覚する)おそれがあった(低-M14)。build.rsはビルド時
+// にしか動かないスクリプトなので、ここでのエラーはすべてpanic!でビルド自体を
+// 失敗させ、CI/開発者に即座に気づかせる方が安全。
 fn zip_dir_recursive<W: Write + std::io::Seek>(
     zip:  &mut zip::ZipWriter<W>,
     base: &Path,
     cur:  &Path,
     opts: &zip::write::SimpleFileOptions,
 ) {
-    let Ok(entries) = std::fs::read_dir(cur) else { return };
-    for e in entries.flatten() {
+    let entries = std::fs::read_dir(cur)
+        .unwrap_or_else(|e| panic!("python-embed のディレクトリ読み取りに失敗: {cur:?}: {e}"));
+    for entry in entries {
+        let e = entry.unwrap_or_else(|e| panic!("ディレクトリエントリの読み取りに失敗: {e}"));
         let path = e.path();
-        let rel  = path.strip_prefix(base).unwrap();
-        let name = rel.to_str().unwrap().replace('\\', "/");
+        let rel  = path.strip_prefix(base)
+            .unwrap_or_else(|e| panic!("パスの相対化に失敗: {path:?}: {e}"));
+        let name = rel.to_str()
+            .unwrap_or_else(|| panic!("パスがUTF-8ではありません: {rel:?}"))
+            .replace('\\', "/");
         if path.is_dir() {
-            let _ = zip.add_directory(format!("{name}/"), *opts);
+            zip.add_directory(format!("{name}/"), *opts)
+                .unwrap_or_else(|e| panic!("zipへのディレクトリ追加に失敗: {name}: {e}"));
             zip_dir_recursive(zip, base, &path, opts);
-        } else if zip.start_file(&name, *opts).is_ok() {
-            if let Ok(bytes) = std::fs::read(&path) {
-                let _ = zip.write_all(&bytes);
-            }
+        } else {
+            zip.start_file(&name, *opts)
+                .unwrap_or_else(|e| panic!("zipへのファイル追加に失敗: {name}: {e}"));
+            let bytes = std::fs::read(&path)
+                .unwrap_or_else(|e| panic!("ファイル読み取りに失敗: {path:?}: {e}"));
+            zip.write_all(&bytes)
+                .unwrap_or_else(|e| panic!("zipへの書き込みに失敗: {name}: {e}"));
         }
     }
 }
