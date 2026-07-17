@@ -28,7 +28,6 @@ const EMB_GIF_DONE:     &[u8] = include_bytes!("../../frontend/reference/robo2_c
 const EMB_TRAIN_PY:     &[u8] = include_bytes!("../../train_bridge.py");
 const EMB_PREDICT_PY:   &[u8] = include_bytes!("../../predict_template.py");
 const EMB_LIGHT_PY:     &[u8] = include_bytes!("../../_light.py");
-const EMB_BAT_TMPL:     &[u8] = include_bytes!("../../bat_template.txt");
 const EMB_NATIVE_EXE:   &[u8] = include_bytes!("../../native_predictor/predict_native.exe");
 
 // ── 状態管理 ──────────────────────────────────────────────────────────────────
@@ -95,7 +94,6 @@ fn extract_scripts(dir: &PathBuf) -> std::io::Result<()> {
     std::fs::write(dir.join("train_bridge.py"),     EMB_TRAIN_PY)?;
     std::fs::write(dir.join("predict_template.py"), EMB_PREDICT_PY)?;
     std::fs::write(dir.join("_light.py"),           EMB_LIGHT_PY)?;
-    std::fs::write(dir.join("bat_template.txt"),    EMB_BAT_TMPL)?;
     let nd = dir.join("native_dist");
     std::fs::create_dir_all(&nd)?;
     std::fs::write(nd.join("predict_native.exe"), EMB_NATIVE_EXE)?;

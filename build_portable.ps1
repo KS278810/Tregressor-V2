@@ -55,7 +55,6 @@
 #     index.html             <- フロントエンド
 #     train_bridge.py        <- 学習スクリプト
 #     predict_template.py    <- 予測スクリプト
-#     bat_template.txt       <- bat テンプレート
 #     reference/             <- UI 画像 (GIF/PNG)
 #     python-embed/          <- Python 実行環境 (依存なし自己完結)
 #     native_dist/           <- ネイティブ予測 EXE (predict_native.exe)
@@ -215,7 +214,7 @@ foreach ($f in @("robo2_ok.gif","robo2_training.gif","robo2_completed.gif","logo
 Write-Host "     reference/ 更新"
 
 # Python スクリプト
-foreach ($f in @("train_bridge.py","predict_template.py","_light.py","bat_template.txt")) {
+foreach ($f in @("train_bridge.py","predict_template.py","_light.py")) {
     $src = Join-Path $Root $f
     if (Test-Path $src) { Copy-Item $src (Join-Path $Dist $f) -Force; Write-Host "     $f 更新" }
 }

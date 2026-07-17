@@ -23,7 +23,6 @@
 # build_portable.ps1 実行時のステージング用コピー(T-regressor.exeに埋め込み済みのため
 # 配布には不要。実体はリポジトリルート/frontend/native_predictorの各ファイル)
 /dist_portable/T-regressor/_light.py
-/dist_portable/T-regressor/bat_template.txt
 /dist_portable/T-regressor/index.html
 /dist_portable/T-regressor/predict_native.exe
 /dist_portable/T-regressor/predict_template.py
