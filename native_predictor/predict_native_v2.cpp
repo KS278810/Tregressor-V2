@@ -68,6 +68,10 @@ enum ModelType  { MT_LINEAR = 0, MT_LGBM = 1, MT_GP = 2, MT_MLP = 3,
                   MT_LINEAR_POLY = 4, MT_BLEND = 5 };
 enum YTransform { YT_NONE = 0, YT_LOG1P = 1, YT_YEO_JOHNSON = 2 };
 enum DerivedOp  { DOP_MUL = 0, DOP_SQ = 1, DOP_SIGN = 2 };
+enum CatMethod  { CAT_ONEHOT = 0, CAT_TARGET = 1 };
+// train_bridge._prepare_categoricals/_fit_target_encoders と同一のNaN代替文字列
+// (欠損/空セルは学習時にこの文字列に置換してからカテゴリマッチングされている)。
+static const char* CAT_NAN_SENTINEL = "__NaN__";
 
 // ── バイナリリーダー（境界チェック付き） ──────────────────────────────────────
 struct Reader {
@@ -167,6 +171,17 @@ struct DerivedFeat {
     float b_lo = -3.4e38f, b_hi = 3.4e38f;
 };
 
+// v5: カテゴリエンコーダ（精度レバー4/.treg v5）。onehot は生成indicator列(feature_name)
+// ごとに1エントリ(比較対象クラス値class_value 1つ)、targetはsource_col自体を
+// feature_nameとして持ち、カテゴリ文字列→値の全マップ+未知カテゴリ用defaultを持つ。
+struct CatEncoder {
+    uint8_t method = CAT_ONEHOT;
+    std::string feature_name, source_col;
+    std::string class_value;                        // method==CAT_ONEHOT のみ使用
+    std::unordered_map<std::string, float> target_map; // method==CAT_TARGET のみ使用
+    float target_default = 0.0f;
+};
+
 struct TregModel {
     uint8_t    file_version = 1;
     ModelType  type         = MT_LGBM;
@@ -178,6 +193,8 @@ struct TregModel {
     std::map<std::string, double> medians;
     std::vector<DerivedFeat> derived;
     std::map<std::string, size_t> derived_idx;   // out_name → derived index
+    std::vector<CatEncoder> cat_encoders;
+    std::map<std::string, size_t> cat_idx;       // feature_name → cat_encoders index
 
     // v3: 予測後処理（整数丸め / smearing補正 / Y観測レンジclip / Xクリップ）
     uint8_t round_output = 0;
@@ -213,7 +230,7 @@ static bool load_treg(const uint8_t* data, size_t size, TregModel& out, int dept
     const int d = out.n_feat;
 
     // サニティチェック: 破損・未来バージョンのファイルを明示拒否
-    if (out.file_version > 4) {
+    if (out.file_version > 5) {
         fatal("このexeより新しいモデル形式です。\n最新版のT-regressorで書き出したexeを使用してください。");
         return false;
     }
@@ -238,6 +255,36 @@ static bool load_treg(const uint8_t* data, size_t size, TregModel& out, int dept
             df.b_hi  = r.read<float>();
             if (r.fail || df.op > 2) return false;
             out.derived_idx[df.name] = i;
+        }
+    }
+
+    // v5: カテゴリエンコーダ（精度レバー4/.treg v5）
+    if (out.file_version >= 5) {
+        uint32_t n_cat = r.read<uint32_t>();
+        if (r.fail || n_cat > 100000) return false;
+        out.cat_encoders.resize(n_cat);
+        for (uint32_t i = 0; i < n_cat; i++) {
+            auto& c = out.cat_encoders[i];
+            c.method = r.read<uint8_t>();
+            c.feature_name = r.read_str();
+            c.source_col   = r.read_str();
+            if (c.method == CAT_ONEHOT) {
+                c.class_value = r.read_str();
+            } else if (c.method == CAT_TARGET) {
+                uint32_t n_map = r.read<uint32_t>();
+                if (r.fail || n_map > 1000000) return false;
+                for (uint32_t k = 0; k < n_map; k++) {
+                    std::string key = r.read_str();
+                    float val = r.read<float>();
+                    if (r.fail) return false;
+                    c.target_map[key] = val;
+                }
+                c.target_default = r.read<float>();
+            } else {
+                return false;
+            }
+            if (r.fail) return false;
+            out.cat_idx[c.feature_name] = i;
         }
     }
 
@@ -535,6 +582,7 @@ static float predict_linear_poly(const LinearPolyModel& m, const float* x, int d
 // (header_idx)は CSV 全体で1回だけ構築し、行ごとの再ハッシュ/再アロケーションを
 // なくす(巨大CSVでのメモリ・速度改善)。
 using HeaderIndex = std::unordered_map<std::string, size_t>;
+using RawRow = std::vector<std::string>;
 
 static double lookup_col(const std::vector<double>& row_vals, const HeaderIndex& header_idx,
                          const std::string& col) {
@@ -543,23 +591,59 @@ static double lookup_col(const std::vector<double>& row_vals, const HeaderIndex&
     return row_vals[it->second];
 }
 
+// CSVの生文字列セルを取得する(カテゴリエンコーダのマッチングは文字列同士で行うため、
+// parse_numeric_field済みのrow_valsではなく生テキストが必要)。列が存在しない・行が
+// 短い・セルが空文字列の場合は学習時と同じ CAT_NAN_SENTINEL に正規化する
+// (train_bridge._prepare_categoricals の df[col].fillna('__NaN__') と同一の意味論)。
+static std::string raw_string_at(const RawRow& raw_row, const HeaderIndex& header_idx,
+                                 const std::string& col) {
+    auto it = header_idx.find(col);
+    if (it == header_idx.end() || it->second >= raw_row.size()) return CAT_NAN_SENTINEL;
+    const std::string& v = raw_row[it->second];
+    return v.empty() ? std::string(CAT_NAN_SENTINEL) : v;
+}
+
+// 名前解決: feat_cols や派生特徴の col_a/col_b がカテゴリエンコーダの生成列
+// (one-hot indicator、または target-encoding後の元列名)を指す場合はそちらを優先し、
+// それ以外は通常の数値列として row_vals から引く。
+static double resolve_named(const TregModel& model, const std::string& name,
+                            const std::vector<double>& row_vals, const HeaderIndex& header_idx,
+                            const RawRow& raw_row) {
+    auto cit = model.cat_idx.find(name);
+    if (cit != model.cat_idx.end()) {
+        const auto& c = model.cat_encoders[cit->second];
+        std::string v = raw_string_at(raw_row, header_idx, c.source_col);
+        if (c.method == CAT_ONEHOT) {
+            return (v == c.class_value) ? 1.0 : 0.0;
+        } else {
+            auto mit = c.target_map.find(v);
+            return (mit != c.target_map.end()) ? (double)mit->second : (double)c.target_default;
+        }
+    }
+    return lookup_col(row_vals, header_idx, name);
+}
+
 // v4 派生特徴: ソース列を（学習時と同じ境界で）クリップして取得。欠損は NaN。
-static double clipped_source(const std::vector<double>& row_vals, const HeaderIndex& header_idx,
+// col_a/col_b がカテゴリエンコーダ生成列を指すケースは resolve_named 経由で解決する
+// (one-hot indicator/target-encoding後の値は常に有限なのでクリップは事実上no-op)。
+static double clipped_source(const TregModel& model, const std::vector<double>& row_vals,
+                             const HeaderIndex& header_idx, const RawRow& raw_row,
                              const std::string& col, float lo, float hi) {
-    double v = lookup_col(row_vals, header_idx, col);
+    double v = resolve_named(model, col, row_vals, header_idx, raw_row);
     if (std::isnan(v)) return v;
     return std::min(std::max(v, (double)lo), (double)hi);
 }
 
 // 派生特徴を計算する。ソース欠損・非有限は NaN（→ 呼び出し側で median 補完）。
-static double compute_derived(const DerivedFeat& df, const std::vector<double>& row_vals,
-                              const HeaderIndex& header_idx) {
-    double a = clipped_source(row_vals, header_idx, df.col_a, df.a_lo, df.a_hi);
+static double compute_derived(const TregModel& model, const DerivedFeat& df,
+                              const std::vector<double>& row_vals, const HeaderIndex& header_idx,
+                              const RawRow& raw_row) {
+    double a = clipped_source(model, row_vals, header_idx, raw_row, df.col_a, df.a_lo, df.a_hi);
     if (std::isnan(a)) return a;
     double v;
     switch (df.op) {
         case DOP_MUL: {
-            double b = clipped_source(row_vals, header_idx, df.col_b, df.b_lo, df.b_hi);
+            double b = clipped_source(model, row_vals, header_idx, raw_row, df.col_b, df.b_lo, df.b_hi);
             if (std::isnan(b)) return b;
             v = a * b;
             break;
@@ -578,23 +662,23 @@ static double compute_derived(const DerivedFeat& df, const std::vector<double>& 
 // predict()(外側のblendモデル自身)側で一度だけ適用される
 // (JS版 predict-core.js の predictBlend/predictRow と同一設計)。
 static float predict(const TregModel& model, const std::vector<double>& row_vals,
-                     const HeaderIndex& header_idx);
+                     const HeaderIndex& header_idx, const RawRow& raw_row);
 
 static float predict_blend(const BlendModel& m, const std::vector<double>& row_vals,
-                           const HeaderIndex& header_idx) {
+                           const HeaderIndex& header_idx, const RawRow& raw_row) {
     double sum = 0.0;
     for (const auto& mem : m.members)
-        sum += (double)mem.weight * predict(*mem.model, row_vals, header_idx);
+        sum += (double)mem.weight * predict(*mem.model, row_vals, header_idx, raw_row);
     return (float)sum;
 }
 
 static float predict(const TregModel& model, const std::vector<double>& row_vals,
-                     const HeaderIndex& header_idx) {
+                     const HeaderIndex& header_idx, const RawRow& raw_row) {
     float pred;
     if (model.type == MT_BLEND) {
         // blendは自身の直接の特徴ベクトルを持たない(各メンバーが個別に持つ)ため、
         // ここでは x を組み立てない。
-        pred = predict_blend(model.blend, row_vals, header_idx);
+        pred = predict_blend(model.blend, row_vals, header_idx, raw_row);
     } else {
         const int d = (int)model.feat_cols.size();
         std::vector<float> x(d);
@@ -602,9 +686,9 @@ static float predict(const TregModel& model, const std::vector<double>& row_vals
             double val = std::numeric_limits<double>::quiet_NaN();
             auto dit = model.derived_idx.find(model.feat_cols[i]);
             if (dit != model.derived_idx.end()) {
-                val = compute_derived(model.derived[dit->second], row_vals, header_idx);
+                val = compute_derived(model, model.derived[dit->second], row_vals, header_idx, raw_row);
             } else {
-                val = lookup_col(row_vals, header_idx, model.feat_cols[i]);
+                val = resolve_named(model, model.feat_cols[i], row_vals, header_idx, raw_row);
             }
             if (!std::isnan(val)) {
                 x[i] = (float)val;
@@ -640,6 +724,15 @@ static float predict(const TregModel& model, const std::vector<double>& row_vals
 // 中-M4b: 以前(predict_template.htmlの旧rawRequiredColumns相当)はblendの外側モデルの
 // feat_cols([]、blend自身は特徴を持たないため)しか見ておらず、blendでは列欠損警告が
 // 絶対に出なかった。メンバー再帰でunionする。
+// feat名(生列/派生特徴出力名/カテゴリエンコーダ生成名のいずれか)から、CSVに実在すべき
+// 「生の」列名を得る。カテゴリエンコーダ生成列(one-hot indicator名やtarget-encoding後の
+// 元列名)はさらにその source_col まで1段解決する。
+static std::string raw_source_for(const TregModel& model, const std::string& name) {
+    auto cit = model.cat_idx.find(name);
+    if (cit != model.cat_idx.end()) return model.cat_encoders[cit->second].source_col;
+    return name;
+}
+
 static void collect_required_raw_columns(const TregModel& model, std::vector<std::string>& out) {
     if (model.type == MT_BLEND) {
         for (auto& mem : model.blend.members) collect_required_raw_columns(*mem.model, out);
@@ -649,10 +742,10 @@ static void collect_required_raw_columns(const TregModel& model, std::vector<std
         auto dit = model.derived_idx.find(name);
         if (dit != model.derived_idx.end()) {
             const auto& df = model.derived[dit->second];
-            out.push_back(df.col_a);
-            if (df.op == DOP_MUL) out.push_back(df.col_b);
+            out.push_back(raw_source_for(model, df.col_a));
+            if (df.op == DOP_MUL) out.push_back(raw_source_for(model, df.col_b));
         } else {
-            out.push_back(name);
+            out.push_back(raw_source_for(model, name));
         }
     }
 }
@@ -1057,7 +1150,7 @@ static int run(int argc, char* argv[]) {
     // 適用済み。blendの場合はメンバーごとの逆変換 → 外側の後処理、の順で再帰的に行われる)。
     std::vector<float> preds(csv.rows.size());
     for (size_t ri = 0; ri < csv.rows.size(); ri++)
-        preds[ri] = predict(model, row_vals_all[ri], header_idx);
+        preds[ri] = predict(model, row_vals_all[ri], header_idx, csv.rows[ri]);
 
     // 出力 CSV 作成: 入力 CSV と同じディレクトリに {stem}_pred.csv
     std::string csv_dir, csv_stem;
