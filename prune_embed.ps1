@@ -98,12 +98,25 @@ if (Test-Path $sp) {
         $head = Get-Content $initPy -TotalCount 6 -ErrorAction SilentlyContinue
         if ($head -match [regex]::Escape($stubMarker)) { $isStub = $true }
     }
+
+    # 6b-1. dist-info/*.whl/scipy.libs の掃除は stub 判定の外で毎回行う（中-A4対応）。
+    #       以前は isStub=$true（既にスタブ化済み）の分岐に入ると素通りしており、
+    #       scipy-*.dist-info・scipy-*.whl（pipがsite-packages直下に残す実体、約38MB）・
+    #       scipy.libs が「stub化済みなのに」取り残される非冪等な状態があった
+    #       （実機確認: stub化後もscipy-1.16.3-cp311-cp311-win_amd64.whlが残存）。
+    #       stub生成そのもの(6b-2)はisStub分岐のままだが、周辺の取り残し掃除は
+    #       常に実行することで「2回目以降のprune実行でも毎回同じ状態に収束する」
+    #       冪等性を保証する。
+    if (Test-Path $scipyLibs) { Remove-Item $scipyLibs -Recurse -Force }
+    Get-ChildItem $sp -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^scipy-.*\.dist-info$' } |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    Get-ChildItem $sp -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^scipy-.*\.whl$' } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+
     if (-not $isStub) {
         if (Test-Path $scipyDir)  { Remove-Item $scipyDir  -Recurse -Force }
-        if (Test-Path $scipyLibs) { Remove-Item $scipyLibs -Recurse -Force }
-        Get-ChildItem $sp -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^scipy-.*\.dist-info$' } |
-            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
         New-Item -ItemType Directory -Force (Join-Path $scipyDir "sparse") | Out-Null
         Set-Content -Path $initPy -Encoding UTF8 -Value @'
@@ -156,6 +169,29 @@ def isspmatrix(x):
             Write-Host "     scipy スタブ済み・sklearn 不在（変更なし）" -ForegroundColor DarkGray
         }
     }
+
+    # 7. pip/setuptools/joblib/_distutils_hack の除去（中-A4対応、約12MBの死荷重）。
+    #    実行時import経路: train_bridge.py/_light.py/predict_template.pyのいずれも
+    #    pip・setuptools・_distutils_hackをimportしない。joblibはlightgbmが
+    #    `from .sklearn import ...` の中でのみ参照するが、その import 自体が
+    #    lightgbm/__init__.py で try/except ImportError に包まれておりLGBMRegressor等
+    #    (sklearn互換API)が使えなくなるだけで、train_bridge.pyが使うnative Booster API
+    #    (lgb.train/lgb.Booster)には影響しない(実機確認: joblib削除後もlightgbm/
+    #    numpy/pandas/scipy(stub)のimportは成功する)。pipはget-pip.py導入時にのみ必要で
+    #    実行時には一切使わない。
+    foreach ($pkgPattern in @("pip", "pip-*.dist-info", "setuptools", "setuptools-*.dist-info",
+                              "joblib", "joblib-*.dist-info", "_distutils_hack")) {
+        Get-ChildItem $sp -Directory -Filter $pkgPattern -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    # setuptools が site-packages 直下に置く distutils-precedence.pth は、Python起動時に
+    # site モジュールが無条件で読み込み実行する。_distutils_hack ディレクトリを消した後も
+    # この.pthが残っていると `__import__('_distutils_hack').add_shim()` の呼び出しが
+    # ModuleNotFoundError を起こし、実行の都度stderrにエラーが出る(実害はなく後続の
+    # importは成功するが、ノイズなので合わせて除去する)。
+    Get-ChildItem $sp -File -Filter "distutils-precedence.pth" -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+    Write-Host "     pip/setuptools/joblib/_distutils_hack 除去" -ForegroundColor Green
 }
 
 $after = Get-DirSizeMB $PythonEmbed

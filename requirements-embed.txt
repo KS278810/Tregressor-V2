@@ -32,14 +32,14 @@ typing_extensions==4.15.0
 #   1. Python 3.11 embeddable package (64-bit, win_amd64) を
 #      dist_portable\T-regressor\python-embed\ に展開
 #      URL: https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip
-#      （3.11.xの中でどの minor でも動作するはずだが、上記固定版一覧は3.11.15で検証した
-#        ものである点に注意。python.org の embeddable package ダウンロードページから
-#        現物を取得し、ダウンロード直後に必ずSHA256を確認すること:
-#        https://www.python.org/downloads/release/python-3119/ の
-#        「Windows embeddable package (64-bit)」のチェックサムをそのページ内の
-#        SHA256 リンクで確認する。zipファイル自体のハッシュはリリースごとに異なるため
-#        ここに固定値を書くと将来のバージョン更新時に検証が形骸化する。取得の都度、
-#        python.org 公式ページに掲載されたハッシュと突き合わせること）
+#      SHA256(2026-07-16に本セッションで実ファイルを取得し検証した値):
+#        009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b
+#      （3.11.15で動作検証済みだが、上記3.11.9は本ハッシュの根拠を明示できる版として
+#        固定した。3.11.x系の別minorに切り替える場合は、python.orgの当該リリースページ
+#        (例 https://www.python.org/downloads/release/python-3119/) 記載のSHA256、
+#        または `certutil -hashfile <zip> SHA256` の実行結果と突き合わせてこの値を
+#        更新すること。古いハッシュのまま放置すると検証が形骸化するため、
+#        バージョンを変えたら必ずこの2行も同時に更新する）
 #   2. pip がembeddable packageには同梱されないため、get-pip.py 等で個別に導入する
 #      （https://bootstrap.pypa.io/get-pip.py）
 #   3. 本ファイルで依存を固定導入:
