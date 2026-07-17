@@ -1,0 +1,15 @@
+# コミットレビュー2026-07-17フォロー: web/js_predict_poc/ のCSVフィクスチャ(C++/Python
+# 参照実装の予測結果・ストレステスト入力)は、開発者の core.autocrlf 設定やWindows上での
+# C++/Python再実行によって改行がCRLF化しやすく、リポジトリの正本(LF)との間で
+# 「内容は同一だが改行だけ違う」未コミット差分/レビュー時の混乱を生んでいた
+# (git diff --ignore-cr-at-eol で差分ゼロと確認済み)。開発者の環境設定に依存せず
+# 常にLFへ正規化する。
+
+web/js_predict_poc/matrix_cpp_out/*.csv  text eol=lf
+web/js_predict_poc/matrix_python_out/*.csv text eol=lf
+web/js_predict_poc/sample*.csv           text eol=lf
+web/js_predict_poc/stress_test.csv       text eol=lf
+
+# .treg はバイナリ形式(改行変換対象になってはならない)。誤ってテキスト扱いされ
+# 0x0D/0x0A に一致するバイトが書き換わるとパース不能になる。
+*.treg binary
