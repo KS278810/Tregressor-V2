@@ -1,0 +1,191 @@
+name: Windows ビルド・配布
+
+# 目的（High C-1/C-2、観点4「体制レバー1」）: これまでのCI(predict-parity.yml)は
+# 予測ロジックの数値パリティ(ubuntu-latest上でのC++/JS/Python突合せ)のみで、
+# 「exe版が実際にWindows上でビルドできるか」「回帰テスト(verify_rebuild.py/
+# test_harness.py)が通るか」を検証する経路が皆無だった。ここでwindows-latest上で
+# 実際にビルド・テストし、タグpush時には配布フォルダ一式をGitHub Releasesへ
+# アップロードする。
+#
+# 【重要】本workflow自体はこの開発環境ではGitHub Actionsの実行不可のため、
+# 各ステップのコマンド列はローカル(Windows, g++ MinGW 8.2.0/cargo 1.96.0/
+# Python 3.11.15が導入済みの環境)で個別に動作確認済み(2026-07-16〜17実施)。
+# 具体的には: requirements-embed.txtでの通常venv構築→verify_rebuild.py/
+# test_harness.py実行(TREG_PYTHON経由、25項目+回帰チェック全PASS)、
+# native_predictor/build_native.ps1でのpredict_native.exeビルド、
+# 環境変数TREG_ALLOW_EMPTY_EMBED=1でのcargo build --releaseコンパイル、
+# python-embeddable zipの実ダウンロード+SHA256照合+requirements-embed.txt導入+
+# prune_embed.ps1適用、をすべて手元で再現できることを確認した。
+# GitHub Actions上でのchoco/actions-rs等の可用性そのものは実行できないため未検証。
+
+on:
+  pull_request: {}
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+env:
+  # python-embeddable package (64-bit, win_amd64)。requirements-embed.txt冒頭の
+  # コメント・build_portable.ps1冒頭コメントと同じ値(2026-07-16に実ファイルを
+  # 取得し検証済み)。別minorに切り替える場合はこの2箇所と同時に更新すること。
+  EMBED_PY_URL: "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"
+  EMBED_PY_SHA256: "009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b"
+
+jobs:
+  # ── PR + タグpush共通: コンパイル・回帰テスト ──────────────────────────────
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python依存関係インストール(requirements-embed.txtで固定版)
+        shell: pwsh
+        run: python -m pip install -r requirements-embed.txt
+
+      - name: Rust セットアップ
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cargoレジストリのキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            src-tauri/target
+          key: windows-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: MinGW (g++/windres) セットアップ
+        shell: pwsh
+        run: choco install mingw --no-progress -y
+
+      - name: ネイティブ予測EXEをビルド(predict_native_v2.cpp)
+        shell: pwsh
+        run: |
+          $gxx = (Get-Command g++ -ErrorAction SilentlyContinue).Source
+          if (-not $gxx) { throw "g++が見つかりません(choco install mingwが失敗した可能性)" }
+          $mingwBin = Split-Path $gxx
+          Write-Host "MinGW bin: $mingwBin"
+          .\native_predictor\build_native.ps1 -MinGwBin $mingwBin
+          if (-not (Test-Path .\native_predictor\predict_native.exe)) { throw "predict_native.exeが生成されませんでした" }
+
+      # 予測パリティの網羅検証はpredict-parity.yml(ubuntu-latest)が別途担当するため、
+      # ここではWindows実機でビルドしたexeが既存フィクスチャに対してクラッシュせず
+      # 予測を完走することだけを確認する軽量スモーク(タスク6要件の「fixtures予測」)。
+      - name: ネイティブEXEのfixturesスモーク予測
+        shell: pwsh
+        run: |
+          $treg = Get-ChildItem web\js_predict_poc\matrix\*.treg | Select-Object -First 1 | ForEach-Object { $_.FullName }
+          if (-not $treg) { throw "web\js_predict_poc\matrix\ に.tregフィクスチャが見つかりません" }
+          Write-Host "使用フィクスチャ: $treg"
+          Copy-Item web\js_predict_poc\stress_test.csv smoke_input.csv -Force
+          if (Test-Path smoke_input_pred.csv) { Remove-Item smoke_input_pred.csv }
+          # predict_native.exeは-mwindows(GUIサブシステム)ビルドで完了時にメッセージボックスを
+          # 出すため、素直に待つと停止する(tests/test_harness.pyのrun_native()と同じ実装方針)。
+          # 出力CSVの生成をポーリングして確認できたらkillする。
+          $p = Start-Process -FilePath .\native_predictor\predict_native.exe -ArgumentList "smoke_input.csv", "`"$treg`"" -PassThru
+          $found = $false
+          for ($i = 0; $i -lt 40; $i++) {
+            if (Test-Path smoke_input_pred.csv) { Start-Sleep -Milliseconds 300; $found = $true; break }
+            Start-Sleep -Milliseconds 250
+          }
+          if (-not $p.HasExited) {
+            try { $p.Kill() } catch { Write-Host "警告: プロセスkill失敗(既に終了済みの可能性): $_" -ForegroundColor Yellow }
+          }
+          if (-not $found -or -not (Test-Path smoke_input_pred.csv)) { throw "予測CSVが生成されませんでした(タイムアウトまたはクラッシュ)" }
+          Write-Host "OK: $((Get-Content smoke_input_pred.csv | Measure-Object -Line).Lines) 行の予測を生成"
+
+      - name: 回帰スイート(tests/verify_rebuild.py)
+        shell: pwsh
+        run: |
+          $env:TREG_PYTHON = (Get-Command python).Source
+          python tests\verify_rebuild.py
+
+      - name: 統合テスト(tests/test_harness.py、25項目)
+        shell: pwsh
+        run: |
+          $env:TREG_PYTHON = (Get-Command python).Source
+          python tests\test_harness.py
+
+      # 実配布ビルド(python-embed同梱)はreleaseジョブでのみ行う。ここではRust側の
+      # コンパイルエラーだけを早期検出したいため、TREG_ALLOW_EMPTY_EMBED=1で
+      # 空のpython-embed.zipを許容してコンパイルチェックのみ行う(build.rs参照)。
+      - name: cargo build --release (コンパイルチェックのみ)
+        shell: pwsh
+        working-directory: src-tauri
+        env:
+          TREG_ALLOW_EMPTY_EMBED: "1"
+        run: cargo build --release
+
+  # ── タグpush時のみ: 実配布ビルド + GitHub Releasesへアップロード ──────────
+  release:
+    needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ(ホスト側。embed pythonの構築とは別)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Rust セットアップ
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cargo-tauri (tauri-cli) インストール
+        shell: pwsh
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: MinGW (g++/windres) セットアップ
+        shell: pwsh
+        run: choco install mingw --no-progress -y
+
+      - name: ネイティブ予測EXEをビルド
+        shell: pwsh
+        run: |
+          $gxx = (Get-Command g++ -ErrorAction SilentlyContinue).Source
+          $mingwBin = Split-Path $gxx
+          .\native_predictor\build_native.ps1 -MinGwBin $mingwBin
+
+      # python-embed の自動セットアップ(requirements-embed.txt冒頭コメント/
+      # build_portable.ps1冒頭コメントに記載した手順そのものをCI上で実行)。
+      - name: python-embed セットアップ(ダウンロード+SHA256照合+依存固定導入)
+        shell: pwsh
+        run: |
+          $dest = "dist_portable\T-regressor\python-embed"
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          Invoke-WebRequest -Uri $env:EMBED_PY_URL -OutFile python-embed.zip
+          $hash = (Get-FileHash python-embed.zip -Algorithm SHA256).Hash
+          if ($hash -ne $env:EMBED_PY_SHA256) {
+            throw "python-embed.zipのSHA256が一致しません。期待値=$($env:EMBED_PY_SHA256) 実際=$hash"
+          }
+          Expand-Archive -Path python-embed.zip -DestinationPath $dest -Force
+          (Get-Content "$dest\python311._pth") -replace '#import site', 'import site' |
+            Set-Content "$dest\python311._pth"
+          Invoke-WebRequest -Uri https://bootstrap.pypa.io/get-pip.py -OutFile get-pip.py
+          & "$dest\python.exe" get-pip.py
+          & "$dest\python.exe" -m pip install -r requirements-embed.txt --target "$dest\Lib\site-packages"
+
+      - name: "配布フォルダ組み立て(build_portable.ps1: prune → スモーク → cargo tauri build)"
+        shell: pwsh
+        run: .\build_portable.ps1
+
+      - name: 配布zipを作成
+        shell: pwsh
+        run: |
+          $ver = $env:GITHUB_REF -replace 'refs/tags/', ''
+          Compress-Archive -Path "dist_portable\T-regressor\*" -DestinationPath "T-regressor-$ver-win64.zip" -Force
+
+      - name: GitHub Releasesへアップロード
+        uses: softprops/action-gh-release@v2
+        with:
+          files: T-regressor-*-win64.zip
+          generate_release_notes: true
