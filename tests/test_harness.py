@@ -8,7 +8,9 @@ import pandas as pd
 
 ROOT   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ の親 = プロジェクトルート
 sys.path.insert(0, ROOT)  # pkl 内 _light オブジェクトの unpickle 用（直接 pickle.load する箇所がある）
-PY     = os.path.join(ROOT, r"dist_portable\T-regressor\python-embed\python.exe")
+# TREG_PYTHON: CI等でembed pythonの配置場所が異なる場合にハードコードを上書きできるように
+# する(タスク6)。未設定時は従来通りdist_portable配下のembed pythonを既定値として使う。
+PY     = os.environ.get("TREG_PYTHON") or os.path.join(ROOT, r"dist_portable\T-regressor\python-embed\python.exe")
 TRAIN  = os.path.join(ROOT, "train_bridge.py")
 NATIVE = os.path.join(ROOT, r"native_predictor\predict_native.exe")
 MODEL_DIR = os.path.join(ROOT, "trained_model")

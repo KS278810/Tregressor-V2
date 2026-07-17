@@ -7,7 +7,9 @@ import numpy as np, pandas as pd
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ の親 = プロジェクトルート
 sys.path.insert(0, ROOT)
 from _light import r2_score  # sklearn 非依存（本体と同じ自前実装）
-PY = os.path.join(ROOT, r"dist_portable\T-regressor\python-embed\python.exe")
+# TREG_PYTHON: CI等でembed pythonの配置場所が異なる場合にハードコードを上書きできるように
+# する(タスク6)。未設定時は従来通りdist_portable配下のembed pythonを既定値として使う。
+PY = os.environ.get("TREG_PYTHON") or os.path.join(ROOT, r"dist_portable\T-regressor\python-embed\python.exe")
 NATIVE = os.path.join(ROOT, r"native_predictor\predict_native.exe")
 SP = os.path.dirname(os.path.abspath(__file__))
 WORK = os.path.join(SP, "verify_work")
