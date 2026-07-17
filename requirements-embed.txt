@@ -1,4 +1,4 @@
-# requirements-embed.txt — dist_portable/T-regressor/python-embed/ に導入する依存の固定版一覧
+﻿# requirements-embed.txt — dist_portable/T-regressor/python-embed/ に導入する依存の固定版一覧
 #
 # 背景（High A-1）: 従来は「pip install numpy pandas lightgbm」を都度実行するだけで、
 # 導入されるバージョンがその時々のPyPI最新版に流れていた。embed環境はビルド時にexeへ
