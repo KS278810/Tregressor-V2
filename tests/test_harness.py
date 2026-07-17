@@ -1,7 +1,7 @@
 # T-regressor 抜本改修の統合テストハーネス
 # python-embed で実行する。train_bridge.py をサブプロセス起動し、RESULT_JSON・.treg・
 # native exe・predict_template の整合を検証する。
-import sys, os, json, struct, subprocess, shutil, tempfile
+import sys, os, json, struct, subprocess, shutil, tempfile, time
 sys.stdout.reconfigure(encoding="utf-8")
 import numpy as np
 import pandas as pd
@@ -67,6 +67,22 @@ def run_predict_template(csv):
             pj = json.loads(line[len("PREDICT_JSON:"):])
     return p.returncode, p.stdout or "", pj
 
+def wait_for_stable_file(path, poll_interval=0.5, max_iters=60):
+    # Low C-3: 固定0.5秒sleepだと、native exeの書き込みが遅い環境で部分書き込みの
+    # CSVを読んでしまうレースがあり得た。ファイルサイズが2回連続で同じ値(かつ非ゼロ)
+    # になるまでポーリングして、書き込み完了を実際に確認する。
+    last_size = None
+    for _ in range(max_iters):
+        if os.path.exists(path):
+            size = os.path.getsize(path)
+            if size > 0 and size == last_size:
+                return True
+            last_size = size
+        else:
+            last_size = None
+        time.sleep(poll_interval)
+    return os.path.exists(path)
+
 def run_native(csv):
     out_csv = os.path.splitext(csv)[0] + "_pred.csv"
     if os.path.exists(out_csv):
@@ -74,13 +90,13 @@ def run_native(csv):
     treg = os.path.join(MODEL_DIR, "model.treg")
     # GUI exe なのでメッセージボックスが出る → タイムアウト付きで起動し、出力生成を待って kill
     proc = subprocess.Popen([NATIVE, csv, treg])
-    import time
-    for _ in range(60):
-        if os.path.exists(out_csv) and os.path.getsize(out_csv) > 0:
-            time.sleep(0.5)
-            break
-        time.sleep(0.5)
-    proc.kill()
+    wait_for_stable_file(out_csv)
+    try:
+        proc.kill()
+    except Exception as e:
+        # 以前はkill失敗を無条件で無視しており、原因不明のテスト不安定化の手がかりが
+        # 消えていた(Low C-3)。失敗時はログだけ残して処理は継続する。
+        print(f"  [警告] native process kill失敗: {e}")
     if not os.path.exists(out_csv):
         return None
     return pd.read_csv(out_csv)
@@ -179,6 +195,11 @@ if rc == 0:
         py_out = pd.read_csv(os.path.join(SP, "_predict_env") + r"\..\t3_pred_in_predicted.csv") \
             if False else pd.read_csv(os.path.join(SP, "t3_pred_in_predicted.csv"))
         diff = np.abs(ndf["y"].values - py_out["y"].values).max()
+        # Low C-3: この閾値(1e-2)はtests/verify_rebuild.pyの2e-3と一見矛盾するが、
+        # 正規化の基準が異なるため単純に数値だけ揃えても意味が変わる。ここは
+        # native予測自身の平均絶対値で正規化(分母が小さくなりがちで緩めの閾値になる)、
+        # verify_rebuild.py側は外部テストyの標準偏差で正規化(分母が通常大きく、
+        # 厳しめの閾値になる)。詳細はtests/verify_rebuild.pyの同種コメント参照。
         rel = diff / max(1e-9, np.abs(py_out["y"].values).mean())
         print(f"    native vs python max diff = {diff:.5f} (rel {rel:.5f})")
         check("T3 native/python parity", rel < 1e-2, f"rel={rel}")
@@ -208,6 +229,7 @@ if rc == 0:
     if ndf is not None and prc == 0:
         py_out = pd.read_csv(os.path.join(SP, "t4_pred_in_predicted.csv"))
         diff = np.abs(ndf["y"].values - py_out["y"].values).max()
+        # 閾値1e-2の根拠は上のT3ブロックのコメント参照(正規化基準の違い)。
         rel = diff / max(1e-9, np.abs(py_out["y"].values).mean())
         print(f"    native vs python max diff = {diff:.5f} (rel {rel:.5f})")
         check("T4 native/python parity", rel < 1e-2, f"rel={rel}")

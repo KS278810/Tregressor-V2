@@ -73,6 +73,22 @@ def py_predict(test_df):
     pred = pd.read_csv(out_csv)
     return pred["y"].values, p.stdout or ""
 
+def wait_for_stable_file(path, poll_interval=0.25, max_iters=120):
+    # Low C-3: 固定0.5秒sleepだと、native exeの書き込みが0.5秒以上かかる/遅い環境では
+    # 部分書き込みのCSVを読んでしまうレースがあり得た。ファイルサイズが2回連続で
+    # 同じ値(かつ非ゼロ)になるまでポーリングすることで、書き込み完了を実際に確認する。
+    last_size = None
+    for _ in range(max_iters):
+        if os.path.exists(path):
+            size = os.path.getsize(path)
+            if size > 0 and size == last_size:
+                return True
+            last_size = size
+        else:
+            last_size = None
+        time.sleep(poll_interval)
+    return os.path.exists(path)
+
 def native_predict(test_df, tag):
     treg = os.path.join(ROOT, "trained_model", "model.treg")
     csv_in = os.path.join(WORK, f"_nat_{tag}.csv")
@@ -81,15 +97,14 @@ def native_predict(test_df, tag):
         os.remove(out_csv)
     test_df.drop(columns=["y"]).to_csv(csv_in, index=False)
     proc = subprocess.Popen([NATIVE, csv_in, treg])
-    for _ in range(120):
-        if os.path.exists(out_csv):
-            time.sleep(0.5)
-            break
-        time.sleep(0.25)
+    wait_for_stable_file(out_csv)
+    # native exe は GUI サブシステムで完了時にメッセージボックスを出すため kill する。
+    # 以前はkill失敗を無条件でpassしており、原因不明のテスト不安定化の手がかりが
+    # 消えていた(Low C-3)。失敗時はログだけ残して処理は継続する。
     try:
         proc.kill()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"  [警告] native process kill失敗(tag={tag}): {e}", flush=True)
     if not os.path.exists(out_csv):
         return None
     return pd.read_csv(out_csv).iloc[:, -1].values
@@ -108,7 +123,9 @@ tr = make_data("easy", 300, 0); te = make_data("easy", 400, 99)
 csv = os.path.join(WORK, "easy300.csv"); tr.to_csv(csv, index=False)
 rj, el, out = train(csv, "quick")
 check("RESULT_JSONパース", rj is not None)
-check("quick時間 < 15s", el < 15, f"{el:.1f}s")
+# Low C-3: 壁時計時間はCI/実行機の負荷変動でflakeする(絶対的な合否基準にすべきでない)。
+# thorough側(下記)と同じ扱いに統一し、参考値としてINFO表示するだけにする。
+print(f"  INFO: quick時間 {el:.1f}s（負荷変動あり・参考値。合否には使わない）", flush=True)
 check("quickにFEが走らない", "[FE]" not in out)
 ver, mtype = treg_header()
 check("quickのtregはv3", ver == 3, f"version={ver}")
@@ -149,6 +166,12 @@ else:
     check("native予測成功", nat is not None)
     if nat is not None and rj_t["model_type"] == TYPE_NAMES.get(mtype_t):
         diff = np.max(np.abs(nat - preds_t))
+        # Low C-3: この閾値(2e-3)はtest_harness.pyの1e-2と一見矛盾するが、正規化の
+        # 基準が異なるため単純な統一はできない。ここは外部テストyの標準偏差で正規化
+        # (分母が通常大きく、結果として厳しめの閾値になる)、test_harness.py側は
+        # native予測の平均絶対値で正規化(分母が小さくなりがちで、緩めの閾値になる)。
+        # 閾値の数値だけを合わせても正規化基準が違えば意味が変わるため、ここでは
+        # 根拠を明記するに留める(詳細はtests/test_harness.pyの同種コメント参照)。
         rel = diff / max(np.std(te["y"].values), 1e-9)
         check("native parity (hard, FEあり)", rel < 2e-3, f"maxdiff={diff:.5f} rel={rel:.5f}")
     elif nat is not None:
@@ -174,6 +197,8 @@ else:
     nat_s = native_predict(te, "smooth")
     if nat_s is not None and preds_s is not None and rj_s["model_type"] == TYPE_NAMES.get(mtype_s):
         diff = np.max(np.abs(nat_s - preds_s))
+        # 閾値2e-3の根拠は上の「hard, FEあり」ブロックのコメント参照
+        # (test_harness.pyの1e-2との差は正規化基準の違いによるもの)。
         rel = diff / max(np.std(te["y"].values), 1e-9)
         check("native parity (smooth)", rel < 2e-3, f"maxdiff={diff:.5f} rel={rel:.5f}")
     elif nat_s is not None:
