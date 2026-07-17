@@ -49,3 +49,19 @@ CLI境界・バイナリ整合・エラー処理を細かく突く。
 
 `tests/verify_work/` と `tests/_work_harness/` に一時CSV・モデル複製を作る（各実行で作り直す）。
 コミット不要。
+
+## `run_benchmark.py` — リリース前ベンチマークスイート（`tests/benchmarks/`）
+
+`verify_rebuild.py`/`test_harness.py`が「コード改修直後の回帰検出」用なのに対し、こちらは
+「リリース判断」用の網羅ベンチマーク。`tests/benchmarks/gen_datasets.py`が生成した13種の
+合成データセット（線形/非線形/カテゴリ低・高カーディナリティ/bool混在/欠損重/歪みy/
+外れ値/小データ/リーク検知番犬(pure_noise)/重複行/日本語列名(UTF-8・Shift-JIS)）を
+quick・thorough両モードで学習し、`tests/benchmarks/baseline.json`との比較でR²退行・
+3エンジン(C++/JS/Python)パリティ不一致等を検出する。
+
+```powershell
+& $py tests\run_benchmark.py --mode quick       # CI相当・数分
+& $py tests\run_benchmark.py --mode thorough    # ローカル専用・十数分規模
+```
+
+詳細な合否基準・運用手順は [`docs/release-checklist.md`](../docs/release-checklist.md) を参照。
