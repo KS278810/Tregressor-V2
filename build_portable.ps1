@@ -18,14 +18,13 @@
 #
 #   1. Python 3.11 embeddable package (64-bit, win_amd64) を取得し、
 #      dist_portable\T-regressor\python-embed\ に展開する。
-#      取得元: https://www.python.org/downloads/windows/ の
-#        "Windows embeddable package (64-bit)" (例: python-3.11.9-embed-amd64.zip)。
-#      現物のビルド検証は Python 3.11.15 で行った(python.exe --version で確認可能)。
-#      ダウンロードしたzipのSHA256は、python.orgの当該リリースページ
-#      (例 https://www.python.org/downloads/release/python-3119/) に掲載された
-#      チェックサムと必ず突き合わせること（zipはリリースごとにハッシュが変わるため
-#      固定値をこのファイルに埋め込むと将来のバージョン更新時に検証が形骸化する。
-#      取得の都度、公式ページのハッシュと比較する運用とする）。
+#      URL: https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip
+#      SHA256: 009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b
+#      （2026-07-16に実ファイルを取得しこの値を検証済み。現物のビルド検証自体は
+#        Python 3.11.15 embeddableでも行っている。別minorに切り替える場合は
+#        python.orgの当該リリースページ記載のSHA256、または
+#        `certutil -hashfile <zip> SHA256` の実行結果でこの値を更新すること。
+#        詳細・依存の固定版一覧は requirements-embed.txt を参照）。
 #   2. pip はembeddable packageには同梱されないため、get-pip.py で個別導入する:
 #        Invoke-WebRequest https://bootstrap.pypa.io/get-pip.py -OutFile get-pip.py
 #        & dist_portable\T-regressor\python-embed\python.exe get-pip.py
@@ -126,6 +125,18 @@ if (Test-Path $pruneScript) {
 } else {
     Write-Host "     prune_embed.ps1 が見つからないためスキップ" -ForegroundColor Yellow
 }
+
+# pruning直後のスモークテスト（中-A3/A4対応）: [1/4]のimport検証はpruning「前」にしか
+# 行っておらず、pruning自体が必要なファイルを誤って削ってimport不能にする回帰
+# （例: scipy.sparseスタブの生成漏れ、lightgbm本体の巻き添え削除）を検知できなかった。
+# prune_embed.ps1実行直後・cargo tauri buildより前にもう一度同じimportを確認し、
+# 壊れたpython-embedがそのままzip化・EXE埋め込みされることを防ぐ。
+Write-Host "     pruning後のスモークテスト..." -ForegroundColor Cyan
+$postPruneResult = & $pythonExe -c "import lightgbm, numpy, pandas, scipy; print('OK')" 2>&1
+if (($postPruneResult -join "") -notmatch "OK") {
+    throw "pruning後のインポート検証に失敗しました(prune_embed.ps1が必要なファイルを削除した可能性があります):`n$postPruneResult"
+}
+Write-Host "     pruning後 必須パッケージ インポート: OK (lightgbm/numpy/pandas/scipy)" -ForegroundColor Green
 
 # ════════════════════════════════════════════════════════════
 # [3/4] cargo tauri build --no-bundle
