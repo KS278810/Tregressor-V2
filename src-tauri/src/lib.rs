@@ -418,12 +418,13 @@ async fn run_predict(
                     Err(e) => { let _ = app2.emit("predict_error", format!("JSON解析失敗: {e}")); }
                 }
                 finished = true;
-            } else if line.contains("予測エラー:") {
+            } else if line.contains("PREDICT_ERROR:") {
                 // predict_template.py が catch した例外は stdout に
-                // "[Robot] 予測エラー: ..." として出るが、従来はlog_dataに流すだけで
-                // フロントが無視していた(M-1対応)。run_trainのERROR:処理と同様に
+                // "[Robot] PREDICT_ERROR:predict_failed:{...}" として出るが、従来はlog_dataに
+                // 流すだけでフロントが無視していた(M-1対応)。run_trainのERROR:処理と同様に
                 // predict_errorとして伝搬させ、フロントの汎用「結果を返さず終了」
-                // メッセージに化けないようにする。
+                // メッセージに化けないようにする(旧: 日本語の「予測エラー:」部分文字列一致
+                // だったが、i18n化に伴いASCIIの専用マーカーに変更した)。
                 let _ = app2.emit("predict_error", &line);
                 finished = true;
             } else if !line.is_empty() {

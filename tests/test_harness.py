@@ -258,11 +258,11 @@ check("T5b target NaN で完走+警告", rc == 0 and rj is not None and "除外"
 d5c = d1.copy(); d5c["y"] = "abc"
 csv5c = os.path.join(SP, "t5c.csv"); d5c.to_csv(csv5c, index=False)
 rc, out, err, rj = run_train(csv5c, "y", "quick")
-check("T5c 文字列targetで明示エラー", rc == 1 and "数値でない" in out, f"rc={rc}")
+check("T5c 文字列targetで明示エラー", rc == 1 and "target_col_not_numeric" in out, f"rc={rc}")
 
 # 5d: 存在しないtarget名
 rc, out, err, rj = run_train(csv1, "no_such_col", "quick")
-check("T5d 不在target名で明示エラー", rc == 1 and "存在しません" in out, f"rc={rc}")
+check("T5d 不在target名で明示エラー", rc == 1 and "target_col_not_found" in out, f"rc={rc}")
 
 # 5e: 整数target丸め
 d5e = d1.copy(); d5e["y"] = np.round(d5e["y"]).astype(int)
