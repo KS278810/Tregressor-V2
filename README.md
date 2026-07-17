@@ -15,7 +15,23 @@
 | 外部通信 | なし | なし（ライブラリ一式を同梱、外部CDN不使用） |
 | 学習・予測速度 | 速い（ネイティブPython/C++） | やや遅い（WebAssembly実行のオーバーヘッド） |
 | 学習済みモデルの配布形式 | 単体 `.exe`（`predict_native.exe` に `.treg` を埋め込み） | 単体 `.html`（`predict_template.html` に `.treg` をBase64埋め込み） |
-| 入手方法 | このリポジトリから `T-regressor.exe` をダウンロード | `web/` 一式をホスティング、またはフォルダごとコピーして `offline.html` を開く |
+| 入手方法 | [GitHub Releases](../../releases) から `T-regressor-*-win64.zip` をダウンロード、または `.\build_portable.ps1` でローカルビルド | `web/` 一式をホスティング、またはフォルダごとコピーして `offline.html` を開く |
+
+### 入手方法（詳細）
+
+`dist_portable/T-regressor/T-regressor.exe`・`dist_portable/T-regressor/native_dist/predict_native.exe`・
+`web/offline-embed.js`（約59MB）は**いずれもビルド生成物のためgit管理下に置いていない**
+（[`.gitignore`](.gitignore)参照。以前はexe 2本をコミットしていたが、コミット済みexeが
+現行ソースと乖離する事故が起きたことと`.git`の肥大化を避けるため、2026-07にビルド生成物へ
+統一した）。
+
+- **exe版を使いたいだけの場合**: タグ(`v*`)push時に [`.github/workflows/windows-build.yml`](.github/workflows/windows-build.yml)
+  が自動ビルドし、[GitHub Releases](../../releases) に配布zipをアップロードする。そこから
+  `T-regressor-*-win64.zip` をダウンロードして展開すればよい。
+- **自分でビルドしたい場合**: 下記「開発者向け：ビルド方法」の手順に従う。
+- **Web版のオフライン配布(`offline.html`)一式を作りたい場合**: `web/offline-embed.js` を
+  `cd web && node build_offline.mjs` で生成してから `web/` フォルダごとコピーする
+  （`web/index.html`によるHTTP版のホスティングだけなら`offline-embed.js`は不要）。
 
 ## 特徴
 
@@ -74,6 +90,19 @@ Web版の詳細（2つの配布形態の違い、公開手順、既知の制約�
   Web版とも全6種別対応**（exe版C++予測エンジン`native_predictor/predict_native_v2.cpp`は
   2026-07-15に多項式Ridge/Blend(入れ子.tregの再帰読み込み)を追加し、Web版JS予測エンジンと
   対応範囲が揃った）
+
+## 既知の制約
+
+- **exe版とWeb版の実行環境（Pythonバージョン・数値ライブラリバージョン）は完全には一致しない**。
+  exe版は `python-embed`（[`requirements-embed.txt`](requirements-embed.txt)で固定、Python 3.11.15 +
+  numpy 2.3.5 / pandas 2.3.3 / lightgbm 4.6.0 等）、Web版はPyodideが同梱するPython/numpy
+  （バージョンはPyodideのリリースに追従し、execと厳密には異なる）で動作する。学習ロジック本体
+  （`train_bridge.py`/`_light.py`/`predict_template.py`）はexe版・Web版で完全に同一のコードだが、
+  下回りのPython/numpyのバージョン差に起因する浮動小数点演算のごく僅かな丸め誤差までは
+  排除できない。両者を実データで自動的にクロス検証するテストは現状ない
+  （個別の予測エンジン3実装(C++/JS/Python)間のパリティは`web/js_predict_poc`のテストで
+  担保しているが、これは「.tregを読む3実装同士」の閉じた比較であり、「exe版の学習結果」と
+  「Web版の学習結果」を直接比較するものではない）。
 
 ## 開発者向け：ビルド方法
 

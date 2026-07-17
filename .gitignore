@@ -6,6 +6,20 @@
 /src-tauri/target/
 /src-tauri/gen/
 
+# 高-10/観点4「体制レバー1」対応: 配布用バイナリ2本(T-regressor.exe/predict_native.exe)は
+# 以前git管理下にあったが、(a) コミット済みexeが現行ソースと既に乖離していた実績があり
+# 「ビルドすれば再現できるはずのバイナリをgitで正本管理する」設計自体に無理があった、
+# (b) .gitの肥大化(履歴最大blobがexe 78.9MB)を助長する、という2つの理由でgit追跡を
+# やめ、build_portable.ps1で都度ビルドする運用に統一する。配布物の入手方法は
+# README.md「入手方法」節（GitHub Releases、タグpush時にwindows-build.ymlが自動作成）
+# を参照。
+/dist_portable/T-regressor/T-regressor.exe
+/dist_portable/T-regressor/native_dist/predict_native.exe
+
+# web/offline-embed.js(約59MB・自動生成物)も同じ理由でgit追跡から除外。
+# 生成手順: cd web && node build_offline.mjs (詳細はREADME.md/web/README.md参照)。
+/web/offline-embed.js
+
 # build_portable.ps1 実行時のステージング用コピー(T-regressor.exeに埋め込み済みのため
 # 配布には不要。実体はリポジトリルート/frontend/native_predictorの各ファイル)
 /dist_portable/T-regressor/_light.py
