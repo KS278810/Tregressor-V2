@@ -68,7 +68,14 @@ jobs:
         run: |
           $gxx = (Get-Command g++ -ErrorAction SilentlyContinue).Source
           if (-not $gxx) { throw "g++が見つかりません(choco install mingwが失敗した可能性)" }
-          $mingwBin = Split-Path $gxx
+          # 中-高5833276フォロー: chocoのg++はシム経由(実体と別ディレクトリ)で解決される
+          # ことがあり、その場合 Split-Path g++ の場所には windres.exe が存在せず
+          # build_native.ps1が「windres.exeが見つかりません」でthrowする。windresは通常
+          # chocoのシム対象外で実体のMinGW binを直接指すため、Get-Command windresが
+          # 解決できればそちらを優先し(実体binには両方の.exeが揃っている)、
+          # 解決できない場合のみ従来通りg++の場所にフォールバックする。
+          $windresCmd = Get-Command windres -ErrorAction SilentlyContinue
+          $mingwBin = if ($windresCmd) { Split-Path $windresCmd.Source } else { Split-Path $gxx }
           Write-Host "MinGW bin: $mingwBin"
           .\native_predictor\build_native.ps1 -MinGwBin $mingwBin
           if (-not (Test-Path .\native_predictor\predict_native.exe)) { throw "predict_native.exeが生成されませんでした" }
@@ -79,8 +86,13 @@ jobs:
       - name: ネイティブEXEのfixturesスモーク予測
         shell: pwsh
         run: |
-          $treg = Get-ChildItem web\js_predict_poc\matrix\*.treg | Select-Object -First 1 | ForEach-Object { $_.FullName }
-          if (-not $treg) { throw "web\js_predict_poc\matrix\ に.tregフィクスチャが見つかりません" }
+          # 中-5833276フォロー: Get-ChildItemの辞書順先頭(たまたまblend型)に依存すると、
+          # blend内部の入れ子.treg解決等、単純な単一モデル型より複雑な経路を無自覚に
+          # スモーク対象にしてしまう。native/JS/Pythonパリティの主対象であるlgbm型を
+          # 名前固定で選ぶ。
+          $treg = "web\js_predict_poc\matrix\lgbm_none_roundFalse.treg"
+          if (-not (Test-Path $treg)) { throw "$treg が見つかりません" }
+          $treg = (Resolve-Path $treg).Path
           Write-Host "使用フィクスチャ: $treg"
           Copy-Item web\js_predict_poc\stress_test.csv smoke_input.csv -Force
           if (Test-Path smoke_input_pred.csv) { Remove-Item smoke_input_pred.csv }
@@ -152,7 +164,10 @@ jobs:
         shell: pwsh
         run: |
           $gxx = (Get-Command g++ -ErrorAction SilentlyContinue).Source
-          $mingwBin = Split-Path $gxx
+          if (-not $gxx) { throw "g++が見つかりません(choco install mingwが失敗した可能性)" }
+          # build-and-testジョブと同じ理由でwindresをPATHから優先解決する(中-5833276フォロー)。
+          $windresCmd = Get-Command windres -ErrorAction SilentlyContinue
+          $mingwBin = if ($windresCmd) { Split-Path $windresCmd.Source } else { Split-Path $gxx }
           .\native_predictor\build_native.ps1 -MinGwBin $mingwBin
 
       # python-embed の自動セットアップ(requirements-embed.txt冒頭コメント/
