@@ -10,6 +10,13 @@ web/js_predict_poc/matrix_python_out/*.csv text eol=lf
 web/js_predict_poc/sample*.csv           text eol=lf
 web/js_predict_poc/stress_test.csv       text eol=lf
 
+# Phase9: ベンチマークスイートの合成データセット(tests/benchmarks/gen_datasets.py生成)。
+# baseline.jsonとの対比用に「再生成しても同一バイト列」を保つため改行をLFに固定する。
+# jp_columns_sjis.csvはShift-JIS(cp932)の生バイト列で、改行変換が2バイト文字のトレイル
+# バイトと衝突する可能性を避けるためbinary指定で上書きする(最後にマッチした行が優先)。
+tests/benchmarks/data/*.csv              text eol=lf
+tests/benchmarks/data/jp_columns_sjis.csv binary
+
 # .treg はバイナリ形式(改行変換対象になってはならない)。誤ってテキスト扱いされ
 # 0x0D/0x0A に一致するバイトが書き換わるとパース不能になる。
 *.treg binary

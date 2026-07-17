@@ -1,0 +1,67 @@
+{
+  "linear_clean": {
+    "csv": "linear_clean.csv",
+    "target": "y",
+    "note": "n=600"
+  },
+  "nonlinear_interaction": {
+    "csv": "nonlinear_interaction.csv",
+    "target": "y",
+    "note": "n=700"
+  },
+  "categorical_low": {
+    "csv": "categorical_low.csv",
+    "target": "y",
+    "note": "n=500"
+  },
+  "categorical_high": {
+    "csv": "categorical_high.csv",
+    "target": "y",
+    "note": "n=500"
+  },
+  "bool_mixed": {
+    "csv": "bool_mixed.csv",
+    "target": "y",
+    "note": "n=400"
+  },
+  "missing_heavy": {
+    "csv": "missing_heavy.csv",
+    "target": "y",
+    "note": "n=500"
+  },
+  "skewed_target": {
+    "csv": "skewed_target.csv",
+    "target": "y",
+    "note": "n=500"
+  },
+  "outlier_contaminated": {
+    "csv": "outlier_contaminated.csv",
+    "target": "y",
+    "note": "n=500"
+  },
+  "small_n": {
+    "csv": "small_n.csv",
+    "target": "y",
+    "note": "n=30"
+  },
+  "pure_noise": {
+    "csv": "pure_noise.csv",
+    "target": "y",
+    "note": "n=500"
+  },
+  "duplicated_rows": {
+    "csv": "duplicated_rows.csv",
+    "target": "y",
+    "note": "n=600"
+  },
+  "jp_columns": {
+    "csv": "jp_columns.csv",
+    "target": "売上高",
+    "note": "UTF-8。日本語列名+日本語カテゴリ値。"
+  },
+  "jp_columns_sjis": {
+    "csv": "jp_columns_sjis.csv",
+    "target": "売上高",
+    "note": "Shift-JIS(cp932)。内容はjp_columnsと同一、エンコーディング判定分岐の確認用。"
+  }
+}

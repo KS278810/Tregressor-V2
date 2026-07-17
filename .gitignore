@@ -53,6 +53,7 @@ __pycache__/
 # テストスイートが実行時に生成する一時データ
 /tests/_work_harness/
 /tests/verify_work/
+/tests/benchmarks/_work/
 
 # OS / エディタ
 .DS_Store
