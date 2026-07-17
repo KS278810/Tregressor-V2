@@ -1,4 +1,38 @@
-// predict_native.exe のアイコンリソース。
+// predict_native.exe のアイコン・バージョン情報リソース。
 // エクスポートされる「学習済モデルのexe」は本体アプリ(T-regressor.exe)と
 // 見分けやすいよう、ロゴと同形状・色違い(シアン→アンバー)の model_icon.ico を使う。
+//
+// Phase9: ウイルス対策ソフト(特にトレンドマイクロ系)の誤検知運用対処の一環でVERSIONINFOを
+// 追加する。無署名・アイコン無し・メタデータ空のexeはヒューリスティック検知で「素性不明の
+// 実行ファイル」として疑わしさが増す傾向があるため、最低限の身元情報を埋める
+// (README.mdの「書き出しEXEとウイルス対策ソフト」節参照)。誤検知そのものを消せる保証は
+// 無いが、手動レビュー時の判断材料になり、誤検知報告の際の対象exe特定にも使える。
 IDI_ICON1 ICON "model_icon.ico"
+
+1 VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "brainverse"
+            VALUE "FileDescription", "T-regressor Prediction Model (exported by T-regressor)"
+            VALUE "FileVersion", "1.0.0"
+            VALUE "ProductName", "T-regressor"
+            VALUE "ProductVersion", "1.0.0"
+            VALUE "LegalCopyright", "Copyright (c) 2026 brainverse"
+            VALUE "OriginalFilename", "predict_native.exe"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
