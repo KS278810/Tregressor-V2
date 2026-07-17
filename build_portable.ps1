@@ -1,5 +1,12 @@
 # build_portable.ps1 — T-regressor ポータブル配布物を再組み立て (Tauri V2)
 #
+# 【推奨シェル】PowerShell 7+ (pwsh) での実行を推奨する。Windows PowerShell 5.1では
+# 「$ErrorActionPreference = 'Stop' 下でネイティブコマンドの `2>&1` を使うと、
+#   標準エラー出力の1行ごとが(exit code 0でも)NativeCommandErrorとして扱われ、
+#   スクリプトがそこで即座に停止する」という既知の誤爆がある(Medium A-2)。
+# 本スクリプトはネイティブコマンド呼び出し区間を Invoke-NativeQuiet 経由にすることで
+# 5.1でも動作するようにしてあるが、テスト・開発は pwsh (PowerShell 7) で行っている。
+#
 # 実行方法:
 #   cd D:\_claude\15_TregV2
 #   .\build_portable.ps1
@@ -66,6 +73,23 @@ function Write-Step([int]$n, [int]$total, [string]$msg) {
     Write-Host "[$n/$total] $msg" -ForegroundColor Cyan
 }
 
+# Medium A-2対応: ネイティブコマンドの出力を `2>&1` で捕捉する呼び出しは、
+# $ErrorActionPreference = 'Stop' の下だとPS5.1でNativeCommandError(標準エラー出力が
+# 1行でもあれば、exit codeが0でも即座にスクリプト全体を停止させる)を誘発する。
+# ここだけ一時的に 'Continue' に退避してから呼び出し、判定は文字列一致ではなく
+# 呼び出し元で $LASTEXITCODE を見るか、戻り値を ($result -join "") で1つの文字列に
+# 結合してから -match/-notmatch で判定すること(配列のまま -notmatch すると要素ごとの
+# 判定になり意図しない結果になるため)。
+function Invoke-NativeQuiet([scriptblock]$Block) {
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Block
+    } finally {
+        $ErrorActionPreference = $prevEAP
+    }
+}
+
 # ════════════════════════════════════════════════════════════
 # [1/4] python-embed 確認
 # ════════════════════════════════════════════════════════════
@@ -103,8 +127,8 @@ requirements-embed.txt を使って固定版を導入してください:
 Write-Host "     python-embed 確認済み" -ForegroundColor Green
 # sklearn は _light.py の自前実装で置換済みのため検証しない（[4/4] pruning で除去される）。
 # scipy は stub でも import 可能。実行に必須なのは lightgbm/numpy/pandas。
-$testResult = & $pythonExe -c "import lightgbm, numpy, pandas, scipy; print('OK')" 2>&1
-if ($testResult -notmatch "OK") {
+$testResult = Invoke-NativeQuiet { & $pythonExe -c "import lightgbm, numpy, pandas, scipy; print('OK')" 2>&1 }
+if (($testResult -join "") -notmatch "OK") {
     throw "インポート検証に失敗しました:`n$testResult"
 }
 Write-Host "     必須パッケージ インポート: OK (lightgbm/numpy/pandas/scipy)" -ForegroundColor Green
@@ -132,7 +156,7 @@ if (Test-Path $pruneScript) {
 # prune_embed.ps1実行直後・cargo tauri buildより前にもう一度同じimportを確認し、
 # 壊れたpython-embedがそのままzip化・EXE埋め込みされることを防ぐ。
 Write-Host "     pruning後のスモークテスト..." -ForegroundColor Cyan
-$postPruneResult = & $pythonExe -c "import lightgbm, numpy, pandas, scipy; print('OK')" 2>&1
+$postPruneResult = Invoke-NativeQuiet { & $pythonExe -c "import lightgbm, numpy, pandas, scipy; print('OK')" 2>&1 }
 if (($postPruneResult -join "") -notmatch "OK") {
     throw "pruning後のインポート検証に失敗しました(prune_embed.ps1が必要なファイルを削除した可能性があります):`n$postPruneResult"
 }
@@ -145,7 +169,7 @@ Write-Step 3 4 "cargo tauri build --no-bundle"
 
 Push-Location $Root
 try {
-    $tauriCheck = cargo tauri --version 2>&1
+    $tauriCheck = Invoke-NativeQuiet { cargo tauri --version 2>&1 }
     if ($LASTEXITCODE -ne 0) {
         Write-Host "     tauri-cli が見つかりません。インストール中..." -ForegroundColor Yellow
         cargo install tauri-cli --version "^2"
