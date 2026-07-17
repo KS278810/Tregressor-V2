@@ -2,17 +2,33 @@
 # predict_native_v2.cpp を MinGW (g++) でネイティブ予測 EXE にビルドする。
 # 外部依存ゼロ・静的リンクなので配布先に MinGW/ランタイムのインストールは不要。
 #
-# 前提: MinGW (g++ / windres) が PATH にあるか、下記 $MinGwBin で指定した場所にあること
+# 前提: MinGW (g++ / windres) が PATH にあるか、-MinGwBin で指定した場所にあること
 # 使い方: .\build_native.ps1 [-MinGwBin "C:\MinGW\bin"]
-
-param([string]$MinGwBin = "C:\MinGW\bin")
+#
+# $MinGwBin 省略時の解決順序(Low A-7): 開発者のPCでは C:\MinGW\bin にMinGWを置く運用が
+# 従来のハードコードだったが、CI(choco install mingw等)やMSYS2導入環境ではPATHに
+# g++/windresが通っている一方でC:\MinGW\binは存在しないことが多い。そこで
+# 1) PATH上のg++(Get-Command)を最優先、2) 見つからなければ従来の既定値C:\MinGW\binに
+# フォールバック、の順で解決する。
+param([string]$MinGwBin = "")
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 
+if (-not $MinGwBin) {
+    $gxxOnPath = Get-Command g++ -ErrorAction SilentlyContinue
+    if ($gxxOnPath) {
+        $MinGwBin = Split-Path $gxxOnPath.Source
+        Write-Host "MinGW bin (PATHから検出): $MinGwBin" -ForegroundColor DarkGray
+    } else {
+        $MinGwBin = "C:\MinGW\bin"
+        Write-Host "MinGW bin (既定値にフォールバック): $MinGwBin" -ForegroundColor DarkGray
+    }
+}
+
 $GxxExe    = Join-Path $MinGwBin "g++.exe"
 $WindresExe = Join-Path $MinGwBin "windres.exe"
-if (-not (Test-Path $GxxExe))    { throw "g++.exe が見つかりません: $GxxExe（MinGW のパスを -MinGwBin で指定してください）" }
+if (-not (Test-Path $GxxExe))    { throw "g++.exe が見つかりません: $GxxExe（PATHにg++を通すか、-MinGwBin でMinGWのパスを指定してください）" }
 if (-not (Test-Path $WindresExe)) { throw "windres.exe が見つかりません: $WindresExe" }
 
 $Src     = Join-Path $ScriptDir "predict_native_v2.cpp"

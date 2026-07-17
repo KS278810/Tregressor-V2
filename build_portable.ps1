@@ -46,6 +46,12 @@
 #        _light.py の自前実装で置換済みのため requirements-embed.txt にも含めない）
 #   詳細・依存の全リストは requirements-embed.txt を参照。
 #
+# オプション:
+#   -SkipNative  native_predictor\predict_native.exe が無い場合でも配布フォルダ組み立てを
+#                続行する(Low A-7)。既定では、native_predictor\build_native.ps1 の
+#                実行を忘れたまま古い/存在しないnative_dist\predict_native.exeで配布物を
+#                作ってしまう事故を防ぐため、不在時はエラーで停止する。
+#
 # 出力:
 #   dist_portable/T-regressor/  (デプロイ済みフォルダを上書き更新)
 #
@@ -58,6 +64,8 @@
 #     reference/             <- UI 画像 (GIF/PNG)
 #     python-embed/          <- Python 実行環境 (依存なし自己完結)
 #     native_dist/           <- ネイティブ予測 EXE (predict_native.exe)
+
+param([switch]$SkipNative)
 
 $ErrorActionPreference = "Stop"
 
@@ -87,6 +95,26 @@ function Invoke-NativeQuiet([scriptblock]$Block) {
     } finally {
         $ErrorActionPreference = $prevEAP
     }
+}
+
+# ── 事前チェック: predict_native.exe (Low A-7) ────────────────────────────────
+# src-tauri/src/lib.rs が `include_bytes!("../../native_predictor/predict_native.exe")`
+# でこのファイルをコンパイル時に埋め込むため、無いまま [3/4] cargo tauri build まで
+# 進めると「python-embed.zip作成(数分)」を無駄にしたあとで初めてRustのコンパイル
+# エラーとして発覚する(実機確認済み)。以前は[4/4]のnative_dist/コピーが対象ファイル
+# 不在を無言スキップするだけだったため、ここで先回りしてYellow警告+既定では
+# 即座に失敗させる(-SkipNativeで明示的に続行可能。ただしその場合も[3/4]の
+# cargo tauri build自体は同じ理由で失敗する点に注意)。
+$nativeExePath = Join-Path $Root "native_predictor\predict_native.exe"
+if (-not (Test-Path $nativeExePath)) {
+    Write-Host "     警告: native_predictor\predict_native.exe が見つかりません。" -ForegroundColor Yellow
+    Write-Host "     native_predictor\build_native.ps1 を先に実行してください。" -ForegroundColor Yellow
+    if (-not $SkipNative) {
+        throw "predict_native.exe が見つからないため中止します(続行するには -SkipNative を指定)。" `
+            + " ただし cargo tauri build 自体がこのファイルの埋め込みに失敗するため、実質的には" `
+            + " native_predictor\build_native.ps1 を先に実行する必要があります。"
+    }
+    Write-Host "     -SkipNative 指定のため続行します(cargo tauri buildが失敗する可能性があります)。" -ForegroundColor Yellow
 }
 
 # ════════════════════════════════════════════════════════════
@@ -226,6 +254,17 @@ if (Test-Path $nativeSrc) {
     New-Item -ItemType Directory -Force $nativeDest | Out-Null
     Copy-Item $nativeSrc (Join-Path $nativeDest "predict_native.exe") -Force
     Write-Host "     native_dist/ 更新"
+} else {
+    # 以前はここで無言スキップしていたため、native_predictor\build_native.ps1の実行を
+    # 忘れたまま古いnative_dist\predict_native.exeが残った配布物を「正常終了」で
+    # 作ってしまう事故があり得た(Low A-7)。既定では警告のうえビルド自体を失敗させ、
+    # 意図的に古いnative_distのまま配布したい場合だけ -SkipNative で明示的に続行させる。
+    Write-Host "     警告: native_predictor\predict_native.exe が見つかりません。" -ForegroundColor Yellow
+    Write-Host "     native_predictor\build_native.ps1 を先に実行してください。" -ForegroundColor Yellow
+    if (-not $SkipNative) {
+        throw "predict_native.exe が見つからないため中止します(続行するには -SkipNative を指定)。"
+    }
+    Write-Host "     -SkipNative 指定のため続行します(native_dist/ は更新されません)。" -ForegroundColor Yellow
 }
 
 $distSizeMB = [math]::Round(
