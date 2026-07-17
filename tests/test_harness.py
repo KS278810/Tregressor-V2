@@ -282,6 +282,16 @@ csv5f = os.path.join(SP, "t5f.csv"); d5f.to_csv(csv5f, index=False)
 rc, out, err, rj = run_train(csv5f, "y", "quick")
 check("T5f 12行で完走 (旧全滅ケース)", rc == 0 and rj is not None, f"rc={rc} out_tail={out[-200:]}")
 
+# 5g: BOM付きUTF-8 CSV (Excelの「CSV UTF-8」既定出力で先頭列名にBOMが付く問題、監査#4)
+# target列を先頭に置くことで、BOM除去に失敗すると"y"ではなく"﻿y"に解決され
+# target_col_not_found になっていた旧バグを再現する。
+d5g = pd.DataFrame({"y": np.random.randn(50), "a": np.random.randn(50)})
+d5g["y"] = d5g["y"] + d5g["a"] * 0.5
+csv5g = os.path.join(SP, "t5g.csv")
+d5g.to_csv(csv5g, index=False, encoding="utf-8-sig")
+rc, out, err, rj = run_train(csv5g, "y", "quick")
+check("T5g BOM付きCSVで先頭列targetを指定できる", rc == 0 and rj is not None, f"rc={rc} out_tail={out[-300:]}")
+
 print()
 print("=" * 60)
 print(f"PASS: {len(PASS)}  FAIL: {len(FAIL)}")
