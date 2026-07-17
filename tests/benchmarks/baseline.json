@@ -1,0 +1,643 @@
+{
+  "generated_at": "2026-07-17T10:46:07",
+  "records": [
+    {
+      "dataset": "bool_mixed",
+      "mode": "quick",
+      "best_model": "Linear (Ridge)",
+      "model_type": "linear",
+      "r2": 0.9885,
+      "r2_std": 0.0,
+      "train_r2": 0.9872,
+      "rmse": 0.3733,
+      "mae": 0.2797,
+      "elapsed_sec": 1.4,
+      "data_warnings": "",
+      "treg_version": 5,
+      "treg_model_type": "linear",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "一定の説明力(r2>0.5)",
+          "ok": true,
+          "detail": "r2=0.9885"
+        }
+      ]
+    },
+    {
+      "dataset": "bool_mixed",
+      "mode": "thorough",
+      "best_model": "Linear (Ridge)",
+      "model_type": "linear",
+      "r2": 0.987,
+      "r2_std": 0.0017,
+      "train_r2": 0.9878,
+      "rmse": 0.4073,
+      "mae": 0.3258,
+      "elapsed_sec": 79.6,
+      "data_warnings": "OOF (交差検証) で評価。",
+      "treg_version": 5,
+      "treg_model_type": "linear",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "一定の説明力(r2>0.5)",
+          "ok": true,
+          "detail": "r2=0.9870"
+        }
+      ]
+    },
+    {
+      "dataset": "categorical_high",
+      "mode": "quick",
+      "best_model": "GaussianProcess (ARD-RBF)",
+      "model_type": "gp",
+      "r2": 0.9745,
+      "r2_std": 0.0,
+      "train_r2": 0.976,
+      "rmse": 0.7519,
+      "mae": 0.5717,
+      "elapsed_sec": 1.2,
+      "data_warnings": "カーディナリティが行数に対して高すぎるため除外した列: raw_id",
+      "treg_version": 5,
+      "treg_model_type": "gp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "city列をカテゴリ検出(target encoding)",
+          "ok": true,
+          "detail": "cat_columns=['city']"
+        },
+        {
+          "name": "raw_id列を高カーディナリティで除外",
+          "ok": true,
+          "detail": "cat_dropped_columns=['raw_id']"
+        }
+      ]
+    },
+    {
+      "dataset": "categorical_high",
+      "mode": "thorough",
+      "best_model": "LightGBM",
+      "model_type": "lgbm",
+      "r2": 0.9819,
+      "r2_std": 0.0029,
+      "train_r2": 0.9929,
+      "rmse": 0.5946,
+      "mae": 0.4761,
+      "elapsed_sec": 47.3,
+      "data_warnings": "OOF (交差検証) で評価。 カーディナリティが行数に対して高すぎるため除外した列: raw_id",
+      "treg_version": 5,
+      "treg_model_type": "lgbm",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "city列をカテゴリ検出(target encoding)",
+          "ok": true,
+          "detail": "cat_columns=['city']"
+        },
+        {
+          "name": "raw_id列を高カーディナリティで除外",
+          "ok": true,
+          "detail": "cat_dropped_columns=['raw_id']"
+        }
+      ]
+    },
+    {
+      "dataset": "categorical_low",
+      "mode": "quick",
+      "best_model": "Linear (Ridge)",
+      "model_type": "linear",
+      "r2": 0.9791,
+      "r2_std": 0.0,
+      "train_r2": 0.9706,
+      "rmse": 0.4446,
+      "mae": 0.3563,
+      "elapsed_sec": 3.3,
+      "data_warnings": "",
+      "treg_version": 5,
+      "treg_model_type": "linear",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "grade列をカテゴリ検出(one-hot)",
+          "ok": true,
+          "detail": "cat_columns=['grade']"
+        },
+        {
+          "name": "高R²(>0.7)",
+          "ok": true,
+          "detail": "r2=0.9791"
+        }
+      ]
+    },
+    {
+      "dataset": "categorical_low",
+      "mode": "thorough",
+      "best_model": "Linear (Ridge)",
+      "model_type": "linear",
+      "r2": 0.9718,
+      "r2_std": 0.0038,
+      "train_r2": 0.9728,
+      "rmse": 0.5046,
+      "mae": 0.4053,
+      "elapsed_sec": 48.1,
+      "data_warnings": "OOF (交差検証) で評価。",
+      "treg_version": 5,
+      "treg_model_type": "linear",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "grade列をカテゴリ検出(one-hot)",
+          "ok": true,
+          "detail": "cat_columns=['grade']"
+        },
+        {
+          "name": "高R²(>0.7)",
+          "ok": true,
+          "detail": "r2=0.9718"
+        }
+      ]
+    },
+    {
+      "dataset": "duplicated_rows",
+      "mode": "quick",
+      "best_model": "LightGBM",
+      "model_type": "lgbm",
+      "r2": 0.9821,
+      "r2_std": 0.0,
+      "train_r2": 0.9975,
+      "rmse": 0.2462,
+      "mae": 0.1688,
+      "elapsed_sec": 3.4,
+      "data_warnings": "重複行が300件あります。評価が楽観的になる可能性があります。",
+      "treg_version": 3,
+      "treg_model_type": "lgbm",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "重複行警告を検出",
+          "ok": true,
+          "detail": "data_warning='重複行が300件あります。評価が楽観的になる可能性があります。'"
+        }
+      ]
+    },
+    {
+      "dataset": "duplicated_rows",
+      "mode": "thorough",
+      "best_model": "MLP",
+      "model_type": "mlp",
+      "r2": 0.9863,
+      "r2_std": 0.0028,
+      "train_r2": 0.9979,
+      "rmse": 0.2195,
+      "mae": 0.1174,
+      "elapsed_sec": 97.8,
+      "data_warnings": "OOF (交差検証) で評価。 重複行が300件あります。評価が楽観的になる可能性があります。",
+      "treg_version": 4,
+      "treg_model_type": "mlp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "重複行警告を検出",
+          "ok": true,
+          "detail": "data_warning='OOF (交差検証) で評価。 重複行が300件あります。評価が楽観的になる可能性があります。'"
+        }
+      ]
+    },
+    {
+      "dataset": "jp_columns",
+      "mode": "quick",
+      "best_model": "GaussianProcess (ARD-RBF)",
+      "model_type": "gp",
+      "r2": 0.8463,
+      "r2_std": 0.0,
+      "train_r2": 0.829,
+      "rmse": 2.2084,
+      "mae": 1.8062,
+      "elapsed_sec": 4.4,
+      "data_warnings": "",
+      "treg_version": 5,
+      "treg_model_type": "gp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "地域列をカテゴリ検出(日本語列名/値)",
+          "ok": true,
+          "detail": "cat_columns=['地域']"
+        },
+        {
+          "name": "完走しR²>0.3",
+          "ok": true,
+          "detail": "r2=0.8463"
+        }
+      ]
+    },
+    {
+      "dataset": "jp_columns",
+      "mode": "thorough",
+      "best_model": "GaussianProcess (ARD-RBF)",
+      "model_type": "gp",
+      "r2": 0.8241,
+      "r2_std": 0.0229,
+      "train_r2": 0.8316,
+      "rmse": 2.155,
+      "mae": 1.7777,
+      "elapsed_sec": 56.2,
+      "data_warnings": "OOF (交差検証) で評価。",
+      "treg_version": 5,
+      "treg_model_type": "gp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "地域列をカテゴリ検出(日本語列名/値)",
+          "ok": true,
+          "detail": "cat_columns=['地域']"
+        },
+        {
+          "name": "完走しR²>0.3",
+          "ok": true,
+          "detail": "r2=0.8241"
+        }
+      ]
+    },
+    {
+      "dataset": "jp_columns_sjis",
+      "mode": "quick",
+      "best_model": "GaussianProcess (ARD-RBF)",
+      "model_type": "gp",
+      "r2": 0.8463,
+      "r2_std": 0.0,
+      "train_r2": 0.829,
+      "rmse": 2.2084,
+      "mae": 1.8062,
+      "elapsed_sec": 3.2,
+      "data_warnings": "",
+      "treg_version": 5,
+      "treg_model_type": "gp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "地域列をカテゴリ検出(日本語列名/値)",
+          "ok": true,
+          "detail": "cat_columns=['地域']"
+        },
+        {
+          "name": "完走しR²>0.3",
+          "ok": true,
+          "detail": "r2=0.8463"
+        }
+      ]
+    },
+    {
+      "dataset": "jp_columns_sjis",
+      "mode": "thorough",
+      "best_model": "GaussianProcess (ARD-RBF)",
+      "model_type": "gp",
+      "r2": 0.8239,
+      "r2_std": 0.0229,
+      "train_r2": 0.8318,
+      "rmse": 2.1561,
+      "mae": 1.7796,
+      "elapsed_sec": 67.7,
+      "data_warnings": "OOF (交差検証) で評価。",
+      "treg_version": 5,
+      "treg_model_type": "gp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "地域列をカテゴリ検出(日本語列名/値)",
+          "ok": true,
+          "detail": "cat_columns=['地域']"
+        },
+        {
+          "name": "完走しR²>0.3",
+          "ok": true,
+          "detail": "r2=0.8239"
+        }
+      ]
+    },
+    {
+      "dataset": "linear_clean",
+      "mode": "quick",
+      "best_model": "GaussianProcess (ARD-RBF)",
+      "model_type": "gp",
+      "r2": 0.9915,
+      "r2_std": 0.0,
+      "train_r2": 0.9953,
+      "rmse": 0.3306,
+      "mae": 0.2151,
+      "elapsed_sec": 2.4,
+      "data_warnings": "",
+      "treg_version": 3,
+      "treg_model_type": "gp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "高R²(>0.85)",
+          "ok": true,
+          "detail": "r2=0.9915"
+        }
+      ]
+    },
+    {
+      "dataset": "linear_clean",
+      "mode": "thorough",
+      "best_model": "Linear (Ridge)",
+      "model_type": "linear",
+      "r2": 0.9934,
+      "r2_std": 0.002,
+      "train_r2": 0.9945,
+      "rmse": 0.3015,
+      "mae": 0.2093,
+      "elapsed_sec": 70.8,
+      "data_warnings": "OOF (交差検証) で評価。",
+      "treg_version": 4,
+      "treg_model_type": "linear",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "高R²(>0.85)",
+          "ok": true,
+          "detail": "r2=0.9934"
+        }
+      ]
+    },
+    {
+      "dataset": "missing_heavy",
+      "mode": "quick",
+      "best_model": "GaussianProcess (ARD-RBF)",
+      "model_type": "gp",
+      "r2": 0.7841,
+      "r2_std": 0.0,
+      "train_r2": 0.7273,
+      "rmse": 0.5002,
+      "mae": 0.3513,
+      "elapsed_sec": 2.4,
+      "data_warnings": "",
+      "treg_version": 3,
+      "treg_model_type": "gp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "欠損があっても完走しR²>0.2",
+          "ok": true,
+          "detail": "r2=0.7841"
+        }
+      ]
+    },
+    {
+      "dataset": "missing_heavy",
+      "mode": "thorough",
+      "best_model": "GaussianProcess (ARD-RBF)",
+      "model_type": "gp",
+      "r2": 0.7298,
+      "r2_std": 0.0614,
+      "train_r2": 0.7383,
+      "rmse": 0.6096,
+      "mae": 0.4176,
+      "elapsed_sec": 38.3,
+      "data_warnings": "OOF (交差検証) で評価。",
+      "treg_version": 4,
+      "treg_model_type": "gp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "欠損があっても完走しR²>0.2",
+          "ok": true,
+          "detail": "r2=0.7298"
+        }
+      ]
+    },
+    {
+      "dataset": "nonlinear_interaction",
+      "mode": "quick",
+      "best_model": "GaussianProcess (ARD-RBF)",
+      "model_type": "gp",
+      "r2": 0.8248,
+      "r2_std": 0.0,
+      "train_r2": 0.8207,
+      "rmse": 1.3552,
+      "mae": 1.0551,
+      "elapsed_sec": 1.5,
+      "data_warnings": "",
+      "treg_version": 3,
+      "treg_model_type": "gp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "一定の説明力(r2>0.2)",
+          "ok": true,
+          "detail": "r2=0.8248"
+        }
+      ]
+    },
+    {
+      "dataset": "nonlinear_interaction",
+      "mode": "thorough",
+      "best_model": "Blend (Ensemble)",
+      "model_type": "blend",
+      "r2": 0.8277,
+      "r2_std": 0.0199,
+      "train_r2": 0.8766,
+      "rmse": 1.3736,
+      "mae": 1.0982,
+      "elapsed_sec": 70.6,
+      "data_warnings": "OOF (交差検証) で評価。",
+      "treg_version": 3,
+      "treg_model_type": "blend",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "一定の説明力(r2>0.2)",
+          "ok": true,
+          "detail": "r2=0.8277"
+        }
+      ]
+    },
+    {
+      "dataset": "outlier_contaminated",
+      "mode": "quick",
+      "best_model": "Linear (Ridge)",
+      "model_type": "linear",
+      "r2": 0.0598,
+      "r2_std": 0.0,
+      "train_r2": 0.4007,
+      "rmse": 5.3035,
+      "mae": 1.146,
+      "elapsed_sec": 1.6,
+      "data_warnings": "Y 外れ値 10 行を許容範囲内に補正しました（IQR×4.5）。",
+      "treg_version": 3,
+      "treg_model_type": "linear",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "外れ値警告を検出",
+          "ok": true,
+          "detail": "data_warning='Y 外れ値 10 行を許容範囲内に補正しました（IQR×4.5）。'"
+        }
+      ]
+    },
+    {
+      "dataset": "outlier_contaminated",
+      "mode": "thorough",
+      "best_model": "Linear (Ridge)",
+      "model_type": "linear",
+      "r2": 0.0681,
+      "r2_std": 0.14,
+      "train_r2": 0.5564,
+      "rmse": 6.1424,
+      "mae": 1.2862,
+      "elapsed_sec": 42.2,
+      "data_warnings": "OOF (交差検証) で評価。 Y 外れ値 10 行を許容範囲内に補正しました（IQR×3.0）。",
+      "treg_version": 4,
+      "treg_model_type": "linear",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "外れ値警告を検出",
+          "ok": true,
+          "detail": "data_warning='OOF (交差検証) で評価。 Y 外れ値 10 行を許容範囲内に補正しました（IQR×3.0）。'"
+        }
+      ]
+    },
+    {
+      "dataset": "pure_noise",
+      "mode": "quick",
+      "best_model": "LightGBM",
+      "model_type": "lgbm",
+      "r2": 0.0006,
+      "r2_std": 0.0,
+      "train_r2": 0.0132,
+      "rmse": 0.9835,
+      "mae": 0.7951,
+      "elapsed_sec": 3.3,
+      "data_warnings": "",
+      "treg_version": 3,
+      "treg_model_type": "lgbm",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "R²<=0.15(リーク検知番犬)",
+          "ok": true,
+          "detail": "r2=0.0006"
+        }
+      ]
+    },
+    {
+      "dataset": "pure_noise",
+      "mode": "thorough",
+      "best_model": "Linear (Ridge)",
+      "model_type": "linear",
+      "r2": -0.0013,
+      "r2_std": 0.0138,
+      "train_r2": 0.0224,
+      "rmse": 0.979,
+      "mae": 0.7819,
+      "elapsed_sec": 127.2,
+      "data_warnings": "OOF (交差検証) で評価。",
+      "treg_version": 4,
+      "treg_model_type": "linear",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "R²<=0.15(リーク検知番犬)",
+          "ok": true,
+          "detail": "r2=-0.0013"
+        }
+      ]
+    },
+    {
+      "dataset": "skewed_target",
+      "mode": "quick",
+      "best_model": "GaussianProcess (ARD-RBF)",
+      "model_type": "gp",
+      "r2": 0.8059,
+      "r2_std": 0.0,
+      "train_r2": 0.8219,
+      "rmse": 1.5272,
+      "mae": 0.9177,
+      "elapsed_sec": 3.2,
+      "data_warnings": "Y 外れ値 3 行を許容範囲内に補正しました（IQR×4.5）。",
+      "treg_version": 3,
+      "treg_model_type": "gp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "歪みyでも高R²(>0.6)",
+          "ok": true,
+          "detail": "r2=0.8059"
+        }
+      ]
+    },
+    {
+      "dataset": "skewed_target",
+      "mode": "thorough",
+      "best_model": "Linear (Ridge)",
+      "model_type": "linear",
+      "r2": 0.653,
+      "r2_std": 0.0257,
+      "train_r2": 0.827,
+      "rmse": 2.2768,
+      "mae": 0.9997,
+      "elapsed_sec": 36.6,
+      "data_warnings": "OOF (交差検証) で評価。 Y 外れ値 7 行を許容範囲内に補正しました（IQR×3.0）。",
+      "treg_version": 4,
+      "treg_model_type": "linear",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "歪みyでも高R²(>0.6)",
+          "ok": true,
+          "detail": "r2=0.6530"
+        }
+      ]
+    },
+    {
+      "dataset": "small_n",
+      "mode": "quick",
+      "best_model": "GaussianProcess (ARD-RBF)",
+      "model_type": "gp",
+      "r2": 0.912,
+      "r2_std": 0.1833,
+      "train_r2": 0.9503,
+      "rmse": 0.3149,
+      "mae": 0.2508,
+      "elapsed_sec": 1.3,
+      "data_warnings": "少ないデータ（30 行）— OOF (交差検証) で評価。",
+      "treg_version": 3,
+      "treg_model_type": "gp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "n=30でも完走",
+          "ok": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "dataset": "small_n",
+      "mode": "thorough",
+      "best_model": "GaussianProcess (ARD-RBF)",
+      "model_type": "gp",
+      "r2": 0.9123,
+      "r2_std": 0.1837,
+      "train_r2": 0.9502,
+      "rmse": 0.3145,
+      "mae": 0.2489,
+      "elapsed_sec": 3.5,
+      "data_warnings": "少ないデータ（30 行）— OOF (交差検証) で評価。",
+      "treg_version": 3,
+      "treg_model_type": "gp",
+      "parity_ok": true,
+      "dataset_checks": [
+        {
+          "name": "n=30でも完走",
+          "ok": true,
+          "detail": ""
+        }
+      ]
+    }
+  ]
+}
