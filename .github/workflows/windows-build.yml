@@ -123,6 +123,20 @@ jobs:
           $env:TREG_PYTHON = (Get-Command python).Source
           python tests\test_harness.py
 
+      # リリース前ベンチマークスイート(Phase9)。tests/benchmarks/data/の合成データセット群を
+      # 学習しbaseline.jsonと比較する。thoroughは1データセットあたり数十秒〜2分程度かかり
+      # 12データセット×2モードで全体十数分規模になるため、CIはquickのみに絞る
+      # (thoroughはローカルでの手動実行専用。docs/release-checklist.md参照)。
+      # windows-latestランナーにはNode.jsが標準で入っているため setup-node は不要
+      # (run_e2e_predict.jsはfs/path/predict-core.jsのみに依存し、npm installも不要)。
+      - name: リリース前ベンチマーク(quickのみ、tests/run_benchmark.py)
+        shell: pwsh
+        run: |
+          $env:TREG_PYTHON = (Get-Command python).Source
+          $env:TREG_NATIVE = (Resolve-Path .\native_predictor\predict_native.exe).Path
+          node --version
+          python tests\run_benchmark.py --mode quick
+
       # 実配布ビルド(python-embed同梱)はreleaseジョブでのみ行う。ここではRust側の
       # コンパイルエラーだけを早期検出したいため、TREG_ALLOW_EMPTY_EMBED=1で
       # 空のpython-embed.zipを許容してコンパイルチェックのみ行う(build.rs参照)。
