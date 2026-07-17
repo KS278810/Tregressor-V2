@@ -501,16 +501,21 @@ static float predict_lgbm(const LGBMModel& m, const float* x) {
 }
 
 static float predict_gp(const GPModel& m, const float* x) {
+    // e6ed9b9フォロー(重-predict_gp): predict_linear/predict_mlpはこの標準化を倍精度で
+    // 計算してから最後に1回だけfloatへ丸めるよう統一済みだが、predict_gpだけfloatの
+    // まま(xs[i] = (x[i]-mean[i])/scale[i] を float 演算)残っていた。極端な入力値では
+    // JS版(倍精度で計算)とfloat32丸め順序差が有意な誤差になる恐れがあるため、同じ
+    // パターンで倍精度化する。
     const int d = m.n_feat;
-    std::vector<float> xs(d);
+    std::vector<double> xs(d);
     for (int i = 0; i < d; i++)
-        xs[i] = (x[i] - m.mean[i]) / m.scale[i];
+        xs[i] = ((double)x[i] - (double)m.mean[i]) / (double)m.scale[i];
 
     double y_norm = 0.0;
     for (int i = 0; i < m.n_train; i++) {
         double sq = 0.0;
         for (int j = 0; j < d; j++) {
-            double diff = xs[j] - m.X_train[i * d + j];
+            double diff = xs[j] - (double)m.X_train[i * d + j];
             double ls_j = m.ls[j];
             sq += (diff / ls_j) * (diff / ls_j);
         }
