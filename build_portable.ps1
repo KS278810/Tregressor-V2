@@ -9,7 +9,36 @@
 #   - cargo-tauri (tauri-cli) がインストール済み
 #     （未導入の場合: cargo install tauri-cli --version "^2"）
 #   - dist_portable\T-regressor\python-embed\ が既にセットアップ済み
-#     (numpy, pandas, scipy, scikit-learn, lightgbm が入っていること)
+#     (numpy, pandas, lightgbm, scipy が入っていること。scikit-learnは不要)
+#
+# python-embed の自動セットアップ手順（High A-1: 依存ピン留め）:
+#   このスクリプト自体はpython-embedの初回セットアップを行わない（[1/4]は確認のみ）。
+#   未セットアップの場合は以下の手順で用意すること。バージョンは requirements-embed.txt
+#   に固定してあり、再現可能なビルドのために毎回このファイルを使うこと。
+#
+#   1. Python 3.11 embeddable package (64-bit, win_amd64) を取得し、
+#      dist_portable\T-regressor\python-embed\ に展開する。
+#      取得元: https://www.python.org/downloads/windows/ の
+#        "Windows embeddable package (64-bit)" (例: python-3.11.9-embed-amd64.zip)。
+#      現物のビルド検証は Python 3.11.15 で行った(python.exe --version で確認可能)。
+#      ダウンロードしたzipのSHA256は、python.orgの当該リリースページ
+#      (例 https://www.python.org/downloads/release/python-3119/) に掲載された
+#      チェックサムと必ず突き合わせること（zipはリリースごとにハッシュが変わるため
+#      固定値をこのファイルに埋め込むと将来のバージョン更新時に検証が形骸化する。
+#      取得の都度、公式ページのハッシュと比較する運用とする）。
+#   2. pip はembeddable packageには同梱されないため、get-pip.py で個別導入する:
+#        Invoke-WebRequest https://bootstrap.pypa.io/get-pip.py -OutFile get-pip.py
+#        & dist_portable\T-regressor\python-embed\python.exe get-pip.py
+#      加えて python311._pth の `#import site` 行のコメントを外し、
+#      site-packages（--target先）が認識されるようにしておく。
+#   3. requirements-embed.txt を使って依存を固定導入する:
+#        & dist_portable\T-regressor\python-embed\python.exe -m pip install `
+#            -r requirements-embed.txt `
+#            --target dist_portable\T-regressor\python-embed\Lib\site-packages
+#      （scipy は lightgbm の依存で自動的に入るが [4/4]ではなく prune_embed.ps1 の
+#        pruning で軽量 stub に置換される。scikit-learn は不要 —
+#        _light.py の自前実装で置換済みのため requirements-embed.txt にも含めない）
+#   詳細・依存の全リストは requirements-embed.txt を参照。
 #
 # 出力:
 #   dist_portable/T-regressor/  (デプロイ済みフォルダを上書き更新)
@@ -49,20 +78,25 @@ $lgbmDir   = Join-Path $PythonEmbed "Lib\site-packages\lightgbm"
 if (-not (Test-Path $pythonExe)) {
     throw @"
 dist_portable\T-regressor\python-embed\python.exe が見つかりません。
-python-embed を手動でセットアップしてください:
+python-embed を手動でセットアップしてください（詳細・SHA256確認手順はこのファイル冒頭のコメント参照）:
   1. https://www.python.org/downloads/windows/ から embeddable package (64-bit, Python 3.11) を取得
+     し、ダウンロードしたzipのSHA256をpython.orgのリリースページ記載値と照合する
   2. dist_portable\T-regressor\python-embed\ に解凍
-  3. pip install numpy pandas lightgbm --target dist_portable\T-regressor\python-embed\Lib\site-packages
-     （scipy は lightgbm の依存で自動的に入るが [4/4] pruning で軽量 stub に置換される。
-       scikit-learn は不要 — _light.py の自前実装で置換済み）
+  3. get-pip.py で pip を導入し、python311._pth の `#import site` のコメントを外す
+  4. requirements-embed.txt で依存を固定導入:
+       & "$pythonExe" -m pip install -r requirements-embed.txt --target `
+           dist_portable\T-regressor\python-embed\Lib\site-packages
+     （scipy は lightgbm の依存で自動的に入るが prune_embed.ps1 が軽量 stub に置換する。
+       scikit-learn は不要 — _light.py の自前実装で置換済みのため導入しない）
 "@
 }
 
 if (-not (Test-Path $lgbmDir)) {
     throw @"
 python-embed に lightgbm が見つかりません。
-以下を実行してください:
-  & "$pythonExe" -m pip install numpy pandas lightgbm
+requirements-embed.txt を使って固定版を導入してください:
+  & "$pythonExe" -m pip install -r requirements-embed.txt --target `
+      dist_portable\T-regressor\python-embed\Lib\site-packages
   （scikit-learn は不要。scipy は依存で入るが pruning で stub 化される）
 "@
 }

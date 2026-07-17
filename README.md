@@ -85,20 +85,27 @@ Web版の詳細（2つの配布形態の違い、公開手順、既知の制約�
 - Python 3.11 embeddable package（[python.org](https://www.python.org/downloads/windows/) から取得）
 
 ```powershell
-# 1. Python embeddable package を配置し、依存パッケージを入れる
+# 1. Python embeddable package (64-bit, Python 3.11) を配置し、依存パッケージを入れる
 mkdir dist_portable\T-regressor\python-embed
 # ここに embeddable package を展開したうえで:
-.\dist_portable\T-regressor\python-embed\python.exe -m pip install numpy pandas lightgbm --target dist_portable\T-regressor\python-embed\Lib\site-packages
+#   - ダウンロードしたzipのSHA256をpython.orgのリリースページ記載値と必ず照合する
+#   - get-pip.py (https://bootstrap.pypa.io/get-pip.py) で pip を導入
+#   - python311._pth の `#import site` のコメントを外す（--target 展開先を認識させるため）
+# 依存バージョンは requirements-embed.txt に固定してある（再現可能なビルドのため）:
+.\dist_portable\T-regressor\python-embed\python.exe -m pip install -r requirements-embed.txt --target dist_portable\T-regressor\python-embed\Lib\site-packages
 
 # 2. ネイティブ予測 EXE をビルド
 .\native_predictor\build_native.ps1
 
-# 3. アプリ本体をビルドし、配布フォルダ一式を組み立てる
+# 3. アプリ本体をビルドし、配布フォルダ一式を組み立てる（[2/4]でpruning、[1/4]でimport検証も実施）
 .\build_portable.ps1
 ```
 
 成功すると `dist_portable\T-regressor\T-regressor.exe` に、Python環境ごと自己完結した配布用アプリが出来上がります。
-Node.js / npm は exe版のビルドには不要です。
+Node.js / npm は exe版のビルドには不要です。詳細な自動セットアップ手順・依存の固定理由は
+[`requirements-embed.txt`](requirements-embed.txt) と `build_portable.ps1` 冒頭のコメントを参照してください。
+`build_portable.ps1` はPowerShell 7 (pwsh) での実行を前提としています（PowerShell 5.1では
+ネイティブコマンド呼び出しの一部が誤動作することがあります）。
 
 ### Web版
 

@@ -1,0 +1,51 @@
+# requirements-embed.txt — dist_portable/T-regressor/python-embed/ に導入する依存の固定版一覧
+#
+# 背景（High A-1）: 従来は「pip install numpy pandas lightgbm」を都度実行するだけで、
+# 導入されるバージョンがその時々のPyPI最新版に流れていた。embed環境はビルド時にexeへ
+# zip埋め込みされ配布されるため、依存バージョンが変わるとビルドごとに数値挙動が変わり
+# うる（LightGBMのバージョン差など）。ここに固定した版を`==`で指定し、再現可能にする。
+#
+# 生成日: 2026-07-16
+# 生成環境: Python 3.11.15 (embeddable package, 64-bit / win_amd64)
+#           dist_portable/T-regressor/python-embed/python.exe -m pip list --format=freeze
+#           で実際に確認したバージョンをそのまま転記したもの（pip/setuptools自体は
+#           prune_embed.ps1で除去されるツール類のため対象外）。
+#
+# 直接依存（train_bridge.py / _light.py / predict_template.py が import するもの）:
+numpy==2.3.5
+pandas==2.3.3
+lightgbm==4.6.0
+#
+# 上記3つをpip installすると解決される推移的依存（同じくバージョンを固定し、
+# ビルドの再現性を依存解決アルゴリズムの気まぐれに委ねないようにする）:
+scipy==1.16.3
+joblib==1.5.3
+threadpoolctl==3.6.0
+packaging==26.2
+python-dateutil==2.9.0.post0
+pytz==2026.2
+tzdata==2026.2
+six==1.17.0
+typing_extensions==4.15.0
+#
+# 導入方法（build_portable.ps1 [1/4] の前段。詳細はbuild_portable.ps1冒頭コメント参照）:
+#   1. Python 3.11 embeddable package (64-bit, win_amd64) を
+#      dist_portable\T-regressor\python-embed\ に展開
+#      URL: https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip
+#      （3.11.xの中でどの minor でも動作するはずだが、上記固定版一覧は3.11.15で検証した
+#        ものである点に注意。python.org の embeddable package ダウンロードページから
+#        現物を取得し、ダウンロード直後に必ずSHA256を確認すること:
+#        https://www.python.org/downloads/release/python-3119/ の
+#        「Windows embeddable package (64-bit)」のチェックサムをそのページ内の
+#        SHA256 リンクで確認する。zipファイル自体のハッシュはリリースごとに異なるため
+#        ここに固定値を書くと将来のバージョン更新時に検証が形骸化する。取得の都度、
+#        python.org 公式ページに掲載されたハッシュと突き合わせること）
+#   2. pip がembeddable packageには同梱されないため、get-pip.py 等で個別に導入する
+#      （https://bootstrap.pypa.io/get-pip.py）
+#   3. 本ファイルで依存を固定導入:
+#        & dist_portable\T-regressor\python-embed\python.exe -m pip install ^
+#            -r requirements-embed.txt ^
+#            --target dist_portable\T-regressor\python-embed\Lib\site-packages
+#      （--target を使うため、embed環境の python311._pth に
+#        `import site` の1行を追加してsite-packagesが認識されるようにしておくこと。
+#        これはembeddable package展開後の定番の追加作業）
