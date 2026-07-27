@@ -71,5 +71,6 @@ Python複製同期のような一連の変更でも、性質が異なれば別�
 予測ロジックは「ネイティブC++」「Python（Pyodide）」「JS」の3系統が並行して存在する。どれか1つを
 変更したら、ルール3の4点セットを揃えたうえで必ず `cd web/js_predict_poc && npm test` を通し、
 3系統の数値が一致していることを確認してからマージ・配布すること。
-C++が非対応の型（現状 linear_poly/blend の一部検証）はPython独立実装との突合せで代替する
-（`web/js_predict_poc/README.md`参照）。
+native C++/JSはblendを含む全型に対応済み（2026-07時点、`web/js_predict_poc/README.md`参照）。
+blendは「N個の自己完結モデルの加重和」という汎用フォーマットで、ヘテロなブレンドかLightGBM
+foldバギングかを区別しないため、バギング等の新機能もwriter側のみの対応でエンジン無改修が成立する。
