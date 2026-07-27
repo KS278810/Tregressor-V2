@@ -175,6 +175,26 @@ def _predict_lgbm_bag(kind: str, df: pd.DataFrame, model_dir: str,
     return _invert_y(bst.predict(X), y_transform, y_params)
 
 
+def _predict_lgbm_foldbag(df: pd.DataFrame, model_dir: str,
+                          impute_medians: dict,
+                          y_transform: str, y_params: dict) -> np.ndarray:
+    """対策(2026-07 第2弾・真因①): LightGBM fold バギング(train_bridge._try_lgbm_steps が
+    書き出す lgbm_model_fold{k}.txt の等重み平均)。native/JS は .treg 上で通常の blend
+    (K個のlgbm型メンバー、重み1/K)として読むため変更不要だが、predict_template.py は
+    .treg を読まず trained_model/ の実体ファイルを直接読む独立実装のため専用関数が要る。"""
+    import lightgbm as lgb
+    with open(os.path.join(model_dir, "lgbm_bag_meta.json"), encoding="utf-8") as f:
+        m = json.load(f)
+    fc, med, n_folds = m["feat_cols"], m.get("medians", {}), m["n_folds"]
+    X = _build_feature_matrix(df, fc, med, impute_medians)
+    preds = np.zeros(len(df))
+    for k in range(n_folds):
+        bst = lgb.Booster(model_file=os.path.join(model_dir, f"lgbm_model_fold{k}.txt"))
+        preds += bst.predict(X)
+    preds /= n_folds
+    return _invert_y(preds, y_transform, y_params)
+
+
 def _predict_by_type(model_type: str, df: pd.DataFrame, model_dir: str,
                      feat_cols_from_meta: list, impute_medians: dict,
                      y_transform: str, y_params: dict) -> np.ndarray:
@@ -188,6 +208,8 @@ def _predict_by_type(model_type: str, df: pd.DataFrame, model_dir: str,
         return _predict_mlp(df, model_dir, impute_medians, y_transform, y_params)
     if model_type in ("rf", "xt"):
         return _predict_lgbm_bag(model_type, df, model_dir, impute_medians, y_transform, y_params)
+    if model_type == "lgbm_bag":
+        return _predict_lgbm_foldbag(df, model_dir, impute_medians, y_transform, y_params)
     raise ValueError(f"未知のモデル種別: {model_type}")
 
 
@@ -312,6 +334,9 @@ def _collect_required_cols(model_type: str, model_dir: str, meta: dict) -> list:
         return (m or {}).get("feat_cols", meta.get("feat_cols", []))
     if model_type in ("rf", "xt"):
         cols = _json_cols(f"{model_type}_meta.json")
+        return cols if cols else meta.get("feat_cols", [])
+    if model_type == "lgbm_bag":
+        cols = _json_cols("lgbm_bag_meta.json")
         return cols if cols else meta.get("feat_cols", [])
     fname = {"linear": "linear_model.pkl", "gp": "gp_model.pkl", "mlp": "mlp_model.pkl"}.get(model_type)
     if fname:

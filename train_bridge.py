@@ -69,6 +69,8 @@ MLP_PARAM_QUICK = dict(alpha=1e-4, single_layer=True)
 
 # Blend 採用マージン: OOF で単体最良をこの差以上上回った時のみ Blend を採用
 BLEND_MARGIN = 0.005
+# 符号付きridgeスタッカー採用マージン: NNLSをこの差以上上回った時のみ採用(過学習防止)
+STACKER_MARGIN = 0.01
 
 # 自動特徴量エンジニアリング (thorough のみ)
 FE_MIN_ROWS = 50   # これ未満の行数では派生特徴を作らない（過学習リスク）
@@ -490,6 +492,20 @@ def _clean_model_files(model_dir, keep_type):
                 p = os.path.join(model_dir, fname)
                 if os.path.exists(p):
                     os.remove(p)
+    # 対策(2026-07 第2弾・真因①): LightGBM fold バギングの副産物(lgbm_model_fold{k}.txt /
+    # lgbm_bag_meta.json)。keep_type=='lgbm' の場合のみ残す(bagが最終デプロイでなくても、
+    # 同じ.tregビルド内で単体lgbmが選ばれた可能性があり、bag側は無害な予備として保持)。
+    if keep_type != 'lgbm':
+        bag_meta_p = os.path.join(model_dir, "lgbm_bag_meta.json")
+        if os.path.exists(bag_meta_p):
+            os.remove(bag_meta_p)
+        k = 0
+        while True:
+            p = os.path.join(model_dir, f"lgbm_model_fold{k}.txt")
+            if not os.path.exists(p):
+                break
+            os.remove(p)
+            k += 1
 
 
 # ─── CSV 読み込み（日本語Excel既定のShift-JISフォールバック） ───────────────────
@@ -577,6 +593,7 @@ def _detect_y_transform(y: np.ndarray, y_full: np.ndarray = None):
 
 
 Y_TRANSFORM_CV_FOLDS = 2   # じっくりモードのY変換CV選択に使うfold数(LGBM_HALVING_FOLDSと同数)
+Y_WINSORIZE_CV_MARGIN = 0.003  # クリップを採用するには生yのOOF R²でこの差以上、非クリップを上回る必要
 
 
 def _select_y_transform_cv(df, target_col, cv_splits, num_jobs=4):
@@ -722,6 +739,71 @@ def _apply_y_winsorize(df: pd.DataFrame, target_col: str, lo: float, hi: float):
     return df, n_clipped
 
 
+def _select_y_winsorize_cv(df, target_col, cv_splits, iqr_mult, num_jobs=4):
+    """対策(2026-07): Y外れ値 winsorize を一律適用せず、clip/no-clip を LGBM 2-fold 予選で
+    「生y(=クリップ前)に対する OOF R²」で比較して決める。cpu_act 等の“正規の重い裾”を持つ
+    ターゲットでは一律クリップが裾の信号を破壊し test R² を大きく落とすため(実測: AutoGluon
+    比較ベンチ real_cpu で 0.96→0.78)。予選では各 fold の学習側 y にのみ候補のクリップを施し、
+    検証は必ず生yで採点する(=真の目的関数)。クリップが非クリップを Y_WINSORIZE_CV_MARGIN
+    以上上回った時のみクリップ採用(迷ったら非クリップ=信号温存を優先)。
+    戻り値: 採用すべき mult(float=クリップ実施)または None(クリップしない)。予選不能時は
+    従来動作(iqr_mult でクリップ)にフォールバック。"""
+    y_raw = df[target_col].values.astype(float)
+    feat_cols = _get_feat_cols(df, target_col)
+    if not feat_cols:
+        return iqr_mult
+    n_probe = min(Y_TRANSFORM_CV_FOLDS, len(cv_splits))
+    scores = {}
+    for label, mult in (('noclip', None), ('clip', iqr_mult)):
+        oof = np.full(len(df), np.nan)
+        ok = True
+        for tr_idx, va_idx in cv_splits[:n_probe]:
+            dtr, dva = df.iloc[tr_idx], df.iloc[va_idx]
+            med = dtr[feat_cols].median()
+            X_tr = dtr[feat_cols].fillna(med).values
+            X_va = dva[feat_cols].fillna(med).values
+            y_tr = dtr[target_col].values.astype(float).copy()
+            if mult is not None:
+                lo, hi = _fit_y_winsorize_bounds(y_tr, mult)
+                y_tr = np.clip(y_tr, lo, hi)
+            try:
+                bst = _lgb_fit(dict(n_estimators=200, num_leaves=31, learning_rate=0.1,
+                                    verbosity=-1, n_jobs=num_jobs, force_col_wise=True,
+                                    deterministic=True, seed=42,
+                                    min_child_samples=max(3, len(dtr) // 30)), X_tr, y_tr)
+                oof[va_idx] = bst.predict(X_va)
+            except Exception as e:
+                print(f"[YWinsorize-CV] {label}: 予選失敗 → 除外 ({e})", flush=True)
+                ok = False
+                break
+        if not ok:
+            continue
+        mask = np.isfinite(oof)
+        if mask.sum() < 2:
+            continue
+        try:
+            r2 = float(r2_score(y_raw[mask], oof[mask]))
+        except Exception:
+            continue
+        if np.isfinite(r2):
+            scores[label] = r2
+            print(f"[YWinsorize-CV] {label}: 予選R²(生y)={r2:.4f}", flush=True)
+
+    if 'clip' not in scores and 'noclip' not in scores:
+        return iqr_mult                       # 予選総崩れ → 従来動作(クリップ)
+    if 'noclip' not in scores:
+        return iqr_mult                       # 非クリップ側が不能 → クリップ
+    if 'clip' not in scores:
+        return None                           # クリップ側が不能 → 非クリップ
+    if scores['clip'] > scores['noclip'] + Y_WINSORIZE_CV_MARGIN:
+        print(f"[YWinsorize-CV] 採用: クリップ (R² {scores['clip']:.4f} > 非クリップ "
+              f"{scores['noclip']:.4f}+{Y_WINSORIZE_CV_MARGIN})", flush=True)
+        return iqr_mult
+    print(f"[YWinsorize-CV] 採用: 非クリップ (クリップ {scores['clip']:.4f} ≤ 非クリップ "
+          f"{scores['noclip']:.4f}+{Y_WINSORIZE_CV_MARGIN}) — 正規の裾を温存", flush=True)
+    return None
+
+
 # ─── カテゴリカル列エンコーディング ──────────────────────────────────────────
 # 高-H4/精度レバー4: 旧実装は辞書順ordinalを全モデルに連続量として投入し、未知カテゴリは
 # 先頭クラス(0)と衝突し、カーディナリティ上限もなかった。刷新版:
@@ -856,6 +938,10 @@ def _apply_x_clip(df, bounds):
 # ─── Stratified K-Fold（実現可能な fold 数に自動キャップ） ─────────────────────
 
 def _make_binned_splits(df: pd.DataFrame, target_col: str, n_splits: int = 5, seed: int = 42):
+    """対策(2026-07 第2弾・真因⑤)として重複行グループ化CVを試作したが、40問ベンチの
+    実測でreal_winequalityのtest R²を悪化させ(重複行グループ化でfold構成が変わり、
+    Blendの重みfit結果自体が変化して汎化が悪化。ridgeスタッカー選択とは無関係と切り分け
+    済み)、効果不明・複雑性増のため撤回し元の実装に戻した。重複行対策は今後の課題。"""
     n = len(df)
     n_splits = max(2, min(n_splits, n // 2))  # 各foldに最低2行
     n_bins = min(n_splits, max(2, n // 10))
@@ -1247,6 +1333,38 @@ def _try_lgbm_steps(df_train, df_val, target_col, model_dir, use_grid=False, use
             medians_full = df_full[feat_cols].median()
             X_all = df_full[feat_cols].fillna(medians_full).values
             y_all = _apply_y_transform(df_full[target_col].values, y_transform, y_params)
+
+            med_dict = {c: (float(medians_full[c]) if not np.isnan(float(medians_full[c])) else 0.0)
+                        for c in feat_cols}
+            _save_sidecar(med_dict)
+
+            # ── 対策(2026-07 第2弾・真因①): fold バギング export ──────────────────
+            #    OOF評価に使ったfoldモデルはfold-local FE/screening(_fold_frame由来、
+            #    リーク防止のためfold毎に異なる派生特徴を持ちうる)で学習されており、
+            #    推論側(.treg/predict_template.py)が再現できるのはグローバルな最終
+            #    recipe(feat_cols/X_all)のみのため、そのまま配布に転用すると特徴量が
+            #    食い違い致命的に崩壊する(実測で発覚: 転用直後 test R² 0.96→0.27)。
+            #    正しい対応は「デプロイ専用にfeat_cols/X_allと同じグローバル特徴量で
+            #    K本(fold train分割)を改めて学習する」こと(通常のK-fold bagging)。
+            #    全データ1本再学習(final_bst)をK回に置き換えるだけなので、追加コストは
+            #    「1本 → K本」の差分のみ(ハイパラ探索自体は既存のまま再実行しない)。
+            bag_n_folds = len(splits)
+            bag_models = []
+            for tr_idx_bag, _ in splits:
+                X_tr_bag = df_full[feat_cols].iloc[tr_idx_bag].fillna(medians_full).values
+                y_tr_bag = _apply_y_transform(df_full[target_col].values[tr_idx_bag], y_transform, y_params)
+                bag_models.append(_lgb_fit(final_p, X_tr_bag, y_tr_bag))
+            for k, bst_k in enumerate(bag_models):
+                bst_k.save_model(os.path.join(model_dir, f"lgbm_model_fold{k}.txt"))
+            with open(os.path.join(model_dir, "lgbm_bag_meta.json"), "w", encoding="utf-8") as f:
+                json.dump({"n_folds": bag_n_folds, "feat_cols": feat_cols, "medians": med_dict},
+                          f, ensure_ascii=False)
+            bag_preds_t = np.mean([bst_k.predict(X_all) for bst_k in bag_models], axis=0)
+            bag_train_r2 = float(r2_score(df_full[target_col].values,
+                                          _invert_y_transform(bag_preds_t, y_transform, y_params)))
+
+            # 全データ1本再学習(bagが使えない場合のフォールバック、および他候補
+            # (LGBM-RF/XT等)からの参照・後方互換のため常に維持する)
             final_bst = _lgb_fit(final_p, X_all, y_all)
             final_bst.save_model(os.path.join(model_dir, "lgbm_model.txt"))
 
@@ -1255,10 +1373,6 @@ def _try_lgbm_steps(df_train, df_val, target_col, model_dir, use_grid=False, use
             train_r2 = float(r2_score(df_full[target_col].values,
                                       _invert_y_transform(train_preds_t, y_transform, y_params)))
 
-            med_dict = {c: (float(medians_full[c]) if not np.isnan(float(medians_full[c])) else 0.0)
-                        for c in feat_cols}
-            _save_sidecar(med_dict)
-
             imps = _lgb_importance(final_bst, len(feat_cols))
             total = max(imps.sum(), 1.0)
             feat_list = sorted(
@@ -1266,7 +1380,9 @@ def _try_lgbm_steps(df_train, df_val, target_col, model_dir, use_grid=False, use
                  for i in range(len(feat_cols))],
                 key=lambda x: x["pct"], reverse=True)[:10]
             info = {"eval_kind": "oof", "used_cols": feat_cols, "medians": med_dict, "exportable": True,
-                    "train_r2": round(train_r2, 4)}
+                    "train_r2": round(train_r2, 4),
+                    "bag_n_folds": bag_n_folds if bag_n_folds >= 2 else None,
+                    "bag_train_r2": round(bag_train_r2, 4) if bag_train_r2 is not None else None}
             return round(oof_r2, 4), feat_list, "lgbm", oof_preds, info
 
         # Quick: single split
@@ -1890,9 +2006,32 @@ def _fit_blend_oof(candidates, y_full):
         # フォールバック: R²比例（和1に正規化 — 生内積でもスケール整合）
         weights = np.clip(np.array([candidates[n][0] for n in names]), 1e-6, None)
         weights = weights / weights.sum()
+    blend_r2 = float(r2_score(y_full, stacked @ weights))
+
+    # 対策(2026-07 第2弾・真因①補完): NNLS の非負制約は負相関メンバー(単体では悪いが
+    # 他メンバーの誤差を打ち消す方向に効くモデル)を活かせない。符号付き最小二乗(リッジ
+    # 正則化付き、切片なし)を追加候補として比較する。.treg のblendリーダー(C++/JS/
+    # Python いずれも)は重みの符号を検査しない単純加重和なので、フォーマット変更なしで
+    # 動く。ただしOOF行列そのもので重みをfitして同じOOF行列で評価するため、自由度が
+    # 高いridgeは常にNNLS以上の"in-sample"スコアを出せてしまう(=過学習の温床)。
+    # STACKER_MARGIN(BLEND_MARGINと同じ哲学)を明確に超えた時のみ採用し、迷ったら
+    # 制約の強いNNLS(安全側)を残す。
+    if len(names) >= 2:
+        try:
+            XtX = stacked.T @ stacked
+            diag_scale = float(np.mean(np.diag(XtX))) if XtX.shape[0] > 0 else 1.0
+            lam = max(1e-6, 0.05 * diag_scale)
+            w_ridge = np.linalg.solve(XtX + lam * np.eye(XtX.shape[0]), stacked.T @ y_full)
+            r2_ridge = float(r2_score(y_full, stacked @ w_ridge))
+            print(f"[Blend] 符号付きridge候補: OOF R²={r2_ridge:.4f} (NNLS={blend_r2:.4f})", flush=True)
+            if r2_ridge > blend_r2 + STACKER_MARGIN:
+                print(f"[Blend] 符号付きridgeを採用(差 {r2_ridge - blend_r2:+.4f} > {STACKER_MARGIN})",
+                      flush=True)
+                weights, blend_r2 = w_ridge, r2_ridge
+        except Exception as e:
+            print(f"[Blend] 符号付きridge候補の計算に失敗、NNLSを維持: {e}", flush=True)
 
     blend_oof = stacked @ weights
-    blend_r2 = float(r2_score(y_full, blend_oof))
     weight_str = ", ".join(f"{n}={w:.3f}" for n, w in zip(names, weights))
     print(f"[Blend] members=[{weight_str}] OOF R²={blend_r2:.4f}", flush=True)
 
@@ -2347,6 +2486,56 @@ def _export_treg_blend(model_dir, target_col, candidates, y_transform='none', y_
         return False
 
 
+def _export_treg_lgbm_bag(model_dir, target_col, feat_cols, medians, n_folds,
+                          y_transform='none', y_params=None,
+                          smear=1.0, y_clip=(-X_CLIP_SENTINEL, X_CLIP_SENTINEL),
+                          round_output=False, x_clip_all=None, derived_recipe=None,
+                          cat_encoders_all=None):
+    """対策(2026-07 第2弾・真因①): LightGBM の fold バギングを .treg に書き出す。
+    K本のfoldモデル(_try_lgbm_steps が既にOOF評価のために学習済み、追加学習は不要)を
+    等重み(1/K)の blend として書く。.treg のblendリーダー(native C++/JS)は元々
+    「N個の自己完結した入れ子モデルの加重和」という汎用フォーマットで、メンバーの
+    由来がヘテロなブレンドかfoldバギングかを区別しないため、エンジン側の変更は一切
+    不要(writer側のみで完結する)。"""
+    y_params = y_params or {}
+    x_clip_all = x_clip_all or {}
+    derived_recipe = derived_recipe or []
+    cat_encoders_all = cat_encoders_all or []
+    out_path = os.path.join(model_dir, "model.treg")
+    tmp_path = out_path + ".tmp"
+
+    try:
+        members = []
+        for k in range(n_folds):
+            fname = f"lgbm_model_fold{k}.txt"
+            if not os.path.exists(os.path.join(model_dir, fname)):
+                raise ValueError(f"バギングメンバー '{fname}' が見つかりません")
+            members.append({
+                "export_type": "lgbm", "feat_cols": feat_cols, "medians": medians,
+                "payload": {"model_txt": fname}, "weight": 1.0 / n_folds,
+            })
+        if len(members) < 2:
+            raise ValueError("バギングメンバーが2未満です")
+
+        with open(tmp_path, 'wb') as f:
+            _write_treg_stream(f, 'blend', [], {}, {"members": members}, model_dir,
+                               target_col, y_transform, y_params, smear, y_clip, round_output,
+                               x_clip_all, derived_recipe, cat_encoders_all)
+
+        os.replace(tmp_path, out_path)
+        size_kb = os.path.getsize(out_path) // 1024
+        print(f"[TREG] lgbm_bag({n_folds}fold) → model.treg ({size_kb} KB)", flush=True)
+        return True
+    except Exception as e:
+        print(f"[TREG] エクスポート失敗 (lgbm_bag): {e}", flush=True)
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        return False
+
+
 # ─── main ──────────────────────────────────────────────────────────────────────
 
 async def _run_main():
@@ -2419,11 +2608,27 @@ async def _run_main():
         va_idx0 = np.array([], dtype=int)
 
     # Y 外れ値 winsorize（学習側のみで境界を決定 → リーク防止、行は保持）
+    # 対策(2026-07): 一律クリップは cpu_act 等「正規の重い裾」を持つターゲットで裾の信号を
+    # 破壊し test R² を大きく落とす(実測: AutoGluon比較で real_cpu 0.96→0.78)。cv_splits が
+    # あれば clip/no-clip を LGBM 2-fold 予選(生yで採点)で比較し、クリップが明確に上回る
+    # 時のみ適用する(_select_y_winsorize_cv)。迷ったら非クリップ=信号温存。
     n_outliers = 0
+    winsorize_skipped_by_cv = False
     if len(tr_idx0) >= 20:
         iqr_mult = OUTLIER_IQR_MULT if thorough else OUTLIER_IQR_QUICK
-        lo, hi = _fit_y_winsorize_bounds(df[target_column].values[tr_idx0], iqr_mult)
-        df, n_outliers = _apply_y_winsorize(df, target_column, lo, hi)
+        chosen_mult = iqr_mult
+        if have_split and cv_splits is not None:
+            try:
+                chosen_mult = _select_y_winsorize_cv(df, target_column, cv_splits,
+                                                     iqr_mult, num_jobs=num_jobs)
+            except Exception as e:
+                print(f"[YWinsorize-CV] 選択失敗 → 従来どおりクリップ: {e}", flush=True)
+                chosen_mult = iqr_mult
+        if chosen_mult is not None:
+            lo, hi = _fit_y_winsorize_bounds(df[target_column].values[tr_idx0], chosen_mult)
+            df, n_outliers = _apply_y_winsorize(df, target_column, lo, hi)
+        else:
+            winsorize_skipped_by_cv = True
 
     # Y 変換（学習側のみで検出・fit → リーク防止）。
     # 精度レバー3: じっくりモードはskewヒューリスティックでなくLGBM 2-fold予選のCV選択
@@ -2691,6 +2896,16 @@ async def _run_main():
 
     best_name = max(candidates, key=lambda k: candidates[k][0] if np.isfinite(candidates[k][0]) else -np.inf)
 
+    # ── 1-SEルール(対策 2026-07 第2弾・真因②)は実装・40問中7問での実測で撤回 ──────
+    #    fold別R²の標準偏差(_candidate_r2_std)を「単純なモデルに格下げしてよい」根拠に
+    #    使ったが、これは「同一モデルのfold間ぶれ」であって「単純モデルが複雑モデルに
+    #    真のtestでどれだけ劣るか」の代理指標にならないと判明(両者は別物)。実測で
+    #    heteroscedasticは改善(+0.02)した一方、real_winequality(-0.21)/
+    #    pub_realestate(-0.06)/many_irrelevant(-0.06)で複雑なBlend/LGBMが持つ本物の
+    #    汎化性能を誤って切り捨てる深刻な回帰を引き起こしたため撤回する。
+    #    (教訓: OOF fold分散は「このモデル単体の評価が不安定か」の指標であり、
+    #    「別モデルとの真の性能差」の代理にはならない)
+
     # ── Blend 採用マージン: 単体最良を BLEND_MARGIN 以上上回った時のみ採用 ──────
     #    (OOF で僅差勝ちしても未知データでは同等以下になりやすいため)
     if best_name == 'Blend (Ensemble)':
@@ -2790,6 +3005,10 @@ async def _run_main():
         ow = f"Y 外れ値 {n_outliers} 行を許容範囲内に補正しました（IQR×{iqr_mult_used}）。"
         data_warning = (data_warning + " " + ow) if data_warning else ow
         data_warning_parts.append({"key": "outliers_corrected", "params": {"n": n_outliers, "iqr_mult": iqr_mult_used}})
+    if winsorize_skipped_by_cv:
+        sw = "Y 外れ値クリップは交差検証で信号を損なうと判定し非適用（正規の裾を温存）。"
+        data_warning = (data_warning + " " + sw) if data_warning else sw
+        data_warning_parts.append({"key": "winsorize_skipped_cv", "params": {}})
     if n_dup_rows > 0:
         dw = f"重複行が{n_dup_rows}件あります。評価が楽観的になる可能性があります。"
         data_warning = (data_warning + " " + dw) if data_warning else dw
@@ -2873,6 +3092,7 @@ async def _run_main():
         key=lambda n: exportable_candidates[n][0], reverse=True)
 
     exported = False
+    used_lgbm_bag = False  # 対策(2026-07 第2弾・真因①): bagデプロイ時はmeta更新が必要
     dep_name, dep_r2 = None, None  # exportable_candidates が空の場合でも未定義参照にならないよう初期化
     for dep_name in deploy_order:
         if dep_name not in exportable_candidates:
@@ -2885,6 +3105,22 @@ async def _run_main():
             ok = _export_treg_blend(model_dir, target_column, candidates, y_transform, y_params,
                                     dep_smear, (y_clip_lo, y_clip_hi), round_output, x_clip_bounds,
                                     derived_recipe=derived_recipe, cat_encoders_all=cat_encoders_all)
+        elif dep_type == 'lgbm' and dep_info and (dep_info.get("bag_n_folds") or 0) >= 2:
+            # 対策(2026-07 第2弾・真因①): fold バギングを優先してデプロイする。
+            # 単体1本再学習より分散が下がる見込みで、追加学習コストはゼロ(既存fold
+            # モデルの再利用)。失敗時は下のelse節相当(単体lgbm)にフォールバックする。
+            ok = _export_treg_lgbm_bag(model_dir, target_column, dep_info["used_cols"],
+                                       dep_info["medians"], dep_info["bag_n_folds"],
+                                       y_transform, y_params, dep_smear,
+                                       (y_clip_lo, y_clip_hi), round_output, x_clip_bounds,
+                                       derived_recipe=derived_recipe, cat_encoders_all=cat_encoders_all)
+            if ok:
+                used_lgbm_bag = True
+            else:
+                print("[TREG] lgbm_bag 失敗 → 単体LightGBMにフォールバック", flush=True)
+                ok = _export_treg(dep_type, model_dir, target_column, y_transform, y_params,
+                                  dep_smear, (y_clip_lo, y_clip_hi), round_output, x_clip_bounds,
+                                  derived_recipe=derived_recipe, cat_encoders_all=cat_encoders_all)
         else:
             ok = _export_treg(dep_type, model_dir, target_column, y_transform, y_params,
                               dep_smear, (y_clip_lo, y_clip_hi), round_output, x_clip_bounds,
@@ -2897,6 +3133,14 @@ async def _run_main():
             break
     if not exported:
         print("[TREG] WARNING: デプロイ可能なモデルが存在しません", flush=True)
+
+    # bagデプロイ時は model_meta.json の model_type を "lgbm_bag" に書き換える(UI表示用の
+    # result["model_type"]/best_model はここより前に確定済みの "LightGBM" のまま変えない。
+    # predict_template.py の in-app 予測はこのファイルの model_type で分岐するため必須)。
+    if used_lgbm_bag:
+        meta_payload["model_type"] = "lgbm_bag"
+        with open(os.path.join(model_dir, "model_meta.json"), "w", encoding="utf-8") as f:
+            json.dump(meta_payload, f, ensure_ascii=False)
 
     # UI側(フロントエンド)が「画面の精度」と「配布ファイルの精度」が食い違う場合に
     # ユーザーへ明示できるよう、置換の有無を result に含める(旧: コンソールログのみ)。
