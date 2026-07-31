@@ -170,8 +170,10 @@ web/offline.html をエクスプローラーで直接ダブルクリックする
 2. `index.html` がルートに来るよう `web/` の中身（`vendor/` を含む）をアップロード
 3. Space の URL を共有
 
-いずれも `py/` `vendor/` `assets/` `sample_data.csv` `predict_template.html` を同じ階層に含めること
-(`predict_template.html` が無いと「学習済モデルのDL」が失敗する)。
+いずれも `py/` `vendor/` `assets/` `sample_data.csv` `predict_template.html`
+`treg-engine.js` `treg-worker.js` `treg-worker-client.js` を同じ階層に含めること
+(`predict_template.html` が無いと「学習済モデルのDL」が失敗する。`treg-*.js` 3点が
+無いと `index.html` の動的import(`./treg-worker-client.js`)が404し起動自体に失敗する)。
 `vendor/` は約43MBあるため、リポジトリサイズやアップロード時間に注意（Git LFS推奨のケースもある）。
 
 ### 利用規約への同意（CC BY-NC 4.0）
