@@ -137,13 +137,27 @@
         .lang-toggle-btn:hover:not(.active) { color: var(--ink); background: rgba(255,255,255,0.04); }
 
         /* ─ 設定オーバーレイ ─ */
-        #settingsOverlay {
+        #settingsOverlay, #creditOverlay {
             position: fixed; inset: 0; background: rgba(0,0,0,0.75);
             z-index: 100; display: flex; justify-content: center; align-items: center;
         }
         #settingsPanel {
             background: #080d18; border: 1px solid rgba(63,196,236,0.2);
-            border-radius: 12px; padding: 24px 28px; width: min(400px, calc(100vw - 48px));
+            border-radius: 12px; padding: 24px 28px; width: min(620px, calc(100vw - 48px));
+            box-shadow: 0 25px 80px rgba(0,0,0,0.85);
+        }
+        /* 2026-07指摘: モード選択+説明文+CPU設定+Aboutが縦一列に並び縦長すぎた。
+           左列に操作系(モード選択・CPU並列数)、右列にモード説明を並べ横長にする。
+           Aboutはライセンス専用パネル(#creditPanel)へ分離したため、ここには残らない。 */
+        .settings-body-grid { display: grid; grid-template-columns: 200px 1fr; gap: 24px; align-items: start; }
+        .settings-col { display: flex; flex-direction: column; }
+        .settings-body-grid .settings-info-box { margin-top: 0; }
+        @media (max-width: 560px) {
+            .settings-body-grid { grid-template-columns: 1fr; }
+        }
+        #creditPanel {
+            background: #080d18; border: 1px solid rgba(63,196,236,0.2);
+            border-radius: 12px; padding: 24px 28px; width: min(420px, calc(100vw - 48px));
             box-shadow: 0 25px 80px rgba(0,0,0,0.85);
         }
         .settings-header {
@@ -238,7 +252,10 @@
             background: rgba(63,196,236,0.015); display: flex; flex-direction: column;
             justify-content: center; align-items: center; cursor: pointer;
         }
-        .drop-zone-hint { font-size: 11.5px; color: #4a6a80; font-weight: 600; letter-spacing: 0.4px; }
+        /* 2026-07指摘: TRAIN/DOWNLOADボタン(.btn、font-display書体)と、CSVドロップ枠内の
+           テキスト(.drop-zone-hint/.predict-sub-label)が別書体・別ウェイトで統一感が
+           なかった。4ステップの主要ラベルを同じ書体・太さ・字間・大文字化に揃える。 */
+        .drop-zone-hint { font-family: var(--font-display); font-size: 12.5px; color: var(--cyan); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
         .drop-zone .file-name {
             font-family: var(--font-mono); font-size: 11.5px; color: #4b5563; font-weight: 500; margin-top: 2px;
             letter-spacing: 0.2px; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -268,11 +285,11 @@
             50%      { box-shadow: 0 0 28px rgba(240,169,78,0.72); opacity: 0.95; }
         }
 
-        .predict-sub-label { font-size: 11px; font-weight: 500; letter-spacing: 0.5px; color: #4a6a80; margin-top: 2px; }
-        .drop-predict-ready .predict-sub-label { color: #3ac48f; font-size: 12px; }
-        .drop-predict-retry .predict-sub-label { color: var(--retry); font-size: 12px; }
+        .predict-sub-label { font-family: var(--font-display); font-size: 12.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #4a6a80; margin-top: 2px; }
+        .drop-predict-ready .predict-sub-label { color: #3ac48f; }
+        .drop-predict-retry .predict-sub-label { color: var(--retry); }
         .drop-predict-blocked { background: rgba(239,68,68,0.03) !important; border-color: rgba(239,68,68,0.2) !important; cursor: not-allowed !important; pointer-events: none !important; }
-        .drop-predict-blocked .predict-sub-label { color: #fca5a5 !important; font-size: 12px; }
+        .drop-predict-blocked .predict-sub-label { color: #fca5a5 !important; }
 
         .drop-zone-disabled, .btn:disabled {
             background: #06090f !important; color: var(--ink-faint) !important;
@@ -311,7 +328,9 @@
 
         /* ─ メイン ─ */
         .main-content { flex: 1; display: flex; gap: 18px; min-height: 0; }
-        .char-panel { width: 260px; min-width: 220px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding-bottom: 90px; }
+        /* 2026-07指摘: ロボ+吹き出しの位置が上に寄りすぎて下側だけ余白が大きく見えた。
+           下パディングを実測(topGap9px:bottomGap94px)から均等化する値に調整。 */
+        .char-panel { width: 260px; min-width: 220px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding-bottom: 50px; }
 
         /* チャットバブル（サンプルCSVボタン付き） */
         .chat-bubble {
@@ -668,7 +687,7 @@
     <div class="wf-step">
         <div class="step-hdr"><span class="step-num sn-4">4</span>DEPLOY</div>
         <div class="deploy-col">
-            <button id="exportBtn" class="btn" disabled data-i18n="ui.exportBtn">学習済モデルのDL</button>
+            <button id="exportBtn" class="btn" disabled data-i18n="ui.exportBtn">モデルをDL</button>
             <div id="deployNote" class="deploy-note"></div>
         </div>
     </div>
@@ -805,33 +824,44 @@
             <span class="settings-title">SETTINGS</span>
             <button id="settingsCloseBtn" class="settings-close-btn">✕</button>
         </div>
-        <div class="settings-row">
-            <div class="settings-label" data-i18n="ui.settingsModeLabel">モード</div>
-            <select id="modelStrategySelect" class="settings-select">
-                <option value="instant" data-i18n="ui.settingsModeInstant" selected>瞬速</option>
-                <option value="quick" data-i18n="ui.settingsModeQuick">お急ぎ</option>
-                <option value="thorough" data-i18n="ui.settingsModeThorough">じっくり</option>
-            </select>
-        </div>
-        <div class="settings-info-box">
-            <div class="settings-info-title" data-i18n="ui.settingsInfoTitle">モードについて</div>
-            <div class="settings-info-body" data-i18n="ui.settingsInfoBody">
-                <b>瞬速</b>：学習データが多い場合に一部の行だけを使って手早く学習し、お急ぎよりもさらに短時間で結果を返します（精度はお急ぎよりやや下がることがあります）。<br>
-                <b>お急ぎ</b>：線形回帰・LightGBM・ガウス過程・ニューラルネットの4種類（データ量により自動選択）を標準設定で手早く学習し、最も精度の良いものを採用します。<br>
-                <b>じっくり</b>：交差検証で公平に評価しながら、特徴量どうしの掛け合わせなど新しい特徴量を自動生成し、多数のパラメータ候補を予選→本戦方式で幅広く探索。さらに6種類のモデルを最適な重みで組み合わせるアンサンブルも試し、より高い精度を追求します（学習時間は数十秒〜数分）。
+        <div class="settings-body-grid">
+            <div class="settings-col">
+                <div class="settings-row">
+                    <div class="settings-label" data-i18n="ui.settingsModeLabel">モード</div>
+                    <select id="modelStrategySelect" class="settings-select">
+                        <option value="instant" data-i18n="ui.settingsModeInstant" selected>瞬速</option>
+                        <option value="quick" data-i18n="ui.settingsModeQuick">お急ぎ</option>
+                        <option value="thorough" data-i18n="ui.settingsModeThorough">じっくり</option>
+                    </select>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-label" data-i18n="ui.settingsCpuJobsLabel">CPU並列数</div>
+                    <input id="cpuNumJobsInput" type="number" class="settings-select" value="4" min="1" max="16">
+                </div>
+            </div>
+            <div class="settings-info-box">
+                <div class="settings-info-title" data-i18n="ui.settingsInfoTitle">モードについて</div>
+                <div class="settings-info-body" data-i18n="ui.settingsInfoBody">
+                    <b>瞬速</b>：学習データが多い場合に一部の行だけを使って手早く学習し、お急ぎよりもさらに短時間で結果を返します（精度はお急ぎよりやや下がることがあります）。<br>
+                    <b>お急ぎ</b>：線形回帰・LightGBM・ガウス過程・ニューラルネットの4種類（データ量により自動選択）を標準設定で手早く学習し、最も精度の良いものを採用します。<br>
+                    <b>じっくり</b>：交差検証で公平に評価しながら、特徴量どうしの掛け合わせなど新しい特徴量を自動生成し、多数のパラメータ候補を予選→本戦方式で幅広く探索。さらに6種類のモデルを最適な重みで組み合わせるアンサンブルも試し、より高い精度を追求します（学習時間は数十秒〜数分）。
+                </div>
             </div>
         </div>
-        <div class="settings-row">
-            <div class="settings-label" data-i18n="ui.settingsCpuJobsLabel">CPU並列数</div>
-            <input id="cpuNumJobsInput" type="number" class="settings-select" value="4" min="1" max="16">
+    </div>
+</div>
+
+<!-- ─ ライセンス・連絡先パネル(ステータスバーのクレジット表示クリックで開く) ─ -->
+<div id="creditOverlay" style="display:none;">
+    <div id="creditPanel">
+        <div class="settings-header">
+            <span class="settings-title" data-i18n="ui.creditTitle">LICENSE &amp; CONTACT</span>
+            <button id="creditCloseBtn" class="settings-close-btn">✕</button>
         </div>
-        <div class="settings-info-box" style="margin-top:14px;">
-            <div class="settings-info-title" data-i18n="ui.settingsAboutTitle">About</div>
-            <div class="settings-info-body" data-i18n="ui.settingsAboutBody">
-                作者: Kohei Shintani, Ph.D.<br>
-                連絡先: <a href="mailto:mailad4me@gmail.com">mailad4me@gmail.com</a><br>
-                ライセンス: <b>CC BY-NC 4.0</b>（表示・非営利）— 商用利用には事前のご連絡・許諾が必要です。詳細は初回同意画面をご参照ください。
-            </div>
+        <div class="settings-info-body" data-i18n="ui.settingsAboutBody">
+            作者: Kohei Shintani, Ph.D.<br>
+            連絡先: <a href="mailto:mailad4me@gmail.com">mailad4me@gmail.com</a><br>
+            ライセンス: <b>CC BY-NC 4.0</b>（表示・非営利）— 商用利用には事前のご連絡・許諾が必要です。詳細は初回同意画面をご参照ください。
         </div>
     </div>
 </div>
@@ -882,7 +912,7 @@
             'ui.settingsBtnTitle': '設定',
             'ui.dropZoneHint': '↓ CSV をドロップ',
             'ui.predictSubLabelInitial': '学習後に使えます',
-            'ui.exportBtn': '学習済モデルのDL',
+            'ui.exportBtn': 'モデルをDL',
             'ui.chatTextInitial': '学習データを左の枠にドロップしてね。',
             'ui.sampleCsvBtn': 'サンプルCSVを入手',
             'ui.targetSelectSub': '予測したい列を選んでください（右端がデフォルト）',
@@ -911,6 +941,7 @@
                 '作者: Kohei Shintani, Ph.D.<br>' +
                 '連絡先: <a href="mailto:mailad4me@gmail.com">mailad4me@gmail.com</a><br>' +
                 'ライセンス: <b>CC BY-NC 4.0</b>（表示・非営利）— 商用利用には事前のご連絡・許諾が必要です。詳細は初回同意画面をご参照ください。',
+            'ui.creditTitle': 'ライセンス・連絡先',
             'ui.footerCredit': '© Kohei Shintani, Ph.D. · CC BY-NC 4.0',
 
             'startup.resourceCheck': 'リソース確認...',
@@ -1105,7 +1136,7 @@
             'ui.settingsBtnTitle': 'Settings',
             'ui.dropZoneHint': '↓ Drop CSV here',
             'ui.predictSubLabelInitial': 'Available after training',
-            'ui.exportBtn': 'Download trained model',
+            'ui.exportBtn': 'Download model',
             'ui.chatTextInitial': 'Drop your training data into the box on the left.',
             'ui.sampleCsvBtn': 'Get sample CSV',
             'ui.targetSelectSub': 'Choose the column to predict (rightmost is default)',
@@ -1134,6 +1165,7 @@
                 'Author: Kohei Shintani, Ph.D.<br>' +
                 'Contact: <a href="mailto:mailad4me@gmail.com">mailad4me@gmail.com</a><br>' +
                 'License: <b>CC BY-NC 4.0</b> (Attribution-NonCommercial) — commercial use requires prior contact and permission. See the first-run consent screen for details.',
+            'ui.creditTitle': 'License & Contact',
             'ui.footerCredit': '© Kohei Shintani, Ph.D. · CC BY-NC 4.0',
 
             'startup.resourceCheck': 'Checking resources...',
@@ -1222,7 +1254,7 @@
             'ui.maeLabel': 'MAE {{v}}',
             'ui.r2Below0': 'R²<0: not accurate enough',
             'ui.deployBlockedNote': 'Cannot deploy — accuracy too low',
-            'ui.predictReadyHint': '↓ Drop or click to select a CSV',
+            'ui.predictReadyHint': '↓ Drop / Click CSV',
             'ui.noExportableModel': '⚠ No exportable model available',
             'ui.deploySubstitutedNote': 'Deploying with {{model}} (R²={{r2}}) instead',
             'ui.predictAgainHint': '↩ Predict again',
@@ -1969,6 +2001,8 @@
     const settingsBtn         = document.getElementById('settingsBtn');
     const settingsOverlay     = document.getElementById('settingsOverlay');
     const settingsCloseBtn    = document.getElementById('settingsCloseBtn');
+    const creditOverlay       = document.getElementById('creditOverlay');
+    const creditCloseBtn      = document.getElementById('creditCloseBtn');
     const stageInitial        = document.getElementById('stage-initial');
     const stageTrained        = document.getElementById('stage-trained');
     const stageError          = document.getElementById('stage-error');
@@ -2271,15 +2305,24 @@
 
     // ── 設定パネル ────────────────────────────────────────────────────────────
     settingsBtn.addEventListener('click', () => { settingsOverlay.style.display = 'flex'; });
-    document.querySelector('.sb-credit').addEventListener('click', () => { settingsOverlay.style.display = 'flex'; });
     settingsCloseBtn.addEventListener('click', () => { settingsOverlay.style.display = 'none'; });
     settingsOverlay.addEventListener('click', (e) => {
         if (e.target === settingsOverlay) settingsOverlay.style.display = 'none';
     });
-    // 低-3: 設定オーバーレイをEscキーでも閉じられるようにする(モーダル系UIの標準操作)。
+    // 2026-07: ステータスバーのクレジット表示は設定パネル全体ではなく、ライセンス・
+    // 連絡先だけを表示する専用の軽量パネルを開く(モード設定と混ぜない)。
+    document.querySelector('.sb-credit').addEventListener('click', () => { creditOverlay.style.display = 'flex'; });
+    creditCloseBtn.addEventListener('click', () => { creditOverlay.style.display = 'none'; });
+    creditOverlay.addEventListener('click', (e) => {
+        if (e.target === creditOverlay) creditOverlay.style.display = 'none';
+    });
+    // 低-3: 設定/クレジットオーバーレイをEscキーでも閉じられるようにする(モーダル系UIの標準操作)。
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && settingsOverlay.style.display !== 'none') {
             settingsOverlay.style.display = 'none';
+        }
+        if (e.key === 'Escape' && creditOverlay.style.display !== 'none') {
+            creditOverlay.style.display = 'none';
         }
     });
     if (!IS_TAURI) {
@@ -2437,9 +2480,13 @@
         const maxR2 = finiteR2.length > 0 ? Math.max(...finiteR2) : 0;
         const minR2 = finiteR2.length > 0 ? Math.min(...finiteR2) : 0;
         const r2Span = maxR2 - minR2;
+        // 2026-07指摘: 採用モデルを★プレフィックスで示すと見落とされやすかった。
+        // ★を廃止し、採用モデルだけ配色(DEPLOYステップと同じgold系)を変えて一目でわかるようにする。
         const BAR_BASE = '#3fc4ec';
+        const BAR_BEST = '#f0a94e';
         candidates.forEach((c, i) => {
             const alpha = c.is_best ? 1 : Math.max(0.45, 1 - i * 0.07);
+            const barColor = c.is_best ? BAR_BEST : BAR_BASE;
             const hasR2 = typeof c.r2 === 'number' && isFinite(c.r2);
             // maxR2に対する比率だけで幅を決めると、全候補のR²が0以下(精度不足)の場合に
             // 全バーが最小幅に潰れて相対順位が見えなくなる。min-max間の相対位置で
@@ -2449,15 +2496,16 @@
                 : 60; // 全候補が同スコアの場合は一律の中間幅
             const div = document.createElement('div'); div.className = 'feature-bar';
             const nm  = document.createElement('div'); nm.className = 'feature-name';
-            nm.title = c.name; nm.textContent = (c.is_best ? '★ ' : '') + c.name;
+            nm.title = c.name; nm.textContent = c.name;
+            if (c.is_best) { nm.style.color = BAR_BEST; nm.style.fontWeight = '700'; }
             const ct  = document.createElement('div'); ct.className = 'feature-line-container';
             const ln  = document.createElement('div'); ln.className = 'feature-line'; ln.dataset.pct = pct;
-            ln.style.background = `linear-gradient(90deg, ${BAR_BASE}28 0%, ${BAR_BASE}90 55%, ${BAR_BASE} 100%)`;
+            ln.style.background = `linear-gradient(90deg, ${barColor}28 0%, ${barColor}90 55%, ${barColor} 100%)`;
             ln.style.opacity = alpha;
-            ln.style.boxShadow = `0 0 8px ${BAR_BASE}60`;
+            ln.style.boxShadow = `0 0 8px ${barColor}60`;
             ct.appendChild(ln);
             const pt = document.createElement('div'); pt.className = 'feature-pct';
-            pt.style.color = `rgba(63,196,236,${alpha})`;
+            pt.style.color = c.is_best ? `rgba(240,169,78,${alpha})` : `rgba(63,196,236,${alpha})`;
             pt.textContent = hasR2 ? c.r2.toFixed(4) : '—';
             div.appendChild(nm); div.appendChild(ct); div.appendChild(pt);
             listEl.appendChild(div);
