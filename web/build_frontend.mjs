@@ -72,7 +72,7 @@ const CHARSET_RE = /<meta charset="UTF-8">/;
 
 function buildHttpVariant(html) {
   let out = html;
-  out = out.replace("<title>T-regressor</title>", "<title>T-regressor ブラウザ版</title>");
+  out = out.replace("<title>T-regressor</title>", "<title>T-regressor Web</title>");
   out = out.replace(CHARSET_RE, (m) => m + "\n    <link rel=\"icon\" href=\"./assets/icon256.png\">");
   out = out.replace(DOCTYPE_RE, (m) => m + GENERATED_NOTICE);
   return out;
@@ -80,7 +80,7 @@ function buildHttpVariant(html) {
 
 function buildOfflineVariant(html) {
   let out = html;
-  out = out.replace("<title>T-regressor</title>", "<title>T-regressor ブラウザ版（オフライン）</title>");
+  out = out.replace("<title>T-regressor</title>", "<title>T-regressor Web（オフライン）</title>");
   out = out.replace(CHARSET_RE, (m) => m + "\n    <link rel=\"icon\" href=\"./assets/icon256.png\">");
   out = out.replace(DOCTYPE_RE, (m) => m + GENERATED_NOTICE);
   // offline-engine.js は Import Maps を document.write で同期注入する必要があるため、

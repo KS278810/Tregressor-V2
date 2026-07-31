@@ -269,10 +269,14 @@
             align-items: center; justify-content: center; width: 100%;
         }
 
-        .btn-train-ready  { color: #fff; background: linear-gradient(135deg, var(--blue), var(--blue-deep)); border-color: #7ba3ec; box-shadow: 0 0 12px rgba(79,127,224,0.35); }
-        .drop-predict-ready { color: #fff; background: linear-gradient(135deg, #1ca574, var(--good-deep)); border-color: #4fe0a5; box-shadow: 0 0 12px rgba(47,214,142,0.3); }
-        .drop-predict-retry { color: #fff; background: linear-gradient(135deg, #a35a1e, #7a4013); border-color: var(--retry); box-shadow: 0 0 12px rgba(221,138,60,0.3); }
-        .btn-deploy-ready { color: #201203; background: linear-gradient(135deg, #f6bd6d, var(--gold)); border-color: #ffd699; box-shadow: 0 0 12px rgba(240,169,78,0.35); }
+        /* 2026-07指摘: 「準備完了」状態がステップごとに単色グラデーション塗りつぶし(白文字)
+           だったため、①②(未着手/完了・淡い表示)と③④(塗りつぶし・派手)が並ぶとバラバラに
+           見えた。.sn-1〜4の番号バッジと同じ「淡い背景+同系色の縁取り+同系色の文字」を
+           全ステップ共通の言語にして統一する。 */
+        .btn-train-ready  { color: var(--blue); background: rgba(79,127,224,0.12); border-color: rgba(79,127,224,0.5); box-shadow: 0 0 12px rgba(79,127,224,0.18); }
+        .drop-predict-ready { color: var(--good); background: rgba(47,214,142,0.12); border-color: rgba(47,214,142,0.5); box-shadow: 0 0 12px rgba(47,214,142,0.18); }
+        .drop-predict-retry { color: var(--retry); background: rgba(221,138,60,0.12); border-color: rgba(221,138,60,0.5); box-shadow: 0 0 12px rgba(221,138,60,0.18); }
+        .btn-deploy-ready { color: var(--gold); background: rgba(240,169,78,0.12); border-color: rgba(240,169,78,0.5); box-shadow: 0 0 12px rgba(240,169,78,0.18); }
 
         .deploy-col { display: flex; flex-direction: column; gap: 5px; }
         .deploy-note { font-size: 11px; letter-spacing: 0.3px; color: var(--ink-dim); text-align: center; }
@@ -443,12 +447,11 @@
         .tr-tab:not(.active):hover { color: var(--cyan); border-color: rgba(63,196,236,0.22); }
 
         /* ─ 詳細ポップアップ ─ */
-        /* #settingsOverlayと同じ position:fixed;inset:0 パターン(body直下)を採用。以前は
-           .dashboard-panel内にネストしていたため、そのパネルの狭い領域にしか収まらず
-           「小さすぎる」原因になっていた(2026-07)。body直下に移すことでアプリキャンバス
-           全体(1100x720)を使えるようになる。 */
-        .detail-popup { position: fixed; inset: 0; background: rgba(2,4,8,0.92); border-radius: 12px; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; }
-        .detail-popup-inner { background: #080d18; border: 1px solid rgba(79,127,224,0.22); border-radius: 10px; padding: 20px 24px; width: min(880px, 100%); max-height: calc(100% - 32px); overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.85); }
+        /* 2026-07: 一度body直下のposition:fixed(アプリキャンバス全体)に拡大したが、
+           「そこまで大きくしなくてよい、元の右下パネル内に収まればよい」との指摘を受け
+           .dashboard-panel内のposition:absoluteへ戻した(グラフの正方形化で見やすさは確保)。 */
+        .detail-popup { position: absolute; inset: 0; background: rgba(2,4,8,0.92); border-radius: 12px; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 16px; }
+        .detail-popup-inner { background: #080d18; border: 1px solid rgba(79,127,224,0.22); border-radius: 10px; padding: 20px 24px; width: min(580px, 100%); max-height: calc(100% - 32px); overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.85); }
         .detail-popup-inner::-webkit-scrollbar { width: 5px; height: 5px; }
         .detail-popup-inner::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
         .detail-popup-inner::-webkit-scrollbar-thumb { background: rgba(47,214,142,0.2); border-radius: 3px; }
@@ -723,6 +726,15 @@
                     </div>
                 </div>
             </div>
+            <div id="detailPopup" class="detail-popup" style="display:none;">
+                <div class="detail-popup-inner">
+                    <div class="detail-popup-header">
+                        <span class="detail-popup-title">TRAINING DETAILS</span>
+                        <button class="detail-close-btn" onclick="closeDetailPopup()">✕</button>
+                    </div>
+                    <div id="detailContent"></div>
+                </div>
+            </div>
         </div>
 
         <!-- ④学習エラー -->
@@ -746,18 +758,6 @@
     </div>
     <div id="sbTimer" class="sb-timer" style="display:none;"></div>
     <div id="sbSavedPath" class="sb-saved-path" style="display:none;"></div>
-</div>
-
-<!-- ─ 学習詳細ポップアップ(#settingsOverlayと同じくbody直下でposition:fixed。
-     アプリキャンバス全体を使えるようにするため、以前の.dashboard-panel内ネストから移動) ─ -->
-<div id="detailPopup" class="detail-popup" style="display:none;">
-    <div class="detail-popup-inner">
-        <div class="detail-popup-header">
-            <span class="detail-popup-title">TRAINING DETAILS</span>
-            <button class="detail-close-btn" onclick="closeDetailPopup()">✕</button>
-        </div>
-        <div id="detailContent"></div>
-    </div>
 </div>
 
 <!-- ─ 設定パネル ─ -->
@@ -2128,7 +2128,9 @@
         const canvas = document.getElementById('scatterCanvas');
         if (!canvas) return;
         const cssW = canvas.parentElement.clientWidth || 320;
-        const cssH = 260;
+        // 2026-07指摘: 幅=コンテナ全幅・高さ=固定260pxだと散布図が引き伸ばされた
+        // 長方形になり見苦しい。予測=実測の対角線が視覚的に45°になるよう正方形にする。
+        const cssH = cssW;
         const dpr = window.devicePixelRatio || 1;
         canvas.width = Math.round(cssW * dpr);
         canvas.height = Math.round(cssH * dpr);
@@ -2843,7 +2845,11 @@
             return;
         }
         isBusy = 'training';
-        trainBtn.disabled = true; trainBtn.className = 'btn'; trainBtn.style.display = 'none';
+        trainBtn.disabled = true; trainBtn.className = 'btn';
+        // Web版はcancelTrain非対応(cancelBtnを出さない)ため、trainBtnまで隠すと
+        // 学習中にボタンが何も無い空白になってしまう(2026-07指摘)。cancelBtnに
+        // 差し替わる場合(exe版)のみtrainBtnを隠す。
+        if (Platform.capabilities.cancelTrain) trainBtn.style.display = 'none';
         // retrainThoroughBtn等、handleTrainDropを経由せず直接ここへ来る経路(既存学習結果への
         // 再学習)でも、学習中は前回結果のDEPLOYボタンを必ず無効化する(低-N2)。
         exportBtn.disabled = true; exportBtn.className = 'btn';
