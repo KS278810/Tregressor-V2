@@ -69,7 +69,16 @@
            (IS_TAURI 判定で .web-shell/.boxed は付与されない)。 */
         html.web-shell {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #020305; padding: 12px;
+            /* ブラウザ全体を単色の黒で埋めると殺風景に見える(2026-07指摘)ため、アプリ内部の
+               HUD/サイバー系トーン(--cyan/--blue/--gold)と揃えたごく淡いグロー+微細グリッドを
+               背景に敷く。アプリ本体(1100x720の箱)の視認性・コントラストには影響しない。 */
+            background:
+                radial-gradient(ellipse 1400px 900px at 50% 15%, rgba(63,196,236,0.10) 0%, transparent 55%),
+                radial-gradient(ellipse 1000px 700px at 85% 90%, rgba(240,169,78,0.06) 0%, transparent 60%),
+                repeating-linear-gradient(0deg,  rgba(63,196,236,0.025) 0px, rgba(63,196,236,0.025) 1px, transparent 1px, transparent 48px),
+                repeating-linear-gradient(90deg, rgba(63,196,236,0.025) 0px, rgba(63,196,236,0.025) 1px, transparent 1px, transparent 48px),
+                #020305;
+            padding: 12px;
         }
         body.boxed {
             width: 1100px; height: 720px;
@@ -438,8 +447,12 @@
         .tr-tab:not(.active):hover { color: var(--cyan); border-color: rgba(63,196,236,0.22); }
 
         /* ─ 詳細ポップアップ ─ */
-        .detail-popup { position: absolute; inset: 0; background: rgba(2,4,8,0.92); border-radius: 12px; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 16px; }
-        .detail-popup-inner { background: #080d18; border: 1px solid rgba(79,127,224,0.22); border-radius: 10px; padding: 20px 24px; width: min(580px, 100%); max-height: calc(100% - 32px); overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.85); }
+        /* #settingsOverlayと同じ position:fixed;inset:0 パターン(body直下)を採用。以前は
+           .dashboard-panel内にネストしていたため、そのパネルの狭い領域にしか収まらず
+           「小さすぎる」原因になっていた(2026-07)。body直下に移すことでアプリキャンバス
+           全体(1100x720)を使えるようになる。 */
+        .detail-popup { position: fixed; inset: 0; background: rgba(2,4,8,0.92); border-radius: 12px; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; }
+        .detail-popup-inner { background: #080d18; border: 1px solid rgba(79,127,224,0.22); border-radius: 10px; padding: 20px 24px; width: min(880px, 100%); max-height: calc(100% - 32px); overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.85); }
         .detail-popup-inner::-webkit-scrollbar { width: 5px; height: 5px; }
         .detail-popup-inner::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
         .detail-popup-inner::-webkit-scrollbar-thumb { background: rgba(47,214,142,0.2); border-radius: 3px; }
@@ -714,15 +727,6 @@
                     </div>
                 </div>
             </div>
-            <div id="detailPopup" class="detail-popup" style="display:none;">
-                <div class="detail-popup-inner">
-                    <div class="detail-popup-header">
-                        <span class="detail-popup-title">TRAINING DETAILS</span>
-                        <button class="detail-close-btn" onclick="closeDetailPopup()">✕</button>
-                    </div>
-                    <div id="detailContent"></div>
-                </div>
-            </div>
         </div>
 
         <!-- ④学習エラー -->
@@ -748,6 +752,18 @@
     <div id="sbSavedPath" class="sb-saved-path" style="display:none;"></div>
 </div>
 
+<!-- ─ 学習詳細ポップアップ(#settingsOverlayと同じくbody直下でposition:fixed。
+     アプリキャンバス全体を使えるようにするため、以前の.dashboard-panel内ネストから移動) ─ -->
+<div id="detailPopup" class="detail-popup" style="display:none;">
+    <div class="detail-popup-inner">
+        <div class="detail-popup-header">
+            <span class="detail-popup-title">TRAINING DETAILS</span>
+            <button class="detail-close-btn" onclick="closeDetailPopup()">✕</button>
+        </div>
+        <div id="detailContent"></div>
+    </div>
+</div>
+
 <!-- ─ 設定パネル ─ -->
 <div id="settingsOverlay" style="display:none;">
     <div id="settingsPanel">
@@ -758,8 +774,8 @@
         <div class="settings-row">
             <div class="settings-label" data-i18n="ui.settingsModeLabel">モード</div>
             <select id="modelStrategySelect" class="settings-select">
-                <option value="instant" data-i18n="ui.settingsModeInstant">瞬速</option>
-                <option value="quick" data-i18n="ui.settingsModeQuick" selected>お急ぎ</option>
+                <option value="instant" data-i18n="ui.settingsModeInstant" selected>瞬速</option>
+                <option value="quick" data-i18n="ui.settingsModeQuick">お急ぎ</option>
                 <option value="thorough" data-i18n="ui.settingsModeThorough">じっくり</option>
             </select>
         </div>
@@ -774,6 +790,13 @@
         <div class="settings-row">
             <div class="settings-label" data-i18n="ui.settingsCpuJobsLabel">CPU並列数</div>
             <input id="cpuNumJobsInput" type="number" class="settings-select" value="4" min="1" max="16">
+        </div>
+        <div class="settings-info-box" style="margin-top:14px;">
+            <div class="settings-info-title" data-i18n="ui.settingsAboutTitle">About</div>
+            <div class="settings-info-body" data-i18n="ui.settingsAboutBody">
+                作者: Kohei Shintani, Ph.D.<br>
+                ライセンス: <b>CC BY-NC 4.0</b>（表示・非営利）— 商用利用には事前のご連絡・許諾が必要です。詳細は初回同意画面をご参照ください。
+            </div>
         </div>
     </div>
 </div>
@@ -848,6 +871,10 @@
                 '<b>じっくり</b>：交差検証で公平に評価しながら、特徴量どうしの掛け合わせなど新しい特徴量を自動生成し、多数のパラメータ候補を予選→本戦方式で幅広く探索。さらに6種類のモデルを最適な重みで組み合わせるアンサンブルも試し、より高い精度を追求します（学習時間は数十秒〜数分）。',
             'ui.settingsCpuJobsLabel': 'CPU並列数',
             'ui.settingsCpuJobsDisabledTitle': 'ブラウザ版では無効です（シングルスレッド実行）',
+            'ui.settingsAboutTitle': 'About',
+            'ui.settingsAboutBody':
+                '作者: Kohei Shintani, Ph.D.<br>' +
+                'ライセンス: <b>CC BY-NC 4.0</b>（表示・非営利）— 商用利用には事前のご連絡・許諾が必要です。詳細は初回同意画面をご参照ください。',
 
             'startup.resourceCheck': 'リソース確認...',
             'startup.scanModel': '前回モデルをスキャン...',
@@ -961,6 +988,7 @@
             'warning.outliers_corrected': 'Y 外れ値 {{n}} 行を許容範囲内に補正しました（IQR×{{iqr_mult}}）。',
             'warning.duplicate_rows': '重複行が{{n}}件あります。評価が楽観的になる可能性があります。',
             'warning.cat_cols_dropped': 'カーディナリティが行数に対して高すぎるため除外した列: {{cols}}',
+            'warning.winsorize_skipped_cv': 'Y 外れ値クリップは交差検証で信号を損なうと判定し非適用（正規の裾を温存）。',
 
             'status.ready': 'READY',
             'status.deployed': '✓ DEPLOYED',
@@ -1054,6 +1082,7 @@
             'ui.predictDownloadBtn': 'Download CSV',
             'ui.retryBtn': '↩ Start over',
             'ui.settingsModeLabel': 'Mode',
+            'ui.settingsModeInstant': 'Instant',
             'ui.settingsModeQuick': 'Quick',
             'ui.settingsModeThorough': 'Thorough',
             'ui.settingsInfoTitle': 'About modes',
@@ -1062,6 +1091,10 @@
                 '<b>Thorough</b>: Evaluates fairly with cross-validation, auto-generates new features (e.g. feature interactions), and explores many hyperparameter candidates via a qualifier→final-round search. Also tries an ensemble that blends up to 6 model types with optimal weights for even higher accuracy (training takes tens of seconds to a few minutes).',
             'ui.settingsCpuJobsLabel': 'CPU parallelism',
             'ui.settingsCpuJobsDisabledTitle': 'Disabled in the browser version (single-threaded)',
+            'ui.settingsAboutTitle': 'About',
+            'ui.settingsAboutBody':
+                'Author: Kohei Shintani, Ph.D.<br>' +
+                'License: <b>CC BY-NC 4.0</b> (Attribution-NonCommercial) — commercial use requires prior contact and permission. See the first-run consent screen for details.',
 
             'startup.resourceCheck': 'Checking resources...',
             'startup.scanModel': 'Scanning for previous model...',
@@ -1175,6 +1208,7 @@
             'warning.outliers_corrected': 'Clipped {{n}} target outlier rows to a bounded range (IQR×{{iqr_mult}}).',
             'warning.duplicate_rows': 'There are {{n}} duplicate rows. This may make the evaluation overly optimistic.',
             'warning.cat_cols_dropped': 'Excluded columns (cardinality too high relative to row count): {{cols}}',
+            'warning.winsorize_skipped_cv': 'Y-value outlier clipping was judged to weaken the signal under cross-validation and was not applied (the genuine tail was preserved).',
 
             'status.ready': 'READY',
             'status.deployed': '✓ DEPLOYED',
@@ -1250,10 +1284,11 @@
 
     const LANG_STORAGE_KEY = 'treg_lang';
 
+    // 2026-07: 初期表示は常に英語をデフォルトとする(以前はnavigator.languageで
+    // ブラウザのロケールから自動判定していたが、公開ツールとして英語を既定にする
+    // 方針に変更)。日本語へはヘッダー右上のトグルでいつでも切替可能。
     function detectDefaultLang() {
-        try {
-            return (navigator.language || 'ja').toLowerCase().startsWith('ja') ? 'ja' : 'en';
-        } catch (_) { return 'ja'; }
+        return 'en';
     }
     function getLang() {
         try {
@@ -1282,7 +1317,7 @@
     function applyStaticI18n() {
         document.querySelectorAll('[data-i18n]').forEach(el => {
             const key = el.getAttribute('data-i18n');
-            const HTML_KEYS = ['ui.settingsInfoBody', 'terms.licenseLine', 'terms.eduBody', 'terms.commBody'];
+            const HTML_KEYS = ['ui.settingsInfoBody', 'ui.settingsAboutBody', 'terms.licenseLine', 'terms.eduBody', 'terms.commBody'];
             if (HTML_KEYS.includes(key)) el.innerHTML = t(key);
             else el.textContent = t(key);
         });
@@ -1310,6 +1345,11 @@
         if (_lastErrorParsed) {
             const errorMsgEl = document.getElementById('errorMsg');
             if (errorMsgEl) errorMsgEl.innerText = t('error.' + _lastErrorParsed.key, _lastErrorParsed.params);
+        }
+        if (typeof refreshResultTexts === 'function') refreshResultTexts();
+        const detailPopupEl = document.getElementById('detailPopup');
+        if (detailPopupEl && detailPopupEl.style.display !== 'none' && typeof openDetailPopup === 'function') {
+            openDetailPopup();
         }
     }
 
@@ -2392,9 +2432,13 @@
         return parts.map(p => t('warning.' + p.key, p.params)).join(' ');
     }
 
-    function applyTrainingResult(result) {
-        lastResult = result;
-        applyR2Coloring(result.r2 ?? 0);
+    // 学習結果パネルのうち「表示言語だけに依存する」テキスト部分(評価バッジ・データ警告・
+    // RMSE/MAEラベル)をlastResultから再描画する。タブ切替・アニメーション等の副作用は
+    // 持たないため、setLang()からの言語切替時にも安全に呼べる(#12: 言語切替時に
+    // 学習完了時点の言語のまま固まって再描画されない不具合の修正)。
+    function refreshResultTexts() {
+        if (!lastResult) return;
+        const result = lastResult;
         document.getElementById('r2Interpretation').textContent = result.r2_interpretation ? t('r2interp.' + result.r2_interpretation) : '';
 
         const evalBadge = document.getElementById('evalBadge');
@@ -2433,6 +2477,12 @@
             if (subParts.length > 0) { r2SubEl.textContent = subParts.join('  ·  '); r2SubEl.style.display = ''; }
             else { r2SubEl.style.display = 'none'; }
         }
+    }
+
+    function applyTrainingResult(result) {
+        lastResult = result;
+        applyR2Coloring(result.r2 ?? 0);
+        refreshResultTexts();
 
         const barsEl   = document.getElementById('featureBars');
         barsEl.innerHTML = '';
