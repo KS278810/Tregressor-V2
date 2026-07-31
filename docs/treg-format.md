@@ -51,7 +51,7 @@ blend(type 5)のみ、上記のうち「モデル種別ごとのペイロード�
 | オフセット | 型 | 内容 |
 |---|---|---|
 | +0 | `char[4]` | マジック `"TREG"` (0x54 0x52 0x45 0x47) |
-| +4 | `u8` | `file_version`(現行の書き出しは3〜5。読み込み側は1〜5を受理し、6以上は明示エラーで拒否) |
+| +4 | `u8` | `file_version`(現行の書き出しは3〜7。読み込み側は1〜7を受理し、8以上は明示エラーで拒否) |
 | +5 | `u8` | `model_type`(下記表) |
 | +6 | `u32` | `n_feat`(このモデルが直接使う特徴量数。**blendのみ0が正当値**— 各メンバーが個別に特徴を持つため) |
 
@@ -97,20 +97,45 @@ blend(type 5)のみ、上記のうち「モデル種別ごとのペイロード�
 ### v5+: カテゴリエンコーダ(cat_encoders)ブロック
 
 `file_version >= 5` の場合のみ、v4派生特徴ブロックの直後に挿入される(v4ブロック自体は
-`file_version >= 4`なら常に存在するため、v5モデルは必ずv4ブロックとv5ブロックの両方を持つ。
-`_write_treg_stream`の`file_version = 5 if used_cat else (4 if used_derived else 3)`参照)。
+`file_version >= 4`なら常に存在するため、v5〜v7モデルは必ずv4ブロックとこのブロックの両方を
+持つ。`_write_treg_stream`の
+`file_version = 7 if used_composite else (6 if used_dt else (5 if used_cat else (4 if used_derived else 3)))`
+参照)。ブロック自体は`file_version >= 5`で読む点はv6/v7でも変わらない(method==2の
+datetime_partsやmethod==3のcomposite_targetエントリが1件以上混在する場合のみ、writerが
+file_versionをそれぞれ6・7に上げる)。
 
 精度レバー4(カテゴリ処理刷新、2026-07-16)により、`train_bridge._prepare_categoricals`が
-学習前にCSVの非数値列を次の3方式に振り分ける:
+学習前にCSVの非数値列を次の判定順で4方式に振り分ける(**上から順に判定し、最初にヒットした
+方式が採用される**。datetime_partsは数値化の直後・カーディナリティ判定より前に評価するため、
+低カーディナリティの日時列であってもone-hotではなくdatetime_partsが優先される):
 
-- **数値化**: `pd.to_numeric`で90%以上の値が数値変換できる列はそのまま数値列として扱う
-  (`cat_encoders`には現れない)。
-- **one-hot**(カーディナリティ≤10): クラスごとに`col=="A"`のような indicator 列(0.0/1.0)を
-  生成し、`feat_cols`にはこの生成列名が現れる(target非依存で安全にグローバル適用可能)。
-  未知カテゴリ・学習時に見なかった欠損は「全クラスでマッチなし」= 実質0として扱われる。
-- **target encoding**(10 < カーディナリティ ≤ 行数の50%): 元の列名のまま、カテゴリ文字列を
-  スムージング付き平均目的変数値に置き換える(fold内fitでOOFリークを防ぐ。カーディナリティが
-  行数の50%を超える列は列ごと除外し、モデルには一切現れない)。
+1. **数値化**: `pd.to_numeric`で90%以上の値が数値変換できる列はそのまま数値列として扱う
+   (`cat_encoders`には現れない)。
+2. **datetime_parts**(2026-07第3弾・真因④対策。独自の日時正規表現
+   `^(\d{4})[-/](\d{2})[-/](\d{2})(?:[ T]?(\d{2}):(\d{2})(?::(\d{2}))?)?$`に90%以上マッチする
+   場合): target非依存でグローバル適用(one-hotと同じくfold-aware refit不要)。1source_col
+   につき`hour`/`dow`/`month`/`epoch_days`の4つの数値派生列(`{col}__hour`等)を生成する。
+   年前置き(ISO/スラッシュ)のみ対応、US式`MM/DD/YYYY`等は対象外(既知の制限)。区切りなし
+   連結(`"2016-01-1313:50:00"`、UCI appliancesデータセットで実際に確認された壊れた
+   フォーマット)も固定幅2桁のため曖昧にならず対応する。カーディナリティ判定より先に評価する
+   ため、低カーディナリティ日時列(3種類の日付を持つグループラベル等)もdatetime_parts側に
+   ルーティングされる(意図的なトレードオフ)。
+3. **one-hot**(カーディナリティ≤10): クラスごとに`col=="A"`のような indicator 列(0.0/1.0)を
+   生成し、`feat_cols`にはこの生成列名が現れる(target非依存で安全にグローバル適用可能)。
+   未知カテゴリ・学習時に見なかった欠損は「全クラスでマッチなし」= 実質0として扱われる。
+4. **target encoding**(10 < カーディナリティ ≤ 行数の50%): 元の列名のまま、カテゴリ文字列を
+   スムージング付き平均目的変数値に置き換える(fold内fitでOOFリークを防ぐ。カーディナリティが
+   行数の50%を超える列は列ごと除外し、モデルには一切現れない)。
+
+上記は非数値列のみが対象だが、**合成キー(composite_target、2026-07第3弾・真因②対策)**は
+別経路で数値列を走査する(`train_bridge._detect_numeric_composite_key`)。反復測定データの
+被験者代理キー(例: age+sexの組み合わせが実質的な被験者ID)のような「複数の低カーディナリティ
+数値列の組み合わせ」を検出し、target encodingの1変種として1本の新列を追加する
+(元の数値列は削除しない。単体でも有効な連続特徴のため、one-hotとは異なり置き換えない)。
+検出条件: 各候補列は単体でnunique/行数比が5%以下かつ全値が整数相当であること、かつ
+候補列すべてを組み合わせたグループ数/行数比が50%以下であること(`CAT_DROP_CARD_FRAC`と
+同じ思想)。診断実験(`_ag_benchmark/diagnose_parkinsons_subject_encoding.py`)でpub_parkinsons
+に対しLightGBM単体+0.026・GP単体+0.023の改善を実測済み。
 
 `feat_cols`に現れる名前が「生のCSV列名そのもの」なのか「カテゴリエンコーダの生成列/変換後の
 列」なのかは、この`cat_encoders`ブロックの`feature_name`と照合して判定する(v4派生特徴の
@@ -120,16 +145,24 @@ blend(type 5)のみ、上記のうち「モデル種別ごとのペイロード�
 | 型 | 内容 |
 |---|---|
 | `u32` | `n_cat`(件数。**このモデルが実際に使うカテゴリ特徴のみ**を書き出す。未使用分は含めない) |
-| ×n_cat: `u8` | `method`(0=one-hot / 1=target encoding) |
+| ×n_cat: `u8` | `method`(0=one-hot / 1=target encoding / 2=datetime_parts、v6以降のみ出現 /
+  3=composite_target、v7以降のみ出現) |
 | `str` | `feature_name`(`feat_cols`に現れる名前。one-hotなら生成indicator列名`"col==クラス値"`、
-  targetなら元のCSV列名そのもの) |
-| `str` | `source_col`(元のCSV列名。one-hotではこの列の生文字列値と`class_value`を比較し、
-  targetでもこの列の生文字列値をマップで引く) |
+  targetなら元のCSV列名そのもの、datetime_partsなら生成列名`"col__hour"`等、
+  composite_targetなら生成列名`"__numkey__col1_col2"`等) |
+| `str` | `source_col`(one-hot/target/datetime_partsは元のCSV列名1つ。**composite_targetのみ
+  例外**で、`NUMKEY_SEP`(`\x1f`、ASCII unit separator)で連結した複数のCSV列名になる。
+  one-hotではこの列の生文字列値と`class_value`を比較し、targetでもこの列の生文字列値を
+  マップで引き、datetime_partsでもこの列の生文字列値を日時としてパースし、composite_target
+  では連結された各列を分割して合成キーを再構築する) |
 | method==0(one-hot)のみ: `str` | `class_value`(この1エントリが担当する比較対象クラス値) |
-| method==1(target)のみ: `u32` | `n_map`(カテゴリ→値マップの件数) |
-| ×n_map: `str`, `f32` | `class_str`, `value`(スムージング済みtarget encoding値) |
-| method==1(target)のみ: `f32` | `default`(未知カテゴリ・学習時に見なかった欠損時のフォールバック値。
-  学習側のグローバル平均目的変数値) |
+| method==1(target)またはmethod==3(composite_target)のみ: `u32` | `n_map`(カテゴリ→値
+  マップの件数。両methodでペイロード形式は完全に同一) |
+| ×n_map: `str`, `f32` | `class_str`, `value`(スムージング済みtarget encoding値。
+  composite_targetでは`class_str`が合成キー、例えば`"65\x1f0"`) |
+| method==1またはmethod==3のみ: `f32` | `default`(未知カテゴリ・学習時に見なかった欠損時の
+  フォールバック値。学習側のグローバル平均目的変数値) |
+| method==2(datetime_parts)のみ: `u8` | `part_id`(0=hour / 1=dow / 2=month / 3=epoch_days) |
 
 推論側の計算(生CSV列の文字列値をそのまま使う。学習時にNaN/空セルは`"__NaN__"`という
 サンチネル文字列に正規化してからカテゴリ照合しているため、推論側でも欠損セルは同じ
@@ -139,6 +172,30 @@ blend(type 5)のみ、上記のうち「モデル種別ごとのペイロード�
   (未知カテゴリ・学習時未見の欠損は必ずどのクラスとも一致しないため実質全ゼロになる)。
 - **target**: `source_col`の生文字列値を`class_str → value`のマップで引く。マップに無ければ
   `default`。
+- **datetime_parts**(v6): `source_col`の生文字列値を`_prepare_categoricals`と同一の日時
+  正規表現でパースし、`part_id`に応じて`hour`(0-23)/`dow`(0=Mon..6=Sun)/`month`(1-12)/
+  `epoch_days`(1970-01-01起点の整数日数、Howard Hinnantの`days_from_civil`で算出)を返す。
+  **専用のdefaultフィールドは持たない**: パース失敗(学習時に見なかった不正フォーマット等)
+  時はNaNを返し、全feat_col共通の既存の中央値フォールバック(`medians`、共通テール参照)に
+  委ねる設計にした(target_defaultのような専用フィールドを増やしても4実装間で同期すべき
+  箇所が増えるだけでメリットがないため)。この判定関数(検出率90%閾値の計算と抽出の両方で
+  使う「唯一の真実の判定」)は`train_bridge._parse_datetime_parts`/
+  `predict_native_v2.cpp parse_datetime_parts`/`predict-core.js parseDatetimeParts`
+  (+`predict_template.html`インライン複製)/`predict_template.py _parse_datetime_parts`の
+  4箇所に一字一句同じロジックで移植されている(参照日テストで全一致確認済み)。
+- **composite_target**(v7): `source_col`を`NUMKEY_SEP`(`\x1f`)で分割して複数の生CSV列名を
+  復元し、各列の生文字列値を数値としてパース(既存の数値パーサを再利用、
+  `predict_native_v2.cpp`の`parse_numeric_field`等)した上で、整数相当の値のみを対象に
+  正規化(`train_bridge._canon_numeric_key_part`: 整数相当でない値・非有限値は
+  `"__NaN__"`。指数表記等の言語間フォーマット差異を避けるため整数相当の値のみ
+  サポートする設計)し、同じ区切り文字で再連結した合成キーで`class_str → value`の
+  マップを引く。マップに無ければ`default`。datetime_partsと同様、**専用のdefault
+  フィールドは1つだけ持つ**(method==1と共有、target同様の意味論)。この判定関数群
+  (`_canon_numeric_key_part`+合成キー構築)は`train_bridge.py`/
+  `predict_native_v2.cpp`(`canon_numeric_key_part`/`build_composite_key`)/
+  `predict-core.js`(`canonNumericKeyPart`/`buildCompositeKey`、
+  +`predict_template.html`インライン複製)/`predict_template.py`
+  (`_canon_numeric_key_part`/`_build_composite_key`)の4箇所に移植されている。
 
 派生特徴の`col_a`/`col_b`がカテゴリエンコーダの生成列(one-hot indicator名やtarget-encoding
 後の元列名)を指すケースもある(例: `x1*grade==B`のようなFE由来の交差項)。この場合、
@@ -148,9 +205,11 @@ blend(type 5)のみ、上記のうち「モデル種別ごとのペイロード�
 
 列欠損警告(学習時の必須列がCSVに無い場合の警告)も、feat名がカテゴリエンコーダの生成列を
 指す場合は`source_col`まで1段解決してから判定する(`predict_native_v2.cpp`の
-`raw_source_for`/`collect_required_raw_columns`、`predict-core.js`側は呼び出し元
-`predict_template.html`の`rawSourceFor`/`rawRequiredColumns`、Python版は
-`predict_template.py`の`_to_raw_required`参照)。
+`raw_sources_for`/`collect_required_raw_columns`、`predict-core.js`側は呼び出し元
+`predict_template.html`の`rawSourcesFor`/`rawRequiredColumns`、Python版は
+`predict_template.py`の`_to_raw_required`参照)。**composite_targetのみ1つのfeat名から
+複数の生CSV列名(`source_col`をNUMKEY_SEPで分割したもの)が展開される**点が他のmethodと
+異なる(v7で追加された唯一の非1:1解決パターン)。
 
 blend(type 5)のメンバーは各々が自己完結した`.treg`として個別に`cat_encoders`を持つ
 (外側のblendラッパー自身は`feat_cols=[]`のため`used_cat`が常に空になり、ラッパー自身の
@@ -339,11 +398,21 @@ PEファイルの構造化領域(証明書テーブルが指すオフセット�
 | 5 | カテゴリエンコーダ(`cat_encoders`)ブロック追加(2026-07-16、精度レバー4「カテゴリ処理刷新」)。
     **このモデルが実際に使うカテゴリ特徴(one-hot/target encoding)が1件以上あるときのみ**v5に
     なり、なければv4以下のまま書かれる(v4派生特徴と同じ判定パターン) |
+| 6 | `cat_encoders`にmethod=2(`datetime_parts`)追加(2026-07第3弾、真因④対策「datetime列が
+    ID列扱いで破棄される」の解消)。ブロック自体はv5のまま(構造変更なし)で、
+    **このモデルが実際に使うdatetime_partsエントリが1件以上あるときのみ**v6になり、
+    なければv5以下のまま書かれる(v4/v5と同じ判定パターン) |
+| 7 | `cat_encoders`にmethod=3(`composite_target`)追加(2026-07第3弾、真因②対策「反復測定
+    データの被験者代理キーのような複数低カーディナリティ数値列の組み合わせが未活用」の
+    解消)。ペイロード形式はmethod=1(target)と完全に同一で、`source_col`の意味論のみ
+    (単一CSV列名→NUMKEY_SEP連結の複数CSV列名)が異なる。**このモデルが実際に使う
+    composite_targetエントリが1件以上あるときのみ**v7になり、なければv6以下のまま
+    書かれる(v4/v5/v6と同じ判定パターン) |
 
-読込側(`predict_native_v2.cpp`/`predict-core.js`)は`file_version <= 5`を受理し、6以上は
+読込側(`predict_native_v2.cpp`/`predict-core.js`)は`file_version <= 7`を受理し、8以上は
 「このexeより新しいモデル形式です」として明示エラーで拒否する(将来のフォーマット変更時に
-古い配布exeが黙って誤動作しないようにするため)。v4以下の**旧リーダーはv5ファイルを拒否する**
-(`file_version > 4`のチェックのままなので、v5を読ませようとすると同じ「新しい形式です」
+古い配布exeが黙って誤動作しないようにするため)。v5以下の**旧リーダーはv6ファイルを拒否する**
+(`file_version > 5`のチェックのままなので、v6を読ませようとすると同じ「新しい形式です」
 エラーになる。これにより新旧の配布物が混在しても誤動作なく安全側に倒れる)。
 
 ## 既知の教訓(2026-07-16、type4/5フィクスチャ追加時に発覚)
@@ -367,10 +436,15 @@ JS/C++間で明示的に揃えること**を設計原則とする。テストラ
 
 現行フォーマットには「ペイロード全長」の情報がなく、未知のバージョンや将来の拡張を読み飛ばす
 手段がない(`file_version`が読込側の対応範囲を超えると即座に拒否するしかない)。v5(カテゴリ
-エンコーダブロック追加)はこの制約の範囲内(既存の「バージョン分岐に1本追加」パターン)で
-対応できたが、**次回のフォーマット改定(v6以降)では、ヘッダ(`magic`+`file_version`+
-`model_type`+`n_feat`)の直後に`u32`の「ペイロード全長(このモデル1個分、共通テールの
-終端までのバイト数)」を追加し、前方互換を確保する**ことを推奨する。これにより:
+エンコーダブロック追加)・v6(datetime_parts追加)・v7(composite_target追加)はいずれも
+この制約の範囲内(既存の「バージョン分岐に1本追加」パターン)で対応できた。**v6・v7実装時
+とも本ペイロード長u32の追加を検討したが、あえて見送った**: 効果は「未来の未知バージョンを
+旧リーダーが安全にスキップする」という前方互換のみで、各バージョン自体は従来通り次の
+バージョンを明示エラーで拒否するため恩恵が発生せず、一方で4実装全てにフィールド追加の手間と
+リスクが生じる非対称なトレードオードだったため。
+**次回のフォーマット改定(v8以降)で改めて追加が必要になった時点**で、ヘッダ(`magic`+
+`file_version`+`model_type`+`n_feat`)の直後に`u32`の「ペイロード全長(このモデル1個分、
+共通テールの終端までのバイト数)」を追加し、前方互換を確保することを推奨する。これにより:
 
 - 新しいバージョンの`.treg`を旧リーダーが読んだ場合、内容を解釈できなくても
   「ペイロード全長ぶんスキップして次に進む」判断が(blendの入れ子境界特定などで)容易になる。
@@ -381,5 +455,5 @@ JS/C++間で明示的に揃えること**を設計原則とする。テストラ
 
 この変更は4点セット(train_bridge.py / predict_native_v2.cpp / predict-core.js /
 predict_template.py+predict_template.html)+パリティフィクスチャの同時更新が必須(CLAUDE.md
-ルール3)。既存v1〜v4ファイルとの共存は、フィールド追加時と同様「読込側のバージョン分岐に
-1本追加」で対応可能(全長フィールド自体はv5以降にのみ存在させる設計を推奨)。
+ルール3)。既存v1〜v7ファイルとの共存は、フィールド追加時と同様「読込側のバージョン分岐に
+1本追加」で対応可能(全長フィールド自体は導入バージョン以降にのみ存在させる設計を推奨)。

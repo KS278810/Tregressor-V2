@@ -1,0 +1,42 @@
+{
+ "multiplicative": {
+  "csv": "multiplicative.csv",
+  "target": "y",
+  "n": 700,
+  "n_cols": 4,
+  "family": "nonlinear",
+  "ceiling_r2": 0.9646,
+  "source": "synthetic",
+  "note": "純交互作用(主効果ゼロ)。線形に厳しい"
+ },
+ "interaction_deep": {
+  "csv": "interaction_deep.csv",
+  "target": "y",
+  "n": 800,
+  "n_cols": 5,
+  "family": "nonlinear",
+  "ceiling_r2": 0.9024,
+  "source": "synthetic",
+  "note": "3方向交互作用(加法モデルに極めて不利)"
+ },
+ "real_abalone": {
+  "csv": "real_abalone.csv",
+  "target": "target",
+  "n": 2000,
+  "n_cols": 8,
+  "family": "real",
+  "ceiling_r2": null,
+  "source": "real",
+  "note": "アワビの年齢(輪の数, n=4177→2000)"
+ },
+ "skewed_target": {
+  "csv": "skewed_target.csv",
+  "target": "y",
+  "n": 600,
+  "n_cols": 2,
+  "family": "pathology",
+  "ceiling_r2": 0.861,
+  "source": "synthetic",
+  "note": "対数正規の歪んだy(y変換分岐)"
+ }
+}

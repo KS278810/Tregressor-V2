@@ -1,0 +1,32 @@
+{
+ "linear_noisy": {
+  "csv": "linear_noisy.csv",
+  "target": "y",
+  "n": 800,
+  "n_cols": 5,
+  "family": "linear",
+  "ceiling_r2": 0.6472,
+  "source": "synthetic",
+  "note": "線形だが高ノイズ(ceiling低)。過信しないか"
+ },
+ "outlier_contaminated": {
+  "csv": "outlier_contaminated.csv",
+  "target": "y",
+  "n": 600,
+  "n_cols": 2,
+  "family": "pathology",
+  "ceiling_r2": 0.1568,
+  "source": "synthetic",
+  "note": "2%のyに巨大外れ値(頑健性)"
+ },
+ "real_cpu": {
+  "csv": "real_cpu.csv",
+  "target": "target",
+  "n": 2000,
+  "n_cols": 12,
+  "family": "real",
+  "ceiling_r2": null,
+  "source": "real",
+  "note": "CPU相対性能(cpu_act系)"
+ }
+}

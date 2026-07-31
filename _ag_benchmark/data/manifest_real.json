@@ -1,0 +1,62 @@
+{
+  "real_diabetes": {
+    "csv": "real_diabetes.csv",
+    "target": "target",
+    "n": 442,
+    "n_cols": 10,
+    "family": "real",
+    "ceiling_r2": null,
+    "source": "real",
+    "note": "sklearn同梱。糖尿病進行度(n=442,10特徴)"
+  },
+  "real_california": {
+    "csv": "real_california.csv",
+    "target": "target",
+    "n": 2000,
+    "n_cols": 8,
+    "family": "real",
+    "ceiling_r2": null,
+    "source": "real",
+    "note": "住宅価格中央値(2万→2000にサブサンプル)"
+  },
+  "real_abalone": {
+    "csv": "real_abalone.csv",
+    "target": "target",
+    "n": 2000,
+    "n_cols": 8,
+    "family": "real",
+    "ceiling_r2": null,
+    "source": "real",
+    "note": "アワビの年齢(輪の数, n=4177→2000)"
+  },
+  "real_winequality": {
+    "csv": "real_winequality.csv",
+    "target": "target",
+    "n": 2000,
+    "n_cols": 11,
+    "family": "real",
+    "ceiling_r2": null,
+    "source": "real",
+    "note": "赤ワイン品質スコア回帰(n=1599)"
+  },
+  "real_airfoil": {
+    "csv": "real_airfoil.csv",
+    "target": "target",
+    "n": 1503,
+    "n_cols": 5,
+    "family": "real",
+    "ceiling_r2": null,
+    "source": "real",
+    "note": "翼型自己雑音の音圧レベル(n=1503)"
+  },
+  "real_cpu": {
+    "csv": "real_cpu.csv",
+    "target": "target",
+    "n": 2000,
+    "n_cols": 12,
+    "family": "real",
+    "ceiling_r2": null,
+    "source": "real",
+    "note": "CPU相対性能(cpu_act系)"
+  }
+}

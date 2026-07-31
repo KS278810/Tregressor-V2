@@ -1,11 +1,79 @@
 import sys
 import os
+import re
 import json
 import math
 import pathlib
 import pickle
 import numpy as np
 import pandas as pd
+
+
+# ─── datetime_parts（真因④対策/.treg v6）─────────────────────────────────────
+# train_bridge._parse_datetime_parts / predict_native_v2.cpp parse_datetime_parts /
+# predict-core.js parseDatetimeParts と一字一句同じ判定になるよう移植する
+# (このファイルはtrain_bridge.pyをimportしない独立実装のため複製が必要)。
+_DATETIME_RE = re.compile(
+    r'^(\d{4})[-/](\d{2})[-/](\d{2})'
+    r'(?:[ T]?(\d{2}):(\d{2})(?::(\d{2}))?)?$'
+)
+_DATETIME_DAYS_IN_MONTH = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+_DATETIME_PART_INDEX = {'hour': 0, 'dow': 1, 'month': 2, 'epoch_days': 3}
+
+
+def _days_from_civil(y, m, d):
+    """Howard Hinnant の days_from_civil。train_bridge.py と同一実装(参照日テストで
+    C++/JS/train_bridge.pyと全一致確認済み、scratchpad dt_unittest.*参照)。"""
+    y = y - (1 if m <= 2 else 0)
+    era = (y if y >= 0 else y - 399) // 400
+    yoe = y - era * 400
+    doy = (153 * (m + (-3 if m > 2 else 9)) + 2) // 5 + d - 1
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    return era * 146097 + doe - 719468
+
+
+def _weekday_from_days(days):
+    return (days + 3) % 7
+
+
+def _parse_datetime_parts(s):
+    """train_bridge._parse_datetime_parts と同一実装。成功なら
+    (hour, dow, month, epoch_days) の4-tuple、失敗ならNoneを返す。"""
+    m = _DATETIME_RE.match(s.strip())
+    if not m:
+        return None
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    hh = int(m.group(4)) if m.group(4) else 0
+    mi = int(m.group(5)) if m.group(5) else 0
+    if not (1 <= mo <= 12) or not (1 <= d <= 31) or not (0 <= hh <= 23) or not (0 <= mi <= 59):
+        return None
+    if d > _DATETIME_DAYS_IN_MONTH[mo - 1]:
+        return None
+    epoch_days = _days_from_civil(y, mo, d)
+    dow = _weekday_from_days(epoch_days)
+    return (hh, dow, mo, epoch_days)
+
+
+# ─── 合成キー target encoding（真因②対策/.treg v7）───────────────────────────
+# train_bridge._canon_numeric_key_part / predict_native_v2.cpp canon_numeric_key_part /
+# predict-core.js canonNumericKeyPart と同一実装。
+NUMKEY_SEP = '\x1f'
+
+
+def _canon_numeric_key_part(v):
+    if v is None:
+        return '__NaN__'
+    try:
+        fv = float(v)
+    except (TypeError, ValueError):
+        return '__NaN__'
+    if not np.isfinite(fv) or abs(fv) >= 1e15:
+        return '__NaN__'
+    return str(int(round(fv)))
+
+
+def _build_composite_key(source_cols, row):
+    return NUMKEY_SEP.join(_canon_numeric_key_part(row.get(c)) for c in source_cols)
 
 
 # ─── CSV 読み込み（日本語Excel既定のShift-JISフォールバック） ───────────────────
@@ -348,17 +416,22 @@ def _collect_required_cols(model_type: str, model_dir: str, meta: dict) -> list:
 def _to_raw_required(required_cols: list, recipe: list, cat_encoders: list = None) -> list:
     """必要列のうち派生特徴をそのソース列（CSV に実在すべき列）へ展開する。
     精度レバー4: カテゴリエンコーダの生成列(one-hot indicator名やtarget-encoding後の
-    元列名)もさらに source_col まで1段解決する(native/JS版 raw_source_for と同一仕様)。"""
+    元列名)もさらに source_col まで1段解決する(native/JS版 raw_sources_for と同一仕様)。
+    v7/真因②対策: composite_targetはsource_colがNUMKEY_SEPで連結した複数のCSV列名の
+    ため、1列名ではなく複数列名のリストに展開する。"""
     by_name = {r["name"]: r for r in recipe}
-    cat_src = {c["feature_name"]: c["source_col"] for c in (cat_encoders or [])}
+    cat_src = {}
+    for c in (cat_encoders or []):
+        sc = c["source_col"]
+        cat_src[c["feature_name"]] = sc.split(NUMKEY_SEP) if c.get("method") == "composite_target" else [sc]
     raw, seen = [], set()
     for c in required_cols:
         srcs = by_name[c].get("cols", []) if c in by_name else [c]
         for s in srcs:
-            s = cat_src.get(s, s)
-            if s and s not in seen:
-                seen.add(s)
-                raw.append(s)
+            for s2 in cat_src.get(s, [s]):
+                if s2 and s2 not in seen:
+                    seen.add(s2)
+                    raw.append(s2)
     return raw
 
 
@@ -399,20 +472,49 @@ if __name__ == '__main__':
     # カテゴリカル列エンコーディング（モデル入力用複製 df_model にのみ適用）。
     # 精度レバー4/.treg v5: cat_encoders は train_bridge._prepare_categoricals /
     # _fit_target_encoders が生成したリスト形式(各要素が {"feature_name","source_col",
-    # "method": "onehot"|"target", ...}) に刷新済み。onehot は生成indicator列
-    # (feature_name)を新規追加し元列は残す(参照だけなら害はない。feat_colsに
-    # 元列名が含まれることはない)、target は元列を数値へ置換する。
+    # "method": "onehot"|"target"|"datetime"|"composite_target", ...}) に刷新済み。
+    # onehot・datetime・composite_targetは生成列(feature_name)を新規追加し元列は残す
+    # (参照だけなら害はない。feat_colsに元列名が含まれることはない)、target は
+    # 元列を数値へ置換する。
+    # v6/真因④対策: datetimeはパース失敗時にNaNを入れ、後段の既存の汎用中央値
+    # フォールバック(medians/impute_medians)に委ねる(target_defaultのような専用
+    # フィールドを持たない設計、train_bridge._write_treg_streamのコメント参照)。
+    # v7/真因②対策: composite_targetはsource_colがNUMKEY_SEPで連結した複数のCSV列名
+    # (単一列名として df_model.columns には存在しない)のため、通常の
+    # "col not in df_model.columns" チェックより先に分岐する。
     if cat_encoders:
         applied_cols = set()
         for spec in cat_encoders:
+            method = spec.get("method")
+            if method == "composite_target":
+                source_cols = spec["source_col"].split(NUMKEY_SEP)
+                if not all(c in df_model.columns for c in source_cols):
+                    continue  # 必要な生列が入力CSVに無い→この合成特徴は追加しない
+                applied_cols.update(source_cols)
+                m, default = spec.get("map", {}), spec.get("default", 0.0)
+                df_model[spec["feature_name"]] = df_model.apply(
+                    lambda row, m=m, d=default, sc=source_cols: m.get(_build_composite_key(sc, row), d),
+                    axis=1)
+                continue
             col = spec.get("source_col")
             if col not in df_model.columns:
                 continue
             applied_cols.add(col)
-            s_filled = df_model[col].fillna('__NaN__').astype(str)
-            if spec.get("method") == "onehot":
+            if method == "onehot":
+                s_filled = df_model[col].fillna('__NaN__').astype(str)
                 df_model[spec["feature_name"]] = (s_filled == spec["class_value"]).astype(float)
+            elif method == "datetime":
+                part_idx = _DATETIME_PART_INDEX[spec["part"]]
+
+                def _extract_part(v, part_idx=part_idx):
+                    if pd.isna(v):
+                        return np.nan
+                    parts = _parse_datetime_parts(str(v))
+                    return np.nan if parts is None else float(parts[part_idx])
+
+                df_model[spec["feature_name"]] = df_model[col].map(_extract_part)
             else:  # target encoding
+                s_filled = df_model[col].fillna('__NaN__').astype(str)
                 m, default = spec.get("map", {}), spec.get("default", 0.0)
                 df_model[col] = s_filled.map(lambda v, m=m, d=default: m.get(v, d)).astype(float)
         if applied_cols:

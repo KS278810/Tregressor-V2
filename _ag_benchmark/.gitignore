@@ -1,0 +1,14 @@
+# 重量級・生成物(比較の再現に不要 or 嵩む)
+agenv/
+_orig_trained_model/
+results/_work/
+install.log
+data/manifest_smoke.json
+catboost_info/
+results/*.log
+results/*.jsonl.bak
+results/*.jsonl.bak_*
+
+# 保持するもの: gen_*.py, run_*.py, bench_common.py, make_report.py,
+#   data/*.csv, data/manifest_synth.json, data/manifest_real.json,
+#   results/*.jsonl, results/report.md, results/aggregate.csv, results/viz_data.json

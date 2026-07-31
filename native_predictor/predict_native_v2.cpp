@@ -68,7 +68,11 @@ enum ModelType  { MT_LINEAR = 0, MT_LGBM = 1, MT_GP = 2, MT_MLP = 3,
                   MT_LINEAR_POLY = 4, MT_BLEND = 5 };
 enum YTransform { YT_NONE = 0, YT_LOG1P = 1, YT_YEO_JOHNSON = 2 };
 enum DerivedOp  { DOP_MUL = 0, DOP_SQ = 1, DOP_SIGN = 2 };
-enum CatMethod  { CAT_ONEHOT = 0, CAT_TARGET = 1 };
+enum CatMethod  { CAT_ONEHOT = 0, CAT_TARGET = 1, CAT_DATETIME_PARTS = 2, CAT_COMPOSITE_TARGET = 3 };
+enum DatetimePart { DTPART_HOUR = 0, DTPART_DOW = 1, DTPART_MONTH = 2, DTPART_EPOCH_DAYS = 3 };
+// train_bridge.NUMERIC_KEY_SEPと同一の区切り文字(合成キーの複数source_col連結・
+// 複数値連結の両方に使う)。
+static const char NUMKEY_SEP = '\x1f';
 // train_bridge._prepare_categoricals/_fit_target_encoders と同一のNaN代替文字列
 // (欠損/空セルは学習時にこの文字列に置換してからカテゴリマッチングされている)。
 static const char* CAT_NAN_SENTINEL = "__NaN__";
@@ -174,12 +178,17 @@ struct DerivedFeat {
 // v5: カテゴリエンコーダ（精度レバー4/.treg v5）。onehot は生成indicator列(feature_name)
 // ごとに1エントリ(比較対象クラス値class_value 1つ)、targetはsource_col自体を
 // feature_nameとして持ち、カテゴリ文字列→値の全マップ+未知カテゴリ用defaultを持つ。
+// v6: datetime(真因④対策/.treg v6)はpart_id(hour/dow/month/epoch_days)のみを持つ。
+// パース失敗時のdefault値は独自に持たず、resolve_named がNaNを返し、predict()側の
+// 既存の汎用中央値フォールバック(model.medians)に委ねる設計(train_bridge.py
+// _write_treg_streamのコメント参照)。
 struct CatEncoder {
     uint8_t method = CAT_ONEHOT;
     std::string feature_name, source_col;
     std::string class_value;                        // method==CAT_ONEHOT のみ使用
     std::unordered_map<std::string, float> target_map; // method==CAT_TARGET のみ使用
     float target_default = 0.0f;
+    uint8_t part_id = 0;                             // method==CAT_DATETIME_PARTS のみ使用
 };
 
 struct TregModel {
@@ -230,7 +239,7 @@ static bool load_treg(const uint8_t* data, size_t size, TregModel& out, int dept
     const int d = out.n_feat;
 
     // サニティチェック: 破損・未来バージョンのファイルを明示拒否
-    if (out.file_version > 5) {
+    if (out.file_version > 7) {
         fatal("このexeより新しいモデル形式です。\n最新版のT-regressorで書き出したexeを使用してください。");
         return false;
     }
@@ -258,7 +267,9 @@ static bool load_treg(const uint8_t* data, size_t size, TregModel& out, int dept
         }
     }
 
-    // v5: カテゴリエンコーダ（精度レバー4/.treg v5）
+    // v5: カテゴリエンコーダ（精度レバー4/.treg v5）。v6はmethod==CAT_DATETIME_PARTS
+    // (真因④対策)が追加されるだけで、ブロック自体は引き続きfile_version>=5で読む
+    // (datetimeエントリが混在する場合のみwriter側がfile_version=6に上げる)。
     if (out.file_version >= 5) {
         uint32_t n_cat = r.read<uint32_t>();
         if (r.fail || n_cat > 100000) return false;
@@ -270,7 +281,9 @@ static bool load_treg(const uint8_t* data, size_t size, TregModel& out, int dept
             c.source_col   = r.read_str();
             if (c.method == CAT_ONEHOT) {
                 c.class_value = r.read_str();
-            } else if (c.method == CAT_TARGET) {
+            } else if (c.method == CAT_TARGET || c.method == CAT_COMPOSITE_TARGET) {
+                // 同一ペイロード形式(map+default)。composite_targetはsource_colの意味論
+                // だけが異なる(NUMKEY_SEPで連結した複数のCSV列名、resolve_named参照)。
                 uint32_t n_map = r.read<uint32_t>();
                 if (r.fail || n_map > 1000000) return false;
                 for (uint32_t k = 0; k < n_map; k++) {
@@ -280,6 +293,9 @@ static bool load_treg(const uint8_t* data, size_t size, TregModel& out, int dept
                     c.target_map[key] = val;
                 }
                 c.target_default = r.read<float>();
+            } else if (c.method == CAT_DATETIME_PARTS) {
+                c.part_id = r.read<uint8_t>();
+                if (r.fail || c.part_id > DTPART_EPOCH_DAYS) return false;
             } else {
                 return false;
             }
@@ -608,6 +624,104 @@ static std::string raw_string_at(const RawRow& raw_row, const HeaderIndex& heade
     return v.empty() ? std::string(CAT_NAN_SENTINEL) : v;
 }
 
+// datetime_parts(真因④対策/.treg v6): train_bridge._parse_datetime_parts と
+// 一字一句同じ判定になるよう移植する(検出率計算と抽出の両方で同じ関数を使う
+// 「唯一の真実の判定」をPython側と共有する設計。参照日テスト: scratchpad
+// dt_unittest.cpp/dt_parse_test.cpp で1970-01-01・閏年境界・負のepoch_daysを
+// 含め全一致確認済み)。手書き文字スキャンを採用(std::regexの環境依存を避け、
+// 固定形状パターンなのでスキャンで十分かつ3実装間の移植性が高い)。
+static const int DT_DAYS_IN_MONTH[12] = {31,29,31,30,31,30,31,31,30,31,30,31};
+
+static bool parse_datetime_parts(const std::string& raw, int& hour, int& dow, int& month, long long& epoch_days) {
+    std::string s = raw;
+    size_t b = s.find_first_not_of(" \t\r\n");
+    if (b == std::string::npos) return false;
+    size_t e = s.find_last_not_of(" \t\r\n");
+    s = s.substr(b, e - b + 1);
+
+    auto is_digit_run = [&](size_t pos, int n) {
+        if (pos + (size_t)n > s.size()) return false;
+        for (int i = 0; i < n; i++) if (!isdigit((unsigned char)s[pos + i])) return false;
+        return true;
+    };
+    auto read_int = [&](size_t pos, int n) { return std::stoi(s.substr(pos, n)); };
+
+    if (s.size() < 10) return false;
+    if (!is_digit_run(0, 4)) return false;
+    int y = read_int(0, 4);
+    if (s[4] != '-' && s[4] != '/') return false;
+    if (!is_digit_run(5, 2)) return false;
+    int mo = read_int(5, 2);
+    if (s[7] != s[4]) return false;
+    if (!is_digit_run(8, 2)) return false;
+    int d = read_int(8, 2);
+
+    int hh = 0, mi = 0;
+    size_t pos = 10;
+    if (pos < s.size()) {
+        if (s[pos] == ' ' || s[pos] == 'T') pos++;
+        if (!is_digit_run(pos, 2) || pos + 2 >= s.size() || s[pos + 2] != ':') return false;
+        hh = read_int(pos, 2);
+        pos += 3;
+        if (!is_digit_run(pos, 2)) return false;
+        mi = read_int(pos, 2);
+        pos += 2;
+        if (pos < s.size()) {
+            if (s[pos] != ':' || !is_digit_run(pos + 1, 2)) return false;
+            pos += 3;  // 秒は解析するだけで捨てる(is_digit_runでバリデートはする)
+        }
+        if (pos != s.size()) return false;
+    }
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || hh > 23 || mi > 59) return false;
+    if (d > DT_DAYS_IN_MONTH[mo - 1]) return false;
+
+    // Howard Hinnant days_from_civil(train_bridge._days_from_civilと同じ変形)
+    long long yy = y - (mo <= 2 ? 1 : 0);
+    long long era = (yy >= 0 ? yy : yy - 399) / 400;
+    long long yoe = yy - era * 400;
+    long long doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    long long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    epoch_days = era * 146097 + doe - 719468;
+    dow = (int)(((epoch_days % 7) + 10) % 7);  // train_bridge._weekday_from_daysと参照日テストで一致確認済み
+    hour = hh; month = mo;
+    return true;
+}
+
+// parse_numeric_field は本ファイル後方(数値パース節)で定義されるため前方宣言する。
+static double parse_numeric_field(const std::string& raw);
+
+// 合成キー(真因②対策/.treg v7): train_bridge._canon_numeric_key_part と同一の
+// 正規化(整数相当の値のみサポート、非整数・非有限はCAT_NAN_SENTINEL)。
+static std::string canon_numeric_key_part(const std::string& raw) {
+    double v = parse_numeric_field(raw);
+    if (std::isnan(v) || !std::isfinite(v) || std::fabs(v) >= 1e15) return CAT_NAN_SENTINEL;
+    long long iv = (v >= 0.0) ? (long long)(v + 0.5) : -(long long)(-v + 0.5);
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%lld", iv);
+    return std::string(buf);
+}
+
+// source_col_joined(NUMKEY_SEPで連結された複数の生CSV列名)を分割し、各列の生文字列を
+// 取得・数値正規化してから同じ区切り文字で再連結し、target_mapの検索キーを再構築する
+// (train_bridge._detect_numeric_composite_key/主処理での合成キー構築と同一仕様)。
+static std::string build_composite_key(const std::string& source_col_joined,
+                                       const HeaderIndex& header_idx, const RawRow& raw_row) {
+    std::string key;
+    size_t start = 0;
+    bool first = true;
+    while (true) {
+        size_t sep = source_col_joined.find(NUMKEY_SEP, start);
+        std::string col = source_col_joined.substr(start, sep == std::string::npos ? std::string::npos : sep - start);
+        std::string raw = raw_string_at(raw_row, header_idx, col);
+        if (!first) key += NUMKEY_SEP;
+        key += canon_numeric_key_part(raw);
+        first = false;
+        if (sep == std::string::npos) break;
+        start = sep + 1;
+    }
+    return key;
+}
+
 // 名前解決: feat_cols や派生特徴の col_a/col_b がカテゴリエンコーダの生成列
 // (one-hot indicator、または target-encoding後の元列名)を指す場合はそちらを優先し、
 // それ以外は通常の数値列として row_vals から引く。
@@ -617,12 +731,28 @@ static double resolve_named(const TregModel& model, const std::string& name,
     auto cit = model.cat_idx.find(name);
     if (cit != model.cat_idx.end()) {
         const auto& c = model.cat_encoders[cit->second];
+        if (c.method == CAT_COMPOSITE_TARGET) {
+            std::string key = build_composite_key(c.source_col, header_idx, raw_row);
+            auto mit = c.target_map.find(key);
+            return (mit != c.target_map.end()) ? (double)mit->second : (double)c.target_default;
+        }
         std::string v = raw_string_at(raw_row, header_idx, c.source_col);
         if (c.method == CAT_ONEHOT) {
             return (v == c.class_value) ? 1.0 : 0.0;
-        } else {
+        } else if (c.method == CAT_TARGET) {
             auto mit = c.target_map.find(v);
             return (mit != c.target_map.end()) ? (double)mit->second : (double)c.target_default;
+        } else { // CAT_DATETIME_PARTS
+            int hour, dow, month; long long epoch_days;
+            if (!parse_datetime_parts(v, hour, dow, month, epoch_days))
+                return std::numeric_limits<double>::quiet_NaN();  // predict()側の汎用中央値フォールバックに委ねる
+            switch (c.part_id) {
+                case DTPART_HOUR:       return (double)hour;
+                case DTPART_DOW:        return (double)dow;
+                case DTPART_MONTH:      return (double)month;
+                case DTPART_EPOCH_DAYS: return (double)epoch_days;
+                default:                return std::numeric_limits<double>::quiet_NaN();
+            }
         }
     }
     return lookup_col(row_vals, header_idx, name);
@@ -730,12 +860,26 @@ static float predict(const TregModel& model, const std::vector<double>& row_vals
 // feat_cols([]、blend自身は特徴を持たないため)しか見ておらず、blendでは列欠損警告が
 // 絶対に出なかった。メンバー再帰でunionする。
 // feat名(生列/派生特徴出力名/カテゴリエンコーダ生成名のいずれか)から、CSVに実在すべき
-// 「生の」列名を得る。カテゴリエンコーダ生成列(one-hot indicator名やtarget-encoding後の
-// 元列名)はさらにその source_col まで1段解決する。
-static std::string raw_source_for(const TregModel& model, const std::string& name) {
+// 「生の」列名を得る(1個以上。合成キー/composite_targetはsource_colがNUMKEY_SEPで
+// 連結された複数のCSV列名のため、分割して全て返す)。
+static void raw_sources_for(const TregModel& model, const std::string& name, std::vector<std::string>& out) {
     auto cit = model.cat_idx.find(name);
-    if (cit != model.cat_idx.end()) return model.cat_encoders[cit->second].source_col;
-    return name;
+    if (cit == model.cat_idx.end()) {
+        out.push_back(name);
+        return;
+    }
+    const auto& c = model.cat_encoders[cit->second];
+    if (c.method != CAT_COMPOSITE_TARGET) {
+        out.push_back(c.source_col);
+        return;
+    }
+    size_t start = 0;
+    while (true) {
+        size_t sep = c.source_col.find(NUMKEY_SEP, start);
+        out.push_back(c.source_col.substr(start, sep == std::string::npos ? std::string::npos : sep - start));
+        if (sep == std::string::npos) break;
+        start = sep + 1;
+    }
 }
 
 static void collect_required_raw_columns(const TregModel& model, std::vector<std::string>& out) {
@@ -747,10 +891,10 @@ static void collect_required_raw_columns(const TregModel& model, std::vector<std
         auto dit = model.derived_idx.find(name);
         if (dit != model.derived_idx.end()) {
             const auto& df = model.derived[dit->second];
-            out.push_back(raw_source_for(model, df.col_a));
-            if (df.op == DOP_MUL) out.push_back(raw_source_for(model, df.col_b));
+            raw_sources_for(model, df.col_a, out);
+            if (df.op == DOP_MUL) raw_sources_for(model, df.col_b, out);
         } else {
-            out.push_back(raw_source_for(model, name));
+            raw_sources_for(model, name, out);
         }
     }
 }

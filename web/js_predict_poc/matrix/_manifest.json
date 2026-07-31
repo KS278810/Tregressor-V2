@@ -48,5 +48,9 @@
   "linear_onehot_cat_none_roundFalse",
   "lgbm_target_enc_cat_none_roundFalse",
   "blend_cat_mixed_none_roundFalse",
-  "linear_onehot_bool_none_roundFalse"
+  "linear_onehot_bool_none_roundFalse",
+  "lgbm_datetime_parts_none_roundFalse",
+  "blend_datetime_mixed_none_roundFalse",
+  "lgbm_composite_key_none_roundFalse",
+  "blend_composite_key_mixed_none_roundFalse"
 ]

@@ -1,0 +1,74 @@
+{
+ "pub_realestate": {
+  "csv": "pub_realestate.csv",
+  "target": "target",
+  "n": 414,
+  "n_cols": 6,
+  "family": "public",
+  "ceiling_r2": null,
+  "source": "public_uci",
+  "uci_id": 477,
+  "note": "台湾不動産価格(UCI 477, n=414)。小標本の実務データ"
+ },
+ "xor_sign": {
+  "csv": "xor_sign.csv",
+  "target": "y",
+  "n": 700,
+  "n_cols": 4,
+  "family": "nonlinear",
+  "ceiling_r2": 0.9613,
+  "source": "synthetic",
+  "note": "XOR型符号交互作用(線形相関ほぼ0)"
+ },
+ "many_irrelevant": {
+  "csv": "many_irrelevant.csv",
+  "target": "y",
+  "n": 600,
+  "n_cols": 45,
+  "family": "nonlinear",
+  "ceiling_r2": 0.9822,
+  "source": "synthetic",
+  "note": "有効4本+無関係41本のダミー特徴"
+ },
+ "real_winequality": {
+  "csv": "real_winequality.csv",
+  "target": "target",
+  "n": 2000,
+  "n_cols": 11,
+  "family": "real",
+  "ceiling_r2": null,
+  "source": "real",
+  "note": "赤ワイン品質スコア回帰(n=1599)"
+ },
+ "linear_clean": {
+  "csv": "linear_clean.csv",
+  "target": "y",
+  "n": 800,
+  "n_cols": 5,
+  "family": "linear",
+  "ceiling_r2": 0.9973,
+  "source": "synthetic",
+  "note": "きれいな線形・低ノイズ"
+ },
+ "pub_parkinsons": {
+  "csv": "pub_parkinsons.csv",
+  "target": "target",
+  "n": 2000,
+  "n_cols": 19,
+  "family": "public",
+  "ceiling_r2": null,
+  "source": "public_uci",
+  "uci_id": 189,
+  "note": "パーキンソン病重症度スコア(UCI 189, n=5875→2000)。total_UPDRSを予測"
+ },
+ "heteroscedastic": {
+  "csv": "heteroscedastic.csv",
+  "target": "y",
+  "n": 700,
+  "n_cols": 3,
+  "family": "linear",
+  "ceiling_r2": 0.8219,
+  "source": "synthetic",
+  "note": "平均は線形だがノイズ分散がxに依存(不均一分散)"
+ }
+}

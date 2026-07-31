@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 
 # ── BLAS/OpenMP スレッド数を numpy 等のインポート前に確定させる ──────────────
 #    (UI の「CPU並列数」設定を LightGBM だけでなく GP/MLP にも効かせるため)
@@ -33,6 +34,10 @@ except Exception:
         return contextlib.nullcontext()
 
 MIN_ROWS_FOR_SPLIT = 10
+INSTANT_MAX_TRAIN_ROWS = 500  # 瞬速(instant)モード: 学習行数の上限キャップ。GP_MAX_TRAINと
+                               # 同じ発想をパイプライン全体に適用し、quickと同じ4モデル自動選択
+                               # ロジックのまま学習行数だけ絞ることで高速化する
+INSTANT_SAMPLE_SEED    = 20260730  # instantモードのサブサンプル用固定シード(再現性のため)
 GP_MAX_TRAIN       = 300   # GP 1フィットあたりの最大学習行数（超過時はランダムサブサンプル）
 SCIPY_GP_MIN_ROWS  = 10   # 中-M6: 50→10。GPが最も効く小データ域でハイパラ最適化を
                           # スキップしていたため引き下げ(固定ハイパラのままだった)
@@ -820,15 +825,167 @@ CAT_NUMERIC_COERCE_MIN = 0.90   # pd.to_numeric成功率がこれ以上なら数
 CAT_TARGET_ENC_SMOOTH  = 20.0   # target encodingのスムージング強度(擬似サンプル数)
 CAT_NAN_SENTINEL       = '__NaN__'
 
+# ── .treg v6・datetime_parts(2026-07 第3弾・真因④「datetime列がID列扱いで破棄される」対策) ──
+# 検出(90%閾値の判定)と抽出(実際の値算出)を同一の正規表現+同一の検証関数で行う
+# (別実装を2つ作るとズレの温床になるため)。年前置き(ISO/スラッシュ)のみ対応、
+# US式 MM/DD/YYYY 等は対象外(既知の制限)。区切りなし連結("2016-01-1313:50:00"、
+# UCI appliancesデータセットで実際に確認された壊れたフォーマット)も固定幅2桁のため
+# day/hourが曖昧にならず一致する。秒は任意(HH:MMのみの実データもあるため)。
+# native C++(手書き文字スキャン)・JS(RegExp)・predict_template.py(本関数の複製)へ
+# 一字一句同じ判定ロジックを移植すること(3エンジン+本ファイルで4箇所)。
+CAT_DATETIME_COERCE_MIN = 0.90
+_DATETIME_RE = re.compile(
+    r'^(\d{4})[-/](\d{2})[-/](\d{2})'
+    r'(?:[ T]?(\d{2}):(\d{2})(?::(\d{2}))?)?$'
+)
+_DATETIME_DAYS_IN_MONTH = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+_DATETIME_PART_NAMES = ('hour', 'dow', 'month', 'epoch_days')
+
+
+def _days_from_civil(y, m, d):
+    """Howard Hinnant の days_from_civil(パブリックドメイン、epoch=1970-01-01=0)。
+    整数演算のみで外部日付ライブラリ不要。C++/JS版と参照日テストで一致確認済み
+    (scratchpad dt_unittest.*、1970-01-01/閏年境界/負のepoch_daysを含め全一致)。"""
+    y = y - (1 if m <= 2 else 0)
+    era = (y if y >= 0 else y - 399) // 400
+    yoe = y - era * 400
+    doy = (153 * (m + (-3 if m > 2 else 9)) + 2) // 5 + d - 1
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    return era * 146097 + doe - 719468
+
+
+def _weekday_from_days(days):
+    """0=Mon..6=Sun(pandasのdt.dayofweekと同じ規約)。1970-01-01(Thu)がdays=0で
+    (0+3)%7=3=Thuになるよう+3オフセット。C++/JS版は`((days%7)+10)%7`(truncating
+    modulo対策の等価式、参照日テストで一致確認済み)を使う。"""
+    return (days + 3) % 7
+
+
+def _parse_datetime_parts(s):
+    """s(生文字列、fillna+astype(str)済み)を解析し、成功なら
+    (hour, dow, month, epoch_days) の4-tuple(intのみ)、失敗ならNoneを返す。
+    検出率計算(90%閾値)と実際の値抽出の両方でこの関数だけを使う
+    (『唯一の真実の判定』、C++/JS/predict_template.pyへ一字一句移植する)。"""
+    m = _DATETIME_RE.match(s.strip())
+    if not m:
+        return None
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    hh = int(m.group(4)) if m.group(4) else 0
+    mi = int(m.group(5)) if m.group(5) else 0
+    # 秒(group 6)はどのpartにも使わないため解析済みかの検証のみで捨てる
+    if not (1 <= mo <= 12) or not (1 <= d <= 31) or not (0 <= hh <= 23) or not (0 <= mi <= 59):
+        return None
+    if d > _DATETIME_DAYS_IN_MONTH[mo - 1]:
+        return None
+    epoch_days = _days_from_civil(y, mo, d)
+    dow = _weekday_from_days(epoch_days)
+    return (hh, dow, mo, epoch_days)
+
+
+# ── .treg v7・合成キー target encoding(2026-07 第3弾・真因②対策) ────────────────
+# なぜなぜ分析(pub_parkinsons)で判明: 反復測定データの被験者代理キー(age+sexの
+# 組み合わせが実質的な被験者ID)のような「複数の低カーディナリティ数値列の組み合わせ」
+# を明示的な特徴量にすると大きく改善する(実験: LightGBM単体+0.026、GP単体+0.023、
+# 診断スクリプトdiagnose_parkinsons_subject_encoding.py参照)。数値列は
+# _prepare_categoricalsのカテゴリ判定を素通りする(数値dtypeのため)ため、別経路で
+# 検出し、既存のtarget encoding機構(_fit_target_encoders/_apply_target_encoders)に
+# そのまま乗せる(合成キー列を1本追加するだけで、以降は既存の高カーディナリティ列と
+# 同じfold-aware fit/applyパスを通る)。元の数値列(age・sex等)は削除しない
+# (one-hotと違い、単体でも有効な連続特徴のため)。
+NUMERIC_KEY_MAX_CARD_FRAC  = 0.05   # 数値列単体のnunique/行数比がこれ以下なら合成キー候補
+NUMERIC_KEY_MAX_GROUP_FRAC = 0.50   # 合成キーのグループ数/行数比がこれを超えたら除外(CAT_DROP_CARD_FRACと同じ思想)
+NUMERIC_KEY_MIN_ROWS       = 30     # これ未満の行数では合成キー検出自体を行わない
+NUMERIC_KEY_MAX_COLS       = 2      # 候補列がこれを超えたら合成キー化しない(2026-07 pub_automgp誤検出対策。
+                                     # cylinders/model_year/originのような「独立して意味を持つ低カーディナリティ
+                                     # 属性が3つ以上偶然揃った」ケースは、pub_parkinsonsのage+sexのような真の
+                                     # 反復測定被験者キー(2列)と区別できない。実データではcandidatesが2列を
+                                     # 超えるケースほど「たまたま低カーディナリティな列が並んだだけ」の疑いが
+                                     # 強まるため、2列を上限として安全側に倒す)
+NUMERIC_KEY_SEP            = '\x1f'  # 複数列名・複数値の連結に使う区切り文字(実データに出現しない前提)
+NUMERIC_KEY_PREFIX         = '__numkey__'
+
+
+def _canon_numeric_key_part(v):
+    """合成キー1パーツの正規化。整数相当の値のみサポートする(非整数を含む列は
+    _detect_numeric_composite_keyで候補から除外済み)ことで、学習時(pandas由来の
+    float)と予測時(生CSV文字列をparse_numeric_field相当でパースしたfloat)の
+    両方で完全に同じ文字列になることを保証する(指数表記等の言語間フォーマット差異を
+    設計上回避)。C++/JS/predict_template.pyへ一字一句移植する。"""
+    if v is None:
+        return CAT_NAN_SENTINEL
+    try:
+        fv = float(v)
+    except (TypeError, ValueError):
+        return CAT_NAN_SENTINEL
+    if not np.isfinite(fv) or abs(fv) >= 1e15:
+        return CAT_NAN_SENTINEL
+    return str(int(round(fv)))
+
+
+def _detect_numeric_composite_key(df, target_col, exclude_cols=None):
+    """dfに残っている数値列(bool/カテゴリ処理済みで既に除外されたものは対象外)から、
+    単体で低カーディナリティかつ整数相当の値のみを持つものを集め、それらの組み合わせを
+    1本の合成キー文字列列としてdfに追加する。元の数値列は削除しない。
+    exclude_cols: one-hot indicator列(0.0/1.0の低カーディナリティ数値列で、そのままでは
+    合成キー候補の条件に合致してしまう)等、既に他のカテゴリエンコーダが生成した派生列を
+    候補から除外するための列名集合(呼び出し側が cat_onehot_specs/cat_datetime_specs の
+    feature_name を渡す)。
+    Returns: (df, key_col_name, source_cols) または候補なしなら (df, None, None)。"""
+    n_rows = len(df)
+    if n_rows < NUMERIC_KEY_MIN_ROWS:
+        return df, None, None
+    exclude_cols = exclude_cols or set()
+    candidates = []
+    for col in df.columns:
+        if col == target_col or col in exclude_cols:
+            continue
+        if not pd.api.types.is_numeric_dtype(df[col]) or pd.api.types.is_bool_dtype(df[col]):
+            continue
+        s = df[col]
+        non_na = s.dropna()
+        if len(non_na) == 0:
+            continue
+        nunique = non_na.nunique()
+        if nunique < 2 or nunique / n_rows > NUMERIC_KEY_MAX_CARD_FRAC:
+            continue
+        vals = non_na.values.astype(float)
+        if not np.all(vals == np.round(vals)) or np.any(np.abs(vals) >= 1e15):
+            continue  # 非整数の値を含む列は対象外(正規化の言語間一致リスク回避)
+        candidates.append(col)
+    if len(candidates) == 0:
+        return df, None, None
+    if len(candidates) > NUMERIC_KEY_MAX_COLS:
+        print(f"[CatEnc] 合成キー候補{candidates}が{NUMERIC_KEY_MAX_COLS}列を超えるため見送り"
+              f"(独立した低カーディナリティ属性の偶然の一致の疑い)", flush=True)
+        return df, None, None
+
+    def _row_key(row):
+        return NUMERIC_KEY_SEP.join(_canon_numeric_key_part(row[c]) for c in candidates)
+
+    key_values = df[candidates].apply(_row_key, axis=1)
+    n_groups = key_values.nunique()
+    if n_groups < 2 or n_groups / n_rows > NUMERIC_KEY_MAX_GROUP_FRAC:
+        return df, None, None
+
+    key_col_name = NUMERIC_KEY_PREFIX + "_".join(candidates)
+    df = df.copy()
+    df[key_col_name] = key_values
+    print(f"[CatEnc] 合成キー検出: {candidates} → {n_groups}グループ(行数比{100*n_groups/n_rows:.1f}%) "
+          f"を{key_col_name}としてtarget encoding対象に追加", flush=True)
+    return df, key_col_name, candidates
+
 
 def _prepare_categoricals(df, target_col):
-    """object/bool dtype列を走査し、(df, onehot_specs, target_cols, dropped_cols) を返す。
-    df は onehot 列(target非依存で安全にグローバル適用可能)を実際に追加・元列削除した
-    コピー。target_cols は「まだ生の文字列(NaNは CAT_NAN_SENTINEL で埋め済み)のまま」
-    残す列名リストで、呼び出し側が split 後に _fit_target_encoders/_apply_target_encoders
-    で fold-aware に数値化する(target統計を使うため split 前にfitするとリークする)。
+    """object/bool dtype列を走査し、(df, onehot_specs, target_cols, dropped_cols,
+    datetime_specs) を返す。df は onehot・datetime_parts列(いずれもtarget非依存で
+    安全にグローバル適用可能)を実際に追加・元列削除したコピー。target_cols は
+    「まだ生の文字列(NaNは CAT_NAN_SENTINEL で埋め済み)のまま」残す列名リストで、
+    呼び出し側が split 後に _fit_target_encoders/_apply_target_encoders で
+    fold-aware に数値化する(target統計を使うため split 前にfitするとリークする)。
     onehot_specs の要素: {"feature_name","source_col","class_value"}(生成された
-    indicator列名 → 元列・比較対象クラス値)。"""
+    indicator列名 → 元列・比較対象クラス値)。datetime_specs の要素:
+    {"feature_name","source_col","method":"datetime","part"}(1source_colにつき
+    hour/dow/month/epoch_daysの4エントリ)。"""
     df = df.copy()
     # 低-互換性: pandas 3.x はデフォルトで文字列列を object でなく専用の str dtype に
     # する(pandas 2.x/embed版は object のまま)。dtype名の決め打ち比較ではバージョンに
@@ -839,7 +996,7 @@ def _prepare_categoricals(df, target_col):
     cat_cols = [c for c in df.columns
                 if c != target_col and (pd.api.types.is_bool_dtype(df[c])
                                          or not pd.api.types.is_numeric_dtype(df[c]))]
-    onehot_specs, target_cols, dropped_cols = [], [], []
+    onehot_specs, target_cols, dropped_cols, datetime_specs = [], [], [], []
     n_rows = len(df)
     for col in cat_cols:
         # bool列は pd.to_numeric で 100% 数値化できてしまう(True/False→1/0)ため、
@@ -854,6 +1011,24 @@ def _prepare_categoricals(df, target_col):
                 df[col] = coerced
                 print(f"[CatEnc] {col}: {frac_numeric*100:.0f}%が数値化可能 → 数値列として扱う", flush=True)
                 continue
+        # datetime判定(数値コアース失敗後・カーディナリティ除外前に挿入。日時文字列は
+        # ほぼ全行がユニーク=カーディナリティ除外に落ちるため、それより先に判定する
+        # 必要がある)。NaN行は判定対象外(欠損として扱い、成功率の分母には含めるが
+        # 分子には含めない=数値コアースの欠損の扱いと同じ思想)。
+        is_na = df[col].isna().values
+        raw_vals = df[col].astype(str).values
+        parsed = [None if na else _parse_datetime_parts(v) for na, v in zip(is_na, raw_vals)]
+        n_dt_ok = sum(1 for p in parsed if p is not None)
+        frac_dt = (n_dt_ok / n_rows) if n_rows > 0 else 0.0
+        if frac_dt >= CAT_DATETIME_COERCE_MIN:
+            print(f"[CatEnc] {col}: {frac_dt*100:.0f}%が日時として解析可能 → datetime_parts(hour/dow/month/epoch_days)", flush=True)
+            for pi, pname in enumerate(_DATETIME_PART_NAMES):
+                fname = f"{col}__{pname}"
+                datetime_specs.append({"feature_name": fname, "source_col": col,
+                                       "method": "datetime", "part": pname})
+                df[fname] = [(p[pi] if p is not None else np.nan) for p in parsed]
+            df = df.drop(columns=[col])
+            continue
         s_filled = df[col].fillna(CAT_NAN_SENTINEL).astype(str)
         classes = sorted(s_filled.unique().tolist())
         card = len(classes)
@@ -874,7 +1049,7 @@ def _prepare_categoricals(df, target_col):
             print(f"[CatEnc] {col}: {card}クラス → fold内target encoding(後段でfit)", flush=True)
             df[col] = s_filled
             target_cols.append(col)
-    return df, onehot_specs, target_cols, dropped_cols
+    return df, onehot_specs, target_cols, dropped_cols, datetime_specs
 
 
 def _fit_target_encoders(df_fit, target_col, target_cols, smoothing=CAT_TARGET_ENC_SMOOTH):
@@ -2016,6 +2191,16 @@ def _fit_blend_oof(candidates, y_full):
     # 高いridgeは常にNNLS以上の"in-sample"スコアを出せてしまう(=過学習の温床)。
     # STACKER_MARGIN(BLEND_MARGINと同じ哲学)を明確に超えた時のみ採用し、迷ったら
     # 制約の強いNNLS(安全側)を残す。
+    #
+    # 対策(2026-07 第3弾・真因⑤/dedup-CVゲート)を試作・実測したが撤回した記録:
+    # stacked/y_fullからNNLS/ridgeの重みfit入力だけ完全重複行(df.duplicated())の
+    # 2件目以降を除外する版を実装し、real_winequality(train中重複率4.7%、対象問題)で
+    # 同一環境・同一乱数条件のペア比較(候補OOF値が両条件で完全一致することを確認済み)を
+    # 行ったところ、test R²は0.3202(無効)→0.3177(有効)とむしろ僅かに悪化(-0.0025)。
+    # pub_concrete(重複率2.2%)では両条件ともBlendの単体マージンゲートで単体LightGBMが
+    # 選ばれるため効果測定不能だった。狙った問題自体で改善が確認できず、効果ゼロ〜
+    # 僅かに有害と判断し撤回(重複行グループ化CVと同じ「概念上は妥当だが実測で効果薄い」
+    # パターン)。
     if len(names) >= 2:
         try:
             XtX = stacked.T @ stacked
@@ -2190,6 +2375,11 @@ def _load_export_source(model_type, model_dir):
 
 _TREG_TYPE_MAP = {'linear': 0, 'lgbm': 1, 'gp': 2, 'mlp': 3, 'linear_poly': 4, 'blend': 5}
 _TREG_OP_MAP   = {'mul': 0, 'sq': 1, 'sign': 2}
+# .treg v6: cat_encoders の method 明示テーブル(旧実装は `0 if onehot else 1` という
+# 2値判定で、datetime等の3つ目のmethodを追加すると誤ってtarget(1)に化ける潜在バグが
+# あった。テーブル化してその場で修正)。
+_CAT_METHOD_CODE = {'onehot': 0, 'target': 1, 'datetime': 2, 'composite_target': 3}
+_CAT_DATETIME_PART_ID = {name: i for i, name in enumerate(_DATETIME_PART_NAMES)}
 
 
 def _write_treg_stream(f, export_type, feat_cols, medians, payload, model_dir,
@@ -2199,7 +2389,9 @@ def _write_treg_stream(f, export_type, feat_cols, medians, payload, model_dir,
     export_type=='blend' の場合、payload['members'] の各要素を「後処理なしの自己完結した
     入れ子 .treg ブロブ」として再帰的に埋め込む（この関数自身を再帰呼び出しする）。
     派生特徴（自動FE）を使うモデルは v4以上（レシピブロック付き）、カテゴリエンコーダを
-    使うモデルは v5（精度レバー4/.treg v5: cat_encodersブロック追加）、それ以外は v3 で書く。"""
+    使うモデルは v5（精度レバー4/.treg v5: cat_encodersブロック追加）、datetime_parts
+    エンコーダを使うモデルは v6（真因④対策/.treg v6: cat_encoders method=2追加）、
+    それ以外は v3 で書く。"""
     import struct
     n_feat = len(feat_cols)
     cat_encoders_all = cat_encoders_all or []
@@ -2220,7 +2412,12 @@ def _write_treg_stream(f, export_type, feat_cols, medians, payload, model_dir,
     used_derived = [r for r in derived_recipe
                     if r['name'] in feat_set and r['op'] in _TREG_OP_MAP]
     used_cat = [c for c in cat_encoders_all if c['feature_name'] in feat_set]
-    file_version = 5 if used_cat else (4 if used_derived else 3)
+    used_composite = any(c.get('method') == 'composite_target' for c in used_cat)
+    used_dt = any(c.get('method') == 'datetime' for c in used_cat)
+    file_version = (7 if used_composite else
+                    6 if used_dt else
+                    5 if used_cat else
+                    4 if used_derived else 3)
 
     f.write(b'TREG')
     f.write(struct.pack('<BB', file_version, _TREG_TYPE_MAP[export_type]))
@@ -2245,22 +2442,33 @@ def _write_treg_stream(f, export_type, feat_cols, medians, payload, model_dir,
     # v5: カテゴリエンコーダブロック（精度レバー4）。one-hot は生成indicator列(feature_name)
     # ごとに1エントリ(比較対象クラス値1つ)、targetはsource_col自体をfeature_nameとして
     # 1エントリ(カテゴリ→値の全マップ+未知カテゴリ用default)を持つ。
+    # v6: datetime(真因④対策)は1source_colにつきpart(hour/dow/month/epoch_days)ごとに
+    # 1エントリ(part_id 1バイトのみ)。パース失敗時のdefault値は持たず、既存の汎用
+    # 中央値フォールバック(model.medians、全feat_col共通の仕組み)に委ねる設計にした
+    # (target_defaultのような専用フィールドを増やすと4実装で同期すべき箇所が増えるだけ
+    # でメリットがないため)。
+    # v7: composite_target(真因②対策)はtargetとペイロードが完全に同じ(map+default)。
+    # 違いはsource_colの意味論のみ: targetは単一のCSV列名、composite_targetは
+    # NUMERIC_KEY_SEP('\x1f')で連結した複数のCSV列名(予測側はこれを分割し、各列の生の
+    # 数値を正規化・連結して合成キーを再構築してからmapを引く)。
     if file_version >= 5:
         f.write(struct.pack('<I', len(used_cat)))
         for c in used_cat:
-            method = 0 if c.get('method') == 'onehot' else 1
+            method = _CAT_METHOD_CODE[c['method']]
             f.write(struct.pack('<B', method))
             _write_str_treg(f, c['feature_name'])
             _write_str_treg(f, c['source_col'])
             if method == 0:
                 _write_str_treg(f, c['class_value'])
-            else:
+            elif method in (1, 3):  # target, composite_target(同一ペイロード形式)
                 cmap = c['map']
                 f.write(struct.pack('<I', len(cmap)))
                 for k, v in cmap.items():
                     _write_str_treg(f, k)
                     f.write(struct.pack('<f', float(v)))
                 f.write(struct.pack('<f', float(c['default'])))
+            else:  # method == 2, datetime
+                f.write(struct.pack('<B', _CAT_DATETIME_PART_ID[c['part']]))
 
     if export_type == 'linear':
         d = payload
@@ -2574,15 +2782,37 @@ async def _run_main():
     # ── ターゲット解決・検証（カテゴリエンコードより前） ─────────────────────
     df, target_column, n_target_na = _resolve_and_validate_target(df, target_column)
 
-    df, cat_onehot_specs, cat_target_cols, cat_dropped_cols = _prepare_categoricals(df, target_column)
-    if cat_onehot_specs or cat_target_cols:
+    # 瞬速(instant)モード: quickと完全に同じ4モデル自動選択ロジックを共有しつつ、
+    # 学習行数だけ上限キャップでランダムサブサンプルして高速化する(GP_MAX_TRAINの
+    # サブサンプル発想をパイプライン全体に適用したもの)。以降 thorough 判定には
+    # 一切関与しないため、instant は quick と同一コードパスを通る。
+    if strategy == 'instant' and len(df) > INSTANT_MAX_TRAIN_ROWS:
+        n_before_instant_sample = len(df)
+        df = df.sample(n=INSTANT_MAX_TRAIN_ROWS, random_state=INSTANT_SAMPLE_SEED).reset_index(drop=True)
+        print(f"[Python] 瞬速モード: 学習行数を {n_before_instant_sample} → {INSTANT_MAX_TRAIN_ROWS} にサブサンプル", flush=True)
+
+    df, cat_onehot_specs, cat_target_cols, cat_dropped_cols, cat_datetime_specs = _prepare_categoricals(df, target_column)
+    if cat_onehot_specs or cat_target_cols or cat_datetime_specs:
         print(f"[Python] カテゴリ列検出: one-hot={sorted(set(s['source_col'] for s in cat_onehot_specs))} "
-              f"target_enc={cat_target_cols}", flush=True)
+              f"target_enc={cat_target_cols} "
+              f"datetime={sorted(set(s['source_col'] for s in cat_datetime_specs))}", flush=True)
     if cat_dropped_cols:
         print(f"[Python] カテゴリ列除外(高カーディナリティ): {cat_dropped_cols}", flush=True)
 
+    # 真因②対策(合成キーtarget encoding): 数値列は_prepare_categoricalsを素通りするため
+    # 別経路で低カーディナリティ数値列の組み合わせを検出し、既存のtarget encoding経路
+    # (cat_target_cols)に合流させる。以降のfold-aware fit/applyは既存コード無改修で
+    # そのまま機能する(numkey_col_nameは他の高カーディナリティ列と同じ扱いになる)。
+    _numkey_exclude = ({s["feature_name"] for s in cat_onehot_specs} |
+                       {s["feature_name"] for s in cat_datetime_specs})
+    df, numkey_col_name, numkey_source_cols = _detect_numeric_composite_key(
+        df, target_column, exclude_cols=_numkey_exclude)
+    if numkey_col_name:
+        cat_target_cols = cat_target_cols + [numkey_col_name]
+
     n_rows = len(df)
-    print(f"[Python] {n_rows} 行 / {df.shape[1]} 列 / モード: {'じっくり' if thorough else 'お急ぎ'} / CPU並列: {num_jobs}", flush=True)
+    _mode_label = 'じっくり' if thorough else ('瞬速' if strategy == 'instant' else 'お急ぎ')
+    print(f"[Python] {n_rows} 行 / {df.shape[1]} 列 / モード: {_mode_label} / CPU並列: {num_jobs}", flush=True)
 
     target_is_integer = bool(np.all(np.mod(df[target_column].dropna().values, 1.0) == 0.0))
     y_raw_all = df[target_column].values.copy()  # winsorize 前の生 y（y_clip 用）
@@ -2680,9 +2910,21 @@ async def _run_main():
         if df_val is not None:
             df_val = _apply_target_encoders(df_val, cat_target_encoders_final)
 
-    # .treg/model_meta.json に書き出す最終カテゴリエンコーダ一覧(one-hotはtarget非依存で
-    # 既にグローバル適用済みなのでそのまま、targetは上で df_train fit した最終版を使う)。
-    cat_encoders_all = cat_onehot_specs + cat_target_encoders_final
+    # 合成キー(numkey_col_name)のエクスポート用specだけ method を "composite_target" に
+    # 差し替え、source_col を実際の複数raw列名の連結("col1\x1fcol2")にする(=予測時に
+    # 生CSVから合成キーを再構築するための情報)。内部用(fold-local te_fold等)は通常の
+    # targetのまま(in-memoryのnumkey列を直接参照できるため変更不要)。
+    if numkey_col_name:
+        for _spec in cat_target_encoders_final:
+            if _spec["feature_name"] == numkey_col_name:
+                _spec["method"] = "composite_target"
+                _spec["source_col"] = NUMERIC_KEY_SEP.join(numkey_source_cols)
+                break
+
+    # .treg/model_meta.json に書き出す最終カテゴリエンコーダ一覧(one-hot・datetime_partsは
+    # target非依存で既にグローバル適用済みなのでそのまま、targetは上で df_train fit した
+    # 最終版を使う)。
+    cat_encoders_all = cat_onehot_specs + cat_datetime_specs + cat_target_encoders_final
 
     # ── 自動特徴量エンジニアリング（最終書き出しモデル用、thorough のみ、x_clip 後の値から生成） ──
     #    高-H1: この derived_recipe は df_train(=fold0-train)でfitする。最終書き出しモデルの

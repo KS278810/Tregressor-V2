@@ -41,7 +41,11 @@ def _mk_dir():
     return tempfile.mkdtemp(prefix="treg_gen_cat_")
 
 
-def _write_and_copy(model_dir, out_name, expect_v5=True):
+def _write_and_copy(model_dir, out_name, expect_v5=True, expect_version=None):
+    """expect_versionが指定されていればそちらを優先する(expect_v5は既存呼び出し元との
+    後方互換のためのデフォルト引数として残す。v6以降のフィクスチャは必ずexpect_versionを
+    明示的に渡すこと。コピペで expect_v5=True のまま流用するとv6フィクスチャがv5と誤認され
+    アサーションが正しく機能しない罠になるため注意)。"""
     src = os.path.join(model_dir, "model.treg")
     dst = os.path.join(MATRIX_DIR, f"{out_name}.treg")
     with open(src, "rb") as f:
@@ -51,7 +55,9 @@ def _write_and_copy(model_dir, out_name, expect_v5=True):
     with open(dst, "rb") as f:
         ver = f.read(6)[4]
     print(f"  -> {dst} ({len(data)} bytes, v{ver})")
-    if expect_v5:
+    if expect_version is not None:
+        assert ver == expect_version, f"expected file_version={expect_version}, got {ver}"
+    elif expect_v5:
         assert ver == 5, f"expected file_version=5, got {ver}"
 
 
@@ -66,8 +72,8 @@ def gen_linear_onehot():
     y = 2.0 * x1 + np.array([effect[c] for c in cat1]) + rng.normal(0, 0.3, n)
     df = pd.DataFrame({"x1": x1, "cat1": cat1, "y": y})
 
-    df2, onehot_specs, target_cols, dropped = tb._prepare_categoricals(df, "y")
-    assert not target_cols and not dropped, (target_cols, dropped)
+    df2, onehot_specs, target_cols, dropped, dt_specs = tb._prepare_categoricals(df, "y")
+    assert not target_cols and not dropped and not dt_specs, (target_cols, dropped, dt_specs)
     assert len(onehot_specs) == 3, onehot_specs
     cat_encoders_all = onehot_specs
 
@@ -101,8 +107,8 @@ def gen_lgbm_target_enc():
     y = 1.0 * x2 + np.array([effect[c] for c in cat2]) + rng.normal(0, 0.2, n)
     df = pd.DataFrame({"x2": x2, "cat2": cat2, "y": y})
 
-    df2, onehot_specs, target_cols, dropped = tb._prepare_categoricals(df, "y")
-    assert not onehot_specs and not dropped, (onehot_specs, dropped)
+    df2, onehot_specs, target_cols, dropped, dt_specs = tb._prepare_categoricals(df, "y")
+    assert not onehot_specs and not dropped and not dt_specs, (onehot_specs, dropped, dt_specs)
     assert target_cols == ["cat2"], target_cols
     te_specs = tb._fit_target_encoders(df2, "y", target_cols)
     df3 = tb._apply_target_encoders(df2, te_specs)
@@ -139,7 +145,8 @@ def gen_blend_cat_mixed():
          + np.array([effect2[c] for c in cat2]) + rng.normal(0, 0.3, n))
     df = pd.DataFrame({"x1": x1, "x2": x2, "cat1": cat1, "cat2": cat2, "y": y})
 
-    df2, onehot_specs, target_cols, dropped = tb._prepare_categoricals(df, "y")
+    df2, onehot_specs, target_cols, dropped, dt_specs = tb._prepare_categoricals(df, "y")
+    assert not dt_specs, dt_specs
     te_specs = tb._fit_target_encoders(df2, "y", target_cols)
     df3 = tb._apply_target_encoders(df2, te_specs)
     cat_encoders_all = onehot_specs + te_specs
@@ -190,8 +197,8 @@ def gen_bool_onehot():
     df = pd.DataFrame({"x1": x1, "flag": flag, "y": y})
     assert df["flag"].dtype == bool, df["flag"].dtype
 
-    df2, onehot_specs, target_cols, dropped = tb._prepare_categoricals(df, "y")
-    assert not target_cols and not dropped, (target_cols, dropped)
+    df2, onehot_specs, target_cols, dropped, dt_specs = tb._prepare_categoricals(df, "y")
+    assert not target_cols and not dropped and not dt_specs, (target_cols, dropped, dt_specs)
     assert len(onehot_specs) == 2, onehot_specs
     assert {s["class_value"] for s in onehot_specs} == {"True", "False"}, onehot_specs
     cat_encoders_all = onehot_specs

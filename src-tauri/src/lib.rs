@@ -37,6 +37,15 @@ const EMB_NATIVE_EXE:   &[u8] = include_bytes!("../../native_predictor/predict_n
 struct TrainProcess(Mutex<Option<(Child, Arc<AtomicBool>)>>);
 struct PredictProcess(Mutex<Option<(Child, Arc<AtomicBool>)>>);
 
+// 表示言語(ja/en)。OSネイティブのFileDialog(タイトル/フィルタ名)はJS側のI18N機構が
+// 届かないため、フロントエンドが setLang() の都度 set_ui_lang コマンドで同期する
+// (2026-07 i18n是正)。既定値 "ja" は初回起動〜同期完了までの短い間だけ使われる。
+struct UiLang(Mutex<String>);
+
+fn dlg_text(lang: &str, ja: &str, en: &str) -> String {
+    if lang == "en" { en.to_string() } else { ja.to_string() }
+}
+
 fn take_and_kill(slot: &Mutex<Option<(Child, Arc<AtomicBool>)>>) {
     // Mutexがpoison化(他スレッドがlock中にpanic)していても、子プロセスの後始末は
     // 継続できるべきなので、素直に中身を取り出して回収する。
@@ -75,8 +84,14 @@ fn python_exe() -> Result<PathBuf, String> {
     // 原因不明の挙動不一致(バージョン差・パッケージ有無)を生んでいた(Low L-4対応)。
     // 埋め込みpython不在は展開処理の異常なので、ここで明示的にエラーを返し
     // フロントに表示させる。
-    Err("埋め込みPythonが見つかりません。インストールが壊れている可能性があります。\
-         アプリを再起動しても解決しない場合は再インストールしてください。".to_string())
+    Err(keyed_err("embedded_python_missing", serde_json::json!({})))
+}
+
+// フロントエンドのi18n(translateBackendMessage)は Python 由来の `key:{json}` 形式の
+// メッセージを自動翻訳する仕組みを既に持つ。Rust側のエラーもこの規約に合流させることで、
+// 表示言語(ja/en)非依存の日本語決め打ち文言がUIに漏れるのを防ぐ(2026-07 i18n是正)。
+fn keyed_err(key: &str, params: serde_json::Value) -> String {
+    format!("{key}:{params}")
 }
 
 fn model_dir_path() -> PathBuf { res_dir().join("trained_model") }
@@ -115,7 +130,7 @@ fn start_python_extraction(app: AppHandle) {
         let tmp_dir = dir.join("python-embed.tmp");
         let _ = std::fs::remove_dir_all(&tmp_dir);
         if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
-            let _ = app.emit("extraction_error", format!("展開用フォルダの作成に失敗しました: {e}"));
+            let _ = app.emit("extraction_error", keyed_err("extraction_tmpdir_failed", serde_json::json!({"detail": e.to_string()})));
             return;
         }
 
@@ -131,7 +146,7 @@ fn start_python_extraction(app: AppHandle) {
 
         let total = archive.len();
         if total == 0 {
-            let _ = app.emit("extraction_error", "python-embed が埋め込まれていません");
+            let _ = app.emit("extraction_error", keyed_err("extraction_empty_archive", serde_json::json!({})));
             let _ = std::fs::remove_dir_all(&tmp_dir);
             return;
         }
@@ -168,8 +183,7 @@ fn start_python_extraction(app: AppHandle) {
         // 一切変更せず終了する（次回起動時に tmp から再展開させて自己修復する）。
         if had_error {
             let _ = std::fs::remove_dir_all(&tmp_dir);
-            let _ = app.emit("extraction_error",
-                "一部ファイルの展開に失敗しました。ディスク容量を確認して再起動してください。");
+            let _ = app.emit("extraction_error", keyed_err("extraction_partial_failure", serde_json::json!({})));
             return;
         }
 
@@ -180,19 +194,19 @@ fn start_python_extraction(app: AppHandle) {
             let _ = std::fs::remove_dir_all(&old_dir);
             if let Err(e) = std::fs::rename(&py_dir, &old_dir) {
                 let _ = app.emit("extraction_error",
-                    format!("旧python-embedの退避に失敗しました: {e}"));
+                    keyed_err("extraction_old_move_failed", serde_json::json!({"detail": e.to_string()})));
                 let _ = std::fs::remove_dir_all(&tmp_dir);
                 return;
             }
             if let Err(e) = std::fs::rename(&tmp_dir, &py_dir) {
                 // 入れ替え失敗時は旧フォルダを復元してロールバックする
                 let _ = std::fs::rename(&old_dir, &py_dir);
-                let _ = app.emit("extraction_error", format!("python-embedの入れ替えに失敗しました: {e}"));
+                let _ = app.emit("extraction_error", keyed_err("extraction_swap_failed", serde_json::json!({"detail": e.to_string()})));
                 return;
             }
             let _ = std::fs::remove_dir_all(&old_dir);
         } else if let Err(e) = std::fs::rename(&tmp_dir, &py_dir) {
-            let _ = app.emit("extraction_error", format!("python-embedの配置に失敗しました: {e}"));
+            let _ = app.emit("extraction_error", keyed_err("extraction_place_failed", serde_json::json!({"detail": e.to_string()})));
             return;
         }
 
@@ -268,7 +282,7 @@ async fn run_train(
     num_jobs: i32,
 ) -> Result<(), String> {
     if !csv_path.to_lowercase().ends_with(".csv") {
-        return Err("無効なファイルパスです".to_string());
+        return Err(keyed_err("invalid_file_path", serde_json::json!({})));
     }
 
     let num_jobs = num_jobs.clamp(1, 16);
@@ -297,7 +311,7 @@ async fn run_train(
             kill_process(&mut old_child);
             wait_in_background(old_child);
         }
-        let mut child = cmd.spawn().map_err(|e| format!("Python起動失敗: {e}"))?;
+        let mut child = cmd.spawn().map_err(|e| keyed_err("python_launch_failed", serde_json::json!({"detail": e.to_string()})))?;
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
         *slot = Some((child, cancelled.clone()));
@@ -328,7 +342,7 @@ async fn run_train(
                     Ok(val) => {
                         let _ = app2.emit("train_complete", &val);
                     }
-                    Err(e) => { let _ = app2.emit("train_error", format!("JSON解析失敗: {e}")); }
+                    Err(e) => { let _ = app2.emit("train_error", keyed_err("json_parse_failed", serde_json::json!({"detail": e.to_string()}))); }
                 }
                 finished = true;
             } else if line.starts_with("ERROR:") {
@@ -344,9 +358,9 @@ async fn run_train(
             thread::sleep(Duration::from_millis(700)); // stderr スレッドの取りこぼし防止
             let tail = err_tail.lock().unwrap_or_else(|e| e.into_inner()).join("\n");
             let msg = if tail.is_empty() {
-                "学習プロセスが結果を返さずに終了しました。CSV の内容を確認してください。".to_string()
+                keyed_err("train_no_result", serde_json::json!({}))
             } else {
-                format!("学習プロセスが異常終了しました:\n{tail}")
+                keyed_err("train_crashed", serde_json::json!({"tail": tail}))
             };
             let _ = app2.emit("train_error", msg);
         }
@@ -367,7 +381,7 @@ async fn run_predict(
     csv_path: String,
 ) -> Result<(), String> {
     if !csv_path.to_lowercase().ends_with(".csv") {
-        return Err("無効なファイルパスです".to_string());
+        return Err(keyed_err("invalid_file_path", serde_json::json!({})));
     }
 
     let python = python_exe()?;
@@ -387,7 +401,7 @@ async fn run_predict(
             kill_process(&mut old_child);
             wait_in_background(old_child);
         }
-        let mut child = cmd.spawn().map_err(|e| format!("Python起動失敗: {e}"))?;
+        let mut child = cmd.spawn().map_err(|e| keyed_err("python_launch_failed", serde_json::json!({"detail": e.to_string()})))?;
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
         *slot = Some((child, cancelled.clone()));
@@ -415,7 +429,7 @@ async fn run_predict(
             if let Some(j) = line.strip_prefix("PREDICT_JSON:") {
                 match serde_json::from_str::<Value>(j) {
                     Ok(val) => { let _ = app2.emit("predict_complete", &val); }
-                    Err(e) => { let _ = app2.emit("predict_error", format!("JSON解析失敗: {e}")); }
+                    Err(e) => { let _ = app2.emit("predict_error", keyed_err("json_parse_failed", serde_json::json!({"detail": e.to_string()}))); }
                 }
                 finished = true;
             } else if line.contains("PREDICT_ERROR:") {
@@ -435,9 +449,9 @@ async fn run_predict(
             thread::sleep(Duration::from_millis(700));
             let tail = err_tail.lock().unwrap_or_else(|e| e.into_inner()).join("\n");
             let msg = if tail.is_empty() {
-                "予測プロセスが結果を返さずに終了しました。".to_string()
+                keyed_err("predict_no_result", serde_json::json!({}))
             } else {
-                format!("予測プロセスが異常終了しました:\n{tail}")
+                keyed_err("predict_crashed", serde_json::json!({"tail": tail}))
             };
             let _ = app2.emit("predict_error", msg);
         }
@@ -514,10 +528,17 @@ const SAMPLE_CSV: &str = "area_m2,age_years,walk_min,floor,station_rank,rent_10k
 38,6,5,7,4,9.2\r\n56,0,4,9,5,12.2\r\n";
 
 #[tauri::command]
-async fn save_sample_csv() -> Result<Option<String>, String> {
-    let dest_file = tauri::async_runtime::spawn_blocking(|| {
+fn set_ui_lang(lang: String, state: State<'_, UiLang>) {
+    let mut s = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    *s = if lang == "en" { "en".to_string() } else { "ja".to_string() };
+}
+
+#[tauri::command]
+async fn save_sample_csv(lang_state: State<'_, UiLang>) -> Result<Option<String>, String> {
+    let lang = lang_state.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let dest_file = tauri::async_runtime::spawn_blocking(move || {
         rfd::FileDialog::new()
-            .set_title("サンプルCSVの保存先を選択")
+            .set_title(dlg_text(&lang, "サンプルCSVの保存先を選択", "Choose where to save the sample CSV"))
             .add_filter("CSV", &["csv"])
             .set_file_name("sample.csv")
             .save_file()
@@ -529,11 +550,12 @@ async fn save_sample_csv() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-async fn open_csv_dialog() -> Result<Option<String>, String> {
-    let result = tauri::async_runtime::spawn_blocking(|| {
+async fn open_csv_dialog(lang_state: State<'_, UiLang>) -> Result<Option<String>, String> {
+    let lang = lang_state.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
         rfd::FileDialog::new()
             .add_filter("CSV", &["csv"])
-            .set_title("CSVファイルを選択")
+            .set_title(dlg_text(&lang, "CSVファイルを選択", "Choose a CSV file"))
             .pick_file()
     }).await.map_err(|e| e.to_string())?;
     Ok(result.map(|p| p.to_string_lossy().to_string()))
@@ -552,19 +574,19 @@ fn embed_treg_into_exe(base_exe: &[u8], treg: &[u8]) -> Vec<u8> {
 }
 
 #[tauri::command]
-async fn export_robot(_app: AppHandle, file_stem: String) -> Result<Option<String>, String> {
+async fn export_robot(_app: AppHandle, file_stem: String, lang_state: State<'_, UiLang>) -> Result<Option<String>, String> {
     let trained    = model_dir_path();
     let treg_path  = trained.join("model.treg");
     let native_exe = res_dir().join("native_dist").join("predict_native.exe");
+    let lang = lang_state.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
 
     // 「model.treg が無い」と「native_exeが無い」は原因が違う(前者は未学習、後者は
     // 展開/ビルドの問題)ため、誤誘導しないよう別メッセージにする(低-M15)。
     if !treg_path.exists() {
-        return Err("model.treg が見つかりません。再学習してください。".to_string());
+        return Err(keyed_err("model_treg_missing", serde_json::json!({})));
     }
     if !native_exe.exists() {
-        return Err("予測用の実行ファイル(predict_native.exe)が見つかりません。\
-                     インストールが壊れている可能性があります。再インストールしてください。".to_string());
+        return Err(keyed_err("predict_native_missing", serde_json::json!({})));
     }
 
     // model.treg は1回だけ読み、型検査(head)とexeへの埋め込み(treg_bytes)の両方に使う。
@@ -578,14 +600,11 @@ async fn export_robot(_app: AppHandle, file_stem: String) -> Result<Option<Strin
     // (predict_native_v2.cpp ModelType 参照)。それ以外(将来のフォーマット拡張等)は
     // 動かないexeを「正常生成」してしまう事故を防ぐため、埋め込み前に型を検査する。
     if treg_bytes.len() < 6 || &treg_bytes[0..4] != b"TREG" {
-        return Err("model.treg の形式が不正です。再学習してください。".to_string());
+        return Err(keyed_err("model_treg_invalid", serde_json::json!({})));
     }
     let model_type = treg_bytes[5];
     if model_type > 5 {
-        return Err(
-            "このモデル種別はexe書き出しに未対応です。\
-             HTML版の書き出しをご利用ください。".to_string()
-        );
+        return Err(keyed_err("model_type_unsupported_for_exe", serde_json::json!({})));
     }
 
     let stem = if file_stem.is_empty() { "model".to_string() } else { file_stem };
@@ -593,8 +612,8 @@ async fn export_robot(_app: AppHandle, file_stem: String) -> Result<Option<Strin
 
     let dest_file = tauri::async_runtime::spawn_blocking(move || {
         rfd::FileDialog::new()
-            .set_title("予測EXEの保存先を選択")
-            .add_filter("実行ファイル", &["exe"])
+            .set_title(dlg_text(&lang, "予測EXEの保存先を選択", "Choose where to save the prediction EXE"))
+            .add_filter(&dlg_text(&lang, "実行ファイル", "Executable"), &["exe"])
             .set_file_name(&default_name)
             .save_file()
     }).await.map_err(|e| e.to_string())?;
@@ -621,6 +640,7 @@ pub fn run() {
         }))
         .manage(TrainProcess(Mutex::new(None)))
         .manage(PredictProcess(Mutex::new(None)))
+        .manage(UiLang(Mutex::new("ja".to_string())))
         .register_uri_scheme_protocol("treg", |_ctx, request| {
             serve_treg(request.uri().path())
         })
@@ -645,6 +665,7 @@ pub fn run() {
             save_sample_csv,
             export_robot,
             open_csv_dialog,
+            set_ui_lang,
         ])
         .setup(|app| {
             let dir = res_dir();

@@ -1,0 +1,242 @@
+{
+  "linear_clean": {
+    "csv": "linear_clean.csv",
+    "target": "y",
+    "n": 800,
+    "n_cols": 5,
+    "family": "linear",
+    "ceiling_r2": 0.9973,
+    "source": "synthetic",
+    "note": "きれいな線形・低ノイズ"
+  },
+  "linear_noisy": {
+    "csv": "linear_noisy.csv",
+    "target": "y",
+    "n": 800,
+    "n_cols": 5,
+    "family": "linear",
+    "ceiling_r2": 0.6472,
+    "source": "synthetic",
+    "note": "線形だが高ノイズ(ceiling低)。過信しないか"
+  },
+  "linear_highdim_sparse": {
+    "csv": "linear_highdim_sparse.csv",
+    "target": "y",
+    "n": 600,
+    "n_cols": 60,
+    "family": "linear",
+    "ceiling_r2": 0.9912,
+    "source": "synthetic",
+    "note": "高次元(60特徴)中6本のみ有効。特徴選抜"
+  },
+  "collinear": {
+    "csv": "collinear.csv",
+    "target": "y",
+    "n": 600,
+    "n_cols": 12,
+    "family": "linear",
+    "ceiling_r2": 0.9795,
+    "source": "synthetic",
+    "note": "強い多重共線性(3潜在→12観測)"
+  },
+  "nonlinear_interaction": {
+    "csv": "nonlinear_interaction.csv",
+    "target": "y",
+    "n": 900,
+    "n_cols": 6,
+    "family": "nonlinear",
+    "ceiling_r2": 0.8775,
+    "source": "synthetic",
+    "note": "非線形+交互作用+段差"
+  },
+  "multiplicative": {
+    "csv": "multiplicative.csv",
+    "target": "y",
+    "n": 700,
+    "n_cols": 4,
+    "family": "nonlinear",
+    "ceiling_r2": 0.9646,
+    "source": "synthetic",
+    "note": "純交互作用(主効果ゼロ)。線形に厳しい"
+  },
+  "trig_smooth": {
+    "csv": "trig_smooth.csv",
+    "target": "y",
+    "n": 700,
+    "n_cols": 3,
+    "family": "nonlinear",
+    "ceiling_r2": 0.9528,
+    "source": "synthetic",
+    "note": "滑らかな三角関数曲面(GP向き)"
+  },
+  "piecewise_steps": {
+    "csv": "piecewise_steps.csv",
+    "target": "y",
+    "n": 700,
+    "n_cols": 4,
+    "family": "nonlinear",
+    "ceiling_r2": 0.9544,
+    "source": "synthetic",
+    "note": "階段/閾値関数(木に有利・線形に不利)"
+  },
+  "xor_sign": {
+    "csv": "xor_sign.csv",
+    "target": "y",
+    "n": 700,
+    "n_cols": 4,
+    "family": "nonlinear",
+    "ceiling_r2": 0.9613,
+    "source": "synthetic",
+    "note": "XOR型符号交互作用(線形相関ほぼ0)"
+  },
+  "polynomial_deg3": {
+    "csv": "polynomial_deg3.csv",
+    "target": "y",
+    "n": 700,
+    "n_cols": 3,
+    "family": "nonlinear",
+    "ceiling_r2": 0.9428,
+    "source": "synthetic",
+    "note": "3次多項式(poly特徴が効く)"
+  },
+  "heteroscedastic": {
+    "csv": "heteroscedastic.csv",
+    "target": "y",
+    "n": 700,
+    "n_cols": 3,
+    "family": "linear",
+    "ceiling_r2": 0.8219,
+    "source": "synthetic",
+    "note": "平均は線形だがノイズ分散がxに依存(不均一分散)"
+  },
+  "monotonic_saturating": {
+    "csv": "monotonic_saturating.csv",
+    "target": "y",
+    "n": 700,
+    "n_cols": 3,
+    "family": "nonlinear",
+    "ceiling_r2": 0.9828,
+    "source": "synthetic",
+    "note": "単調飽和(tanh/ロジスティック)"
+  },
+  "radial_rbf": {
+    "csv": "radial_rbf.csv",
+    "target": "y",
+    "n": 600,
+    "n_cols": 3,
+    "family": "nonlinear",
+    "ceiling_r2": 0.9506,
+    "source": "synthetic",
+    "note": "動径基底(距離の関数、GP向き)"
+  },
+  "many_irrelevant": {
+    "csv": "many_irrelevant.csv",
+    "target": "y",
+    "n": 600,
+    "n_cols": 45,
+    "family": "nonlinear",
+    "ceiling_r2": 0.9822,
+    "source": "synthetic",
+    "note": "有効4本+無関係41本のダミー特徴"
+  },
+  "categorical_low": {
+    "csv": "categorical_low.csv",
+    "target": "y",
+    "n": 600,
+    "n_cols": 2,
+    "family": "categorical",
+    "ceiling_r2": 0.9745,
+    "source": "synthetic",
+    "note": "低カード(5)one-hot経路"
+  },
+  "categorical_high": {
+    "csv": "categorical_high.csv",
+    "target": "y",
+    "n": 600,
+    "n_cols": 3,
+    "family": "categorical",
+    "ceiling_r2": 0.9753,
+    "source": "synthetic",
+    "note": "高カード(30)target-enc + id列(除外)"
+  },
+  "categorical_interaction": {
+    "csv": "categorical_interaction.csv",
+    "target": "y",
+    "n": 600,
+    "n_cols": 2,
+    "family": "categorical",
+    "ceiling_r2": 0.9289,
+    "source": "synthetic",
+    "note": "x1の傾きがカテゴリで変わる(cat×num交互作用)"
+  },
+  "mixed_messy": {
+    "csv": "mixed_messy.csv",
+    "target": "y",
+    "n": 600,
+    "n_cols": 5,
+    "family": "mixed",
+    "ceiling_r2": 0.9895,
+    "source": "synthetic",
+    "note": "bool+cat+数値+欠損の現実的な混在"
+  },
+  "skewed_target": {
+    "csv": "skewed_target.csv",
+    "target": "y",
+    "n": 600,
+    "n_cols": 2,
+    "family": "pathology",
+    "ceiling_r2": 0.861,
+    "source": "synthetic",
+    "note": "対数正規の歪んだy(y変換分岐)"
+  },
+  "outlier_contaminated": {
+    "csv": "outlier_contaminated.csv",
+    "target": "y",
+    "n": 600,
+    "n_cols": 2,
+    "family": "pathology",
+    "ceiling_r2": 0.1568,
+    "source": "synthetic",
+    "note": "2%のyに巨大外れ値(頑健性)"
+  },
+  "count_poisson": {
+    "csv": "count_poisson.csv",
+    "target": "y",
+    "n": 700,
+    "n_cols": 2,
+    "family": "pathology",
+    "ceiling_r2": 0.5264,
+    "source": "synthetic",
+    "note": "ポアソン計数(整数・歪み)"
+  },
+  "interaction_deep": {
+    "csv": "interaction_deep.csv",
+    "target": "y",
+    "n": 800,
+    "n_cols": 5,
+    "family": "nonlinear",
+    "ceiling_r2": 0.9024,
+    "source": "synthetic",
+    "note": "3方向交互作用(加法モデルに極めて不利)"
+  },
+  "small_n": {
+    "csv": "small_n.csv",
+    "target": "y",
+    "n": 40,
+    "n_cols": 4,
+    "family": "pathology",
+    "ceiling_r2": 0.9763,
+    "source": "synthetic",
+    "note": "小標本(n=40、過学習リスク)"
+  },
+  "pure_noise": {
+    "csv": "pure_noise.csv",
+    "target": "y",
+    "n": 600,
+    "n_cols": 8,
+    "family": "pathology",
+    "ceiling_r2": 0.0,
+    "source": "synthetic",
+    "note": "リーク検知(Xとy完全独立、ceiling=0)"
+  }
+}

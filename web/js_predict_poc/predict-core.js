@@ -2,7 +2,10 @@
 const MT_LINEAR = 0, MT_LGBM = 1, MT_GP = 2, MT_MLP = 3, MT_LINEAR_POLY = 4, MT_BLEND = 5;
 const YT_NONE = 0, YT_LOG1P = 1, YT_YEO_JOHNSON = 2;
 const DOP_MUL = 0, DOP_SQ = 1, DOP_SIGN = 2;
-const CAT_ONEHOT = 0, CAT_TARGET = 1;
+const CAT_ONEHOT = 0, CAT_TARGET = 1, CAT_DATETIME_PARTS = 2, CAT_COMPOSITE_TARGET = 3;
+const DTPART_HOUR = 0, DTPART_DOW = 1, DTPART_MONTH = 2, DTPART_EPOCH_DAYS = 3;
+// train_bridge.NUMERIC_KEY_SEPと同一の区切り文字。
+const NUMKEY_SEP = "\x1f";
 // train_bridge._prepare_categoricals/_fit_target_encoders と同一のNaN代替文字列。
 const CAT_NAN_SENTINEL = "__NaN__";
 
@@ -79,7 +82,7 @@ function loadTreg(buf, depth = 0) {
         linear: null, gp: null, mlp: null, lgbm: null,
     };
     const d = model.n_feat;
-    if (model.file_version > 5) throw new Error("unsupported (future) .treg version");
+    if (model.file_version > 7) throw new Error("unsupported (future) .treg version");
     // blend(アンサンブル)は自身の直接の特徴ベクトルを持たない(各メンバーが個別に持つ)ため
     // n_feat=0 が正当な値になる。それ以外の型は従来通り 1 以上を要求する。
     if (d > 100000 || (model.type !== MT_BLEND && d < 1)) throw new Error("bad n_feat");
@@ -110,10 +113,12 @@ function loadTreg(buf, depth = 0) {
             const method = r.u8();
             const feature_name = r.str();
             const source_col = r.str();
-            const c = { method, feature_name, source_col, class_value: "", target_map: new Map(), target_default: 0.0 };
+            const c = { method, feature_name, source_col, class_value: "", target_map: new Map(), target_default: 0.0, part_id: 0 };
             if (method === CAT_ONEHOT) {
                 c.class_value = r.str();
-            } else if (method === CAT_TARGET) {
+            } else if (method === CAT_TARGET || method === CAT_COMPOSITE_TARGET) {
+                // 同一ペイロード形式(map+default)。composite_targetはsource_colの意味論
+                // だけが異なる(NUMKEY_SEPで連結した複数のCSV列名)。
                 const nMap = r.u32();
                 if (r.fail || nMap > 1000000) throw new Error("bad cat target map count");
                 for (let k = 0; k < nMap; k++) {
@@ -123,6 +128,9 @@ function loadTreg(buf, depth = 0) {
                     c.target_map.set(key, val);
                 }
                 c.target_default = r.f32();
+            } else if (method === CAT_DATETIME_PARTS) {
+                c.part_id = r.u8();
+                if (r.fail || c.part_id > DTPART_EPOCH_DAYS) throw new Error("bad datetime part_id");
             } else {
                 throw new Error("bad cat encoder method");
             }
@@ -292,6 +300,74 @@ function rawStringAt(rawRow, col) {
     return (v === undefined || v === null || v === "") ? CAT_NAN_SENTINEL : String(v);
 }
 
+// datetime_parts(真因④対策/.treg v6): train_bridge._parse_datetime_parts /
+// predict_native_v2.cpp parse_datetime_parts と一字一句同じ判定になるよう移植する
+// (検出率計算と抽出の両方で同じ関数を使う「唯一の真実の判定」を3実装で共有する設計。
+// 参照日テスト: scratchpad dt_unittest.js/dt_parse_test.js で全一致確認済み)。
+const DT_DAYS_IN_MONTH = [31,29,31,30,31,30,31,31,30,31,30,31];
+
+function parseDatetimeParts(raw) {
+    const s = String(raw).trim();
+    if (s.length < 10) return null;
+    const isDigits = (pos, n) => { if (pos + n > s.length) return false; for (let i = 0; i < n; i++) if (s[pos+i] < '0' || s[pos+i] > '9') return false; return true; };
+    if (!isDigits(0, 4)) return null;
+    const y = parseInt(s.slice(0, 4), 10);
+    const sep = s[4];
+    if (sep !== '-' && sep !== '/') return null;
+    if (!isDigits(5, 2)) return null;
+    const mo = parseInt(s.slice(5, 7), 10);
+    if (s[7] !== sep) return null;
+    if (!isDigits(8, 2)) return null;
+    const d = parseInt(s.slice(8, 10), 10);
+    let hh = 0, mi = 0, pos = 10;
+    if (pos < s.length) {
+        if (s[pos] === ' ' || s[pos] === 'T') pos++;
+        if (!isDigits(pos, 2) || pos + 2 >= s.length || s[pos+2] !== ':') return null;
+        hh = parseInt(s.slice(pos, pos+2), 10); pos += 3;
+        if (!isDigits(pos, 2)) return null;
+        mi = parseInt(s.slice(pos, pos+2), 10); pos += 2;
+        if (pos < s.length) {
+            if (s[pos] !== ':' || !isDigits(pos+1, 2)) return null;
+            pos += 3;
+        }
+        if (pos !== s.length) return null;
+    }
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || hh > 23 || mi > 59) return null;
+    if (d > DT_DAYS_IN_MONTH[mo - 1]) return null;
+    let yy = y - (mo <= 2 ? 1 : 0);
+    const era = Math.floor((yy >= 0 ? yy : yy - 399) / 400);
+    const yoe = yy - era * 400;
+    const doy = Math.floor((153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+    const doe = yoe * 365 + Math.floor(yoe/4) - Math.floor(yoe/100) + doy;
+    const epochDays = era * 146097 + doe - 719468;
+    const dow = ((epochDays % 7) + 10) % 7;
+    return { hour: hh, dow, month: mo, epoch_days: epochDays };
+}
+
+// 合成キー(真因②対策/.treg v7): predict_native_v2.cpp parse_numeric_field と同一仕様の
+// 厳密な数値パース(全体が数値表現であることを要求、末尾ゴミがあればNaN)。
+function parseNumericFieldStrict(raw) {
+    const t = String(raw).trim();
+    if (t === "") return NaN;
+    if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(t)) return NaN;
+    const v = Number(t);
+    return Number.isFinite(v) ? v : NaN;
+}
+
+// train_bridge._canon_numeric_key_part / predict_native_v2.cpp canon_numeric_key_part
+// と同一の正規化(整数相当の値のみサポート)。
+function canonNumericKeyPart(raw) {
+    const v = parseNumericFieldStrict(raw);
+    if (!Number.isFinite(v) || Math.abs(v) >= 1e15) return CAT_NAN_SENTINEL;
+    return String(Math.round(v));
+}
+
+function buildCompositeKey(sourceColJoined, rawRow) {
+    return sourceColJoined.split(NUMKEY_SEP)
+        .map((col) => canonNumericKeyPart(rawStringAt(rawRow, col)))
+        .join(NUMKEY_SEP);
+}
+
 // 名前解決: feat_cols/派生特徴の col_a・col_b がカテゴリエンコーダの生成列(one-hot
 // indicator名、またはtarget-encoding後の元列名)を指す場合はそちらを優先し、それ以外は
 // 通常の数値列として row から引く(C++版 resolve_named と同一仕様)。
@@ -299,9 +375,23 @@ function resolveNamed(model, name, row, rawRow) {
     const idx = model.cat_idx.get(name);
     if (idx !== undefined) {
         const c = model.cat_encoders[idx];
+        if (c.method === CAT_COMPOSITE_TARGET) {
+            const key = buildCompositeKey(c.source_col, rawRow);
+            return c.target_map.has(key) ? c.target_map.get(key) : c.target_default;
+        }
         const raw = rawStringAt(rawRow, c.source_col);
         if (c.method === CAT_ONEHOT) return raw === c.class_value ? 1.0 : 0.0;
-        return c.target_map.has(raw) ? c.target_map.get(raw) : c.target_default;
+        if (c.method === CAT_TARGET) return c.target_map.has(raw) ? c.target_map.get(raw) : c.target_default;
+        // CAT_DATETIME_PARTS
+        const parts = parseDatetimeParts(raw);
+        if (!parts) return NaN;  // predictRow側の汎用中央値フォールバックに委ねる
+        switch (c.part_id) {
+            case DTPART_HOUR:       return parts.hour;
+            case DTPART_DOW:        return parts.dow;
+            case DTPART_MONTH:      return parts.month;
+            case DTPART_EPOCH_DAYS: return parts.epoch_days;
+            default:                return NaN;
+        }
     }
     const v = row[name];
     if (v === undefined || v === null || Number.isNaN(v)) return NaN;

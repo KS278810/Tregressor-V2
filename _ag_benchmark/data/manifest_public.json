@@ -1,0 +1,112 @@
+{
+  "pub_concrete": {
+    "csv": "pub_concrete.csv",
+    "target": "target",
+    "n": 1030,
+    "n_cols": 8,
+    "family": "public",
+    "ceiling_r2": null,
+    "source": "public_uci",
+    "uci_id": 165,
+    "note": "コンクリート圧縮強度(UCI 165, n=1030)。CTR23/AMLB系論文で頻出の定番"
+  },
+  "pub_energy": {
+    "csv": "pub_energy.csv",
+    "target": "target",
+    "n": 768,
+    "n_cols": 8,
+    "family": "public",
+    "ceiling_r2": null,
+    "source": "public_uci",
+    "uci_id": 242,
+    "note": "建物エネルギー効率(UCI 242, n=768)。暖房負荷を予測、冷房負荷列は除外"
+  },
+  "pub_powerplant": {
+    "csv": "pub_powerplant.csv",
+    "target": "target",
+    "n": 2000,
+    "n_cols": 4,
+    "family": "public",
+    "ceiling_r2": null,
+    "source": "public_uci",
+    "uci_id": 294,
+    "note": "複合サイクル発電所の出力(UCI 294, n=9568→2000)。4特徴のみの低次元回帰"
+  },
+  "pub_automgp": {
+    "csv": "pub_automgp.csv",
+    "target": "target",
+    "n": 398,
+    "n_cols": 7,
+    "family": "public",
+    "ceiling_r2": null,
+    "source": "public_uci",
+    "uci_id": 9,
+    "note": "自動車燃費 Auto MPG(UCI 9, n=398)。カテゴリ列(原産地)混在の古典データ"
+  },
+  "pub_realestate": {
+    "csv": "pub_realestate.csv",
+    "target": "target",
+    "n": 414,
+    "n_cols": 6,
+    "family": "public",
+    "ceiling_r2": null,
+    "source": "public_uci",
+    "uci_id": 477,
+    "note": "台湾不動産価格(UCI 477, n=414)。小標本の実務データ"
+  },
+  "pub_forestfires": {
+    "csv": "pub_forestfires.csv",
+    "target": "target",
+    "n": 517,
+    "n_cols": 12,
+    "family": "public",
+    "ceiling_r2": null,
+    "source": "public_uci",
+    "uci_id": 162,
+    "note": "森林火災の焼失面積(UCI 162, n=517)。極端な右裾(0が大半)、頑健性の試金石"
+  },
+  "pub_parkinsons": {
+    "csv": "pub_parkinsons.csv",
+    "target": "target",
+    "n": 2000,
+    "n_cols": 19,
+    "family": "public",
+    "ceiling_r2": null,
+    "source": "public_uci",
+    "uci_id": 189,
+    "note": "パーキンソン病重症度スコア(UCI 189, n=5875→2000)。total_UPDRSを予測"
+  },
+  "pub_superconduct": {
+    "csv": "pub_superconduct.csv",
+    "target": "target",
+    "n": 2000,
+    "n_cols": 81,
+    "family": "public",
+    "ceiling_r2": null,
+    "source": "public_uci",
+    "uci_id": 464,
+    "note": "超伝導臨界温度(UCI 464, n=21263→2000, 81特徴)。高次元・表形式DL論文の定番"
+  },
+  "pub_appliances": {
+    "csv": "pub_appliances.csv",
+    "target": "target",
+    "n": 2000,
+    "n_cols": 28,
+    "family": "public",
+    "ceiling_r2": null,
+    "source": "public_uci",
+    "uci_id": 374,
+    "note": "家電エネルギー消費予測(UCI 374, n=19735→2000, 高次元時系列由来特徴)"
+  },
+  "pub_studentperf": {
+    "csv": "pub_studentperf.csv",
+    "target": "target",
+    "n": 649,
+    "n_cols": 30,
+    "family": "public",
+    "ceiling_r2": null,
+    "source": "public_uci",
+    "uci_id": 320,
+    "note": "生徒の最終成績(UCI 320, n=395)。G1/G2(中間成績)は最終成績と強相関のため除外し純粋な特徴から予測"
+  }
+}

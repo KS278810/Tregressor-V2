@@ -758,6 +758,7 @@
         <div class="settings-row">
             <div class="settings-label" data-i18n="ui.settingsModeLabel">モード</div>
             <select id="modelStrategySelect" class="settings-select">
+                <option value="instant" data-i18n="ui.settingsModeInstant">瞬速</option>
                 <option value="quick" data-i18n="ui.settingsModeQuick" selected>お急ぎ</option>
                 <option value="thorough" data-i18n="ui.settingsModeThorough">じっくり</option>
             </select>
@@ -765,6 +766,7 @@
         <div class="settings-info-box">
             <div class="settings-info-title" data-i18n="ui.settingsInfoTitle">モードについて</div>
             <div class="settings-info-body" data-i18n="ui.settingsInfoBody">
+                <b>瞬速</b>：学習データが多い場合に一部の行だけを使って手早く学習し、お急ぎよりもさらに短時間で結果を返します（精度はお急ぎよりやや下がることがあります）。<br>
                 <b>お急ぎ</b>：線形回帰・LightGBM・ガウス過程・ニューラルネットの4種類（データ量により自動選択）を標準設定で手早く学習し、最も精度の良いものを採用します。<br>
                 <b>じっくり</b>：交差検証で公平に評価しながら、特徴量どうしの掛け合わせなど新しい特徴量を自動生成し、多数のパラメータ候補を予選→本戦方式で幅広く探索。さらに6種類のモデルを最適な重みで組み合わせるアンサンブルも試し、より高い精度を追求します（学習時間は数十秒〜数分）。
             </div>
@@ -836,10 +838,12 @@
             'ui.predictDownloadBtn': 'CSVをDL',
             'ui.retryBtn': '↩ 最初からやり直す',
             'ui.settingsModeLabel': 'モード',
+            'ui.settingsModeInstant': '瞬速',
             'ui.settingsModeQuick': 'お急ぎ',
             'ui.settingsModeThorough': 'じっくり',
             'ui.settingsInfoTitle': 'モードについて',
             'ui.settingsInfoBody':
+                '<b>瞬速</b>：学習データが多い場合に一部の行だけを使って手早く学習し、お急ぎよりもさらに短時間で結果を返します（精度はお急ぎよりやや下がることがあります）。<br>' +
                 '<b>お急ぎ</b>：線形回帰・LightGBM・ガウス過程・ニューラルネットの4種類（データ量により自動選択）を標準設定で手早く学習し、最も精度の良いものを採用します。<br>' +
                 '<b>じっくり</b>：交差検証で公平に評価しながら、特徴量どうしの掛け合わせなど新しい特徴量を自動生成し、多数のパラメータ候補を予選→本戦方式で幅広く探索。さらに6種類のモデルを最適な重みで組み合わせるアンサンブルも試し、より高い精度を追求します（学習時間は数十秒〜数分）。',
             'ui.settingsCpuJobsLabel': 'CPU並列数',
@@ -896,6 +900,7 @@
 
             'detail.presetThorough': 'じっくり',
             'detail.presetQuick': 'お急ぎ',
+            'detail.presetInstant': '瞬速',
             'detail.evalOof': 'OOF交差検証 (n={{n}})',
             'detail.evalVal': '検証データ (n={{n}})',
             'detail.evalTrain': '学習データ（ホールドアウトなし）',
@@ -989,6 +994,27 @@
             'error.predictTemplateFetchFailed': 'predict_template.html の取得に失敗しました(HTTP {{status}})',
             'error.modelDataNotFound': 'モデルデータが見つかりません。再学習してください。',
             'error.predictTemplateFormatInvalid': 'predict_template.html の形式が想定と異なります(プレースホルダ不在)',
+
+            // Rust側(src-tauri/lib.rs)由来のエラーキー。Python側と同じ ERROR:key:{json} 規約に
+            // 合流させたもの(2026-07 i18n是正)。
+            'error.embedded_python_missing': '埋め込みPythonが見つかりません。インストールが壊れている可能性があります。アプリを再起動しても解決しない場合は再インストールしてください。',
+            'error.extraction_tmpdir_failed': '展開用フォルダの作成に失敗しました: {{detail}}',
+            'error.extraction_empty_archive': 'python-embed が埋め込まれていません',
+            'error.extraction_partial_failure': '一部ファイルの展開に失敗しました。ディスク容量を確認して再起動してください。',
+            'error.extraction_old_move_failed': '旧python-embedの退避に失敗しました: {{detail}}',
+            'error.extraction_swap_failed': 'python-embedの入れ替えに失敗しました: {{detail}}',
+            'error.extraction_place_failed': 'python-embedの配置に失敗しました: {{detail}}',
+            'error.invalid_file_path': '無効なファイルパスです',
+            'error.python_launch_failed': 'Python起動失敗: {{detail}}',
+            'error.train_no_result': '学習プロセスが結果を返さずに終了しました。CSV の内容を確認してください。',
+            'error.train_crashed': '学習プロセスが異常終了しました:\n{{tail}}',
+            'error.predict_no_result': '予測プロセスが結果を返さずに終了しました。',
+            'error.predict_crashed': '予測プロセスが異常終了しました:\n{{tail}}',
+            'error.json_parse_failed': 'JSON解析失敗: {{detail}}',
+            'error.model_treg_missing': 'model.treg が見つかりません。再学習してください。',
+            'error.predict_native_missing': '予測用の実行ファイル(predict_native.exe)が見つかりません。インストールが壊れている可能性があります。再インストールしてください。',
+            'error.model_treg_invalid': 'model.treg の形式が不正です。再学習してください。',
+            'error.model_type_unsupported_for_exe': 'このモデル種別はexe書き出しに未対応です。HTML版の書き出しをご利用ください。',
 
             'r2interp.very_high': '非常に高精度',
             'r2interp.high': '高精度（実用レベル）',
@@ -1088,6 +1114,7 @@
 
             'detail.presetThorough': 'Thorough',
             'detail.presetQuick': 'Quick',
+            'detail.presetInstant': 'Instant',
             'detail.evalOof': 'OOF cross-validation (n={{n}})',
             'detail.evalVal': 'Validation data (n={{n}})',
             'detail.evalTrain': 'Training data (no holdout)',
@@ -1182,6 +1209,27 @@
             'error.modelDataNotFound': 'No model data found. Please retrain.',
             'error.predictTemplateFormatInvalid': 'predict_template.html has an unexpected format (placeholder missing)',
 
+            // Keys originating from the Rust side (src-tauri/lib.rs), joined into the same
+            // ERROR:key:{json} convention Python uses (2026-07 i18n fix).
+            'error.embedded_python_missing': 'The bundled Python runtime could not be found. The installation may be corrupted. If restarting the app does not fix this, please reinstall.',
+            'error.extraction_tmpdir_failed': 'Failed to create the extraction folder: {{detail}}',
+            'error.extraction_empty_archive': 'The bundled python-embed archive is empty',
+            'error.extraction_partial_failure': 'Some files failed to extract. Please check disk space and restart.',
+            'error.extraction_old_move_failed': 'Failed to move the previous python-embed aside: {{detail}}',
+            'error.extraction_swap_failed': 'Failed to swap in the new python-embed: {{detail}}',
+            'error.extraction_place_failed': 'Failed to place python-embed: {{detail}}',
+            'error.invalid_file_path': 'Invalid file path',
+            'error.python_launch_failed': 'Failed to launch Python: {{detail}}',
+            'error.train_no_result': 'The training process exited without returning a result. Please check the CSV contents.',
+            'error.train_crashed': 'The training process crashed:\n{{tail}}',
+            'error.predict_no_result': 'The prediction process exited without returning a result.',
+            'error.predict_crashed': 'The prediction process crashed:\n{{tail}}',
+            'error.json_parse_failed': 'Failed to parse JSON: {{detail}}',
+            'error.model_treg_missing': 'model.treg was not found. Please retrain.',
+            'error.predict_native_missing': 'The prediction executable (predict_native.exe) was not found. The installation may be corrupted. Please reinstall.',
+            'error.model_treg_invalid': 'model.treg has an invalid format. Please retrain.',
+            'error.model_type_unsupported_for_exe': 'This model type is not supported for EXE export. Please use the HTML export instead.',
+
             'r2interp.very_high': 'Very high accuracy',
             'r2interp.high': 'High accuracy (production-ready)',
             'r2interp.practical': 'Practical accuracy',
@@ -1253,6 +1301,7 @@
         _lang = (lang === 'en') ? 'en' : 'ja';
         try { localStorage.setItem(LANG_STORAGE_KEY, _lang); } catch (_) {}
         applyStaticI18n();
+        if (typeof Platform !== 'undefined' && Platform.setUiLang) Platform.setUiLang(_lang);
         document.querySelectorAll('.lang-toggle-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.lang === _lang));
         if (_lastProgressParsed) {
             const sbLabelEl = document.getElementById('sbLabel');
@@ -1313,6 +1362,10 @@
             downloadFile,
 
             fileDisplayName(fileRef) { return String(fileRef).replace(/\\/g, '/').split('/').pop(); },
+
+            // Rust側は保存ダイアログのタイトル/フィルタ名等、JSのI18N機構が届かない
+            // OSネイティブ文言をこのlangに応じて出し分ける(2026-07 i18n是正)。
+            setUiLang(lang) { invoke('set_ui_lang', { lang }).catch(() => {}); },
 
             async warmup({ onStatus }) { /* Tauri は自己展開フローを別途 wireStartupExtraction() で処理する */ },
 
@@ -1945,7 +1998,8 @@
         if (!lastResult) return;
         const r = lastResult;
 
-        const presetLabel = r.preset === 'thorough' ? t('detail.presetThorough') : t('detail.presetQuick');
+        const PRESET_LABEL_KEYS = { instant: 'detail.presetInstant', quick: 'detail.presetQuick', thorough: 'detail.presetThorough' };
+        const presetLabel = t(PRESET_LABEL_KEYS[r.preset] || 'detail.presetQuick');
         let evalLabel, evalClass;
         if (r.eval_on === 'oof') {
             evalLabel = t('detail.evalOof', { n: r.val_rows ?? '?' }); evalClass = 'oof';
@@ -2153,6 +2207,7 @@
 
     // ── 言語切替(ヘッダー常時表示のトグル) ───────────────────────────────────
     applyStaticI18n();
+    if (Platform.setUiLang) Platform.setUiLang(_lang);
     const langToggleBtns = document.querySelectorAll('.lang-toggle-btn');
     langToggleBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.lang === _lang));
     langToggleBtns.forEach(btn => btn.addEventListener('click', () => setLang(btn.dataset.lang)));
@@ -2943,7 +2998,7 @@
             },
             onExtractionError: (msg) => {
                 const status = document.getElementById('suStatus');
-                if (status) { status.textContent = t('startup.extractError', { detail: msg }); status.style.color = '#f87171'; }
+                if (status) { status.textContent = t('startup.extractError', { detail: translateBackendMessage(msg) }); status.style.color = '#f87171'; }
             },
         });
     })();
@@ -3009,7 +3064,7 @@
 
             let msg = deployWarnParts.length > 0
                 ? t('robot.deploySavedWithWarning')
-                : (modelStrategySelect.value === 'quick'
+                : (modelStrategySelect.value !== 'thorough'
                     ? t('robot.deploySavedQuickHint')
                     : t('robot.deploySaved'));
             setRobot(gifCompleted, msg, 'rgba(240,169,78,0.6)', false);
@@ -3020,7 +3075,7 @@
             // 文字列そのものとして reject するため、e?.message ではなく e 自体も見る
             // (Web版のPyodide側は通常のErrorを投げるため、e.messageも念のため優先する)。
             const raw = (e && typeof e === 'object' && e.message) ? e.message : e;
-            const detail = raw ? `\n(${raw})` : '';
+            const detail = raw ? `\n(${translateBackendMessage(raw)})` : '';
             setRobotError(t('robot.deploySaveFailed', { detail }));
             if (canDeploy()) { exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready'; }
         }
