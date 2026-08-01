@@ -173,15 +173,14 @@ const pB=[...catRow2.querySelectorAll('.sim-pill')].find(p=>p.dataset.v==='B');
 pB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(catRow2.querySelector('.sim-pill.on').dataset.v==='B','ピルで切り替わる');
 chk(catRow2.querySelector('.sim-val').textContent==='','選択中の値は右端に再掲しない');
-const seedBtns=[...d.querySelectorAll('#simSeedSeg button')];
-chk(seedBtns.length===4,'基準行セグメントが4つ');
-seedBtns.find(b=>b.dataset.label==='high').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-{const sh=RESULT.seed_rows.find(x=>x.label==='high');
- const row={},raw={};sliderSpec.forEach(s=>{const v=sh.values[s.col];raw[s.col]=String(v);row[s.col]=Number(v);});
+chk(!d.getElementById('simSeedSeg'),'LOW/MID/HIGH/RANDの選択UIは無い（出発点は自動）');
+d.getElementById('simResetBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+{const sm=RESULT.seed_rows.find(x=>x.label==='median');
+ const row={},raw={};sliderSpec.forEach(s=>{const v=sm.values[s.col];raw[s.col]=String(v);row[s.col]=Number(v);});
  const ex=core.predictRow(m1,row,raw);
  chk(Math.abs(Number(el('simPredVal').textContent)-Number(ex.toFixed(1)))<0.06,
-   `基準行HIGHの表示 ${el('simPredVal').textContent} == エンジン ${ex.toFixed(4)}`);}
-chk(q('.sim-row')===21,'基準行を切り替えても全変数のスライダーが並ぶ');
+   `↺で中位の実データ行に戻る (表示 ${el('simPredVal').textContent} == エンジン ${ex.toFixed(4)})`);}
+chk(q('.sim-row')===21,'リセット後も全変数のスライダーが並ぶ');
 el('simLinkBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(el('simLinkBtn').classList.contains('on'),'連動モードON');
 let saved=null; H.Platform.downloadFile=(b,n,m)=>{w.__SAVED__={n:n,m:m,len:b.length};};
@@ -277,6 +276,13 @@ chk(!el('simLegend').classList.contains('open'),'もう一度押すと閉じる'
 const rng2=d.querySelector('.sim-row input[type=range]');
 chk(!!rng2.getAttribute('aria-valuetext'),`range に aria-valuetext がある (${rng2.getAttribute('aria-valuetext')})`);
 chk(!!rng2.getAttribute('aria-label'),'range に aria-label がある');
+
+
+console.log('\n[10] ワークフロー側の表示');
+chk(!!d.getElementById('deployHint'),'④に「学習後に使えます」のヒントがある');
+{const html2=fs.readFileSync(path.join(ROOT,'web/index.html'),'utf8');
+ chk(!/no network/i.test(html2)&&!/ネットワーク不要/.test(html2),
+   '起動時の「NO NETWORK / ネットワーク不要」表示を撤去した');}
 
 console.log('\n[8] 画面に出る文字量');
 const shown=el('simulateSection').textContent.replace(/\s+/g,' ').trim();
