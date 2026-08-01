@@ -94,12 +94,15 @@ try{ H.applyTrainingResult(RESULT); }
 catch(e){ errs.push('applyTrainingResult THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,5).join('\n')); }
 if(errs.length){console.log(errs.join('\n'));process.exit(1);}
 const d=w.document,q=s=>d.querySelectorAll(s).length,el=id=>d.getElementById(id);
-chk(el('tabPredict').style.display==='','SIMULATEタブが学習完了と同時に出る（CSV不要）');
-chk(el('tabPredict').textContent==='SIMULATE','タブ見出しが SIMULATE になる');
 chk(d.getElementById('step3Label').textContent==='SIMULATE','③の見出しが SIMULATE になる');
-H.showTrainedTab('predict');
-chk(el('simulateSection').style.display==='flex','SIMULATEセクションが表示される');
-chk(el('predictResultSection').style.display==='none','CSVプレビューは非表示（排他）');
+chk(el('predictSubLabel').textContent.includes('OPEN SIMULATOR')||el('predictSubLabel').textContent.includes('推論'),
+  `③が推論ボタンになる: ${el('predictSubLabel').textContent}`);
+chk(d.getElementById('predictZone').className.includes('sim-open-btn'),'③にボタン用スタイルが付く');
+chk(el('tabPredict').style.display==='none','SIMULATEはタブではなく③から開く');
+chk(el('simulateOverlay').style.display==='none','初期状態ではオーバーレイは閉じている');
+d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(el('simulateOverlay').style.display==='flex','③クリックで全画面オーバーレイが開く');
+chk(el('simSubtitle').textContent.length>0,`サブタイトル: ${el('simSubtitle').textContent}`);
 chk(q('.sim-row')===12,`既定12本のスライダー (実測 ${q('.sim-row')})`);
 chk(q('#simChips .sim-chip')===9,`残りは固定チップ (実測 ${q('#simChips .sim-chip')})`);
 chk(el('simTCount').textContent==='12 / 21',`本数表示 ${el('simTCount').textContent}`);
@@ -180,7 +183,7 @@ chk(!!saved&&saved.n==='scenario.csv'&&saved.len>0,`CSV保存 (${saved&&saved.n}
 
 console.log('\n[6] 低精度時の抑制表示');
 const R2=JSON.parse(JSON.stringify(RESULT)); R2.r2=0.28;
-H.applyTrainingResult(R2); H.showTrainedTab('predict');
+H.applyTrainingResult(R2); d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(el('simRight').classList.contains('lowq'),'R²0.28で彩度を落とす');
 chk(!el('simPredVal').title.includes('上位')&&!el('simPredVal').title.includes('Top '),
   '低精度時はパーセンタイルを出さない');
@@ -189,11 +192,20 @@ chk(el('simPredVal').title.includes('信頼性は低い')||el('simPredVal').titl
 
 console.log('\n[7] 使えない場合のフォールバック');
 H.Platform.getTregBytes=()=>null; H.applyTrainingResult(RESULT);
-chk(el('tabPredict').style.display==='none','.treg が無ければ SIMULATE タブを出さない');
+chk(!d.getElementById('predictZone').className.includes('sim-open-btn'),'.treg が無ければ③は従来のCSVドロップのまま');
 H.Platform.getTregBytes=()=>w.__TREG__; const R3=JSON.parse(JSON.stringify(RESULT)); R3.slider_spec=[]; H.applyTrainingResult(R3);
-chk(el('tabPredict').style.display==='none','slider_spec が空でも安全に無効化');
-H.applyTrainingResult(RESULT); H.showTrainedTab('predict');
-chk(el('tabPredict').style.display===''&&q('.sim-row')===12,'正常なresultで復帰する');
+chk(!d.getElementById('predictZone').className.includes('sim-open-btn'),'slider_spec が空でも安全に無効化');
+H.applyTrainingResult(RESULT); d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(el('simulateOverlay').style.display==='flex'&&q('.sim-row')===12,'正常なresultで復帰する');
+// 閉じる操作
+d.getElementById('simCloseBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(el('simulateOverlay').style.display==='none','✕で閉じる');
+d.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(el('simulateOverlay').style.display==='flex','再度③で開き直せる');
+d.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+chk(el('simulateOverlay').style.display==='none','Escで閉じる');
+d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 
 console.log('\n[7b] 日英切替');
 {const H2=w.__H__;const before=el('simFoot').textContent;
