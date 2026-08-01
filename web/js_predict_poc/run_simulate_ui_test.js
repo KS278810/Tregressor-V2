@@ -304,10 +304,13 @@ console.log('\n[11] レイアウトの幅（jsdomは自動レイアウトしな�
  console.log(`       列最小 ${colMin}px / 固定 ${fixed}px (imp${impW}+name${nameW}+val${valW}+spark${sparkW}+x${xW}+gap${gap}x5+pad${rowPad})`);
  console.log(`       → スライダー本体に残る幅 ${track}px (min-width ${trackMin}px)`);
  chk(track >= trackMin, `スライダー本体が min-width(${trackMin}px) 以上を確保できる`);
- chk(track >= 100, `スライダーとして実用的な幅がある (${track}px >= 100px)`);
+ chk(track >= 120, `スライダーとして実用的な幅がある (${track}px >= 120px)`);
+ // つまみは半径7.5px。端で切れないための余白(PAD)がトラック描画側にあること
+ const pad = num(/const PAD = (\d+);/);
+ chk(pad >= 8, `つまみが端で切れない余白がある (PAD=${pad}px)`);
  // Canvasの描画高さとCSSの高さが食い違うと、線が切れたり隙間が出る
  const trackH = num(/\.sim-track \{[^}]*height: (\d+)px/s);
- const jsTrackH = num(/wrap\.clientWidth \|\| 0, h = (\d+)/);
+ const jsTrackH = num(/const w = wrap\.clientWidth \|\| 0, h = (\d+)/);
  chk(trackH === jsTrackH, `トラックのCSS高さ(${trackH}px)とCanvas描画高さ(${jsTrackH}px)が一致`);
  const sparkH = num(/\.sim-spark \{ width: \d+px; height: (\d+)px/);
  const jsSparkW = num(/const w = (\d+), h = \d+;\s*\n\s*const pts = \[\]/);

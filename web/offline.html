@@ -686,17 +686,17 @@
         /* 1行の固定要素(重要度3+列名72+値52+感度38+×11+隙間30=206px)に対して
            スライダー本体が十分な幅を持てるよう、列の最小幅を余裕をもって取る。
            狭いと auto-fill が列数を減らすだけで、トラックは潰れない。 */
-        .sim-sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); column-gap: 16px; }
+        .sim-sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); column-gap: 16px; }
         .sim-row {
-            display: flex; align-items: center; gap: 6px; height: 28px; min-width: 0;
-            border-radius: 3px; padding: 0 2px 0 6px; transition: background 0.12s;
+            display: flex; align-items: center; gap: 6px; height: 34px; min-width: 0;
+            border-radius: 4px; padding: 0 2px 0 6px; transition: background 0.12s;
             position: relative;
         }
         .sim-row:hover { background: rgba(255,255,255,0.022); }
         /* 基準行から動かした変数に印を付ける。What-if では「どこを触ったか」が
            絶対値そのものと同じくらい重要なので、色ではなく位置(左端の縦線)で示す。 */
         .sim-row.changed::before {
-            content: ''; position: absolute; left: 0; top: 5px; bottom: 5px; width: 2px;
+            content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px;
             border-radius: 1px; background: var(--gold);
         }
         .sim-row.changed .sim-name { color: var(--ink); cursor: pointer; }
@@ -732,17 +732,17 @@
         }
         .sim-row:hover .sim-x { opacity: 1; }
         .sim-x:hover { color: var(--bad); }
-        .sim-track { position: relative; flex: 1; height: 22px; min-width: 90px; }
-        .sim-track canvas { position: absolute; inset: 0; width: 100%; height: 22px; display: block; pointer-events: none; }
+        .sim-track { position: relative; flex: 1; height: 26px; min-width: 110px; }
+        .sim-track canvas { position: absolute; inset: 0; width: 100%; height: 26px; display: block; pointer-events: none; }
         .sim-track input[type=range] {
-            position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 22px;
-            margin: 0; -webkit-appearance: none; appearance: none; background: transparent; cursor: ew-resize;
+            position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 26px;
+            margin: 0; -webkit-appearance: none; appearance: none; background: transparent; cursor: grab;
         }
-        .sim-track input[type=range]::-webkit-slider-runnable-track { height: 22px; background: transparent; }
-        .sim-track input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; background: transparent; border: none; }
-        .sim-track input[type=range]::-moz-range-track { height: 22px; background: transparent; }
-        .sim-track input[type=range]::-moz-range-thumb { width: 22px; height: 22px; background: transparent; border: none; }
-        .sim-spark { width: 40px; height: 22px; flex: none; display: block; }
+        .sim-track input[type=range]::-webkit-slider-runnable-track { height: 26px; background: transparent; }
+        .sim-track input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; background: transparent; border: none; }
+        .sim-track input[type=range]::-moz-range-track { height: 26px; background: transparent; }
+        .sim-track input[type=range]::-moz-range-thumb { width: 26px; height: 26px; background: transparent; border: none; }
+        .sim-spark { width: 40px; height: 26px; flex: none; display: block; }
         /* カテゴリは折り返さず横スクロール。行の高さを一定に保つ */
         .sim-pills { display: flex; gap: 3px; flex: 1; min-width: 90px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
         .sim-pills::-webkit-scrollbar { display: none; }
@@ -4374,78 +4374,94 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         simScheduleSparks();
     }
 
+    // トラックは「普通のスライダー」に見えることを最優先にする。
+    // レール(細い横棒)＋現在値までの塗り＋はっきりした丸いつまみ、という
+    // 誰でも知っている形にし、学習データの密度はその上に控えめな背景として置く。
+    // (以前は密度カーブが主役でトラックを覆ってしまい、スライダーだと分からなかった)
     function simDrawTrack(row) {
         const col = row.dataset.col, s = SIM.specBy[col];
         const wrap = row.querySelector('.sim-track');
         if (!wrap) return;
         const cv = wrap.querySelector('canvas');
-        const w = wrap.clientWidth || 0, h = 22;
-        if (w <= 0) return;               // 非表示中は描かない（タブ表示時に再描画される）
+        const w = wrap.clientWidth || 0, h = 26;
+        if (w <= 0) return;                // 非表示中は描かない（表示時に再描画される）
         const ctx = simHdpi(cv, w, h);
-        const [lo, hi] = simRange(s), X = (v) => (v - lo) / (hi - lo) * w;
+        const PAD = 8;                     // 端でつまみが切れないための余白
+        const [lo, hi] = simRange(s);
+        const X = (v) => PAD + (v - lo) / ((hi - lo) || 1) * (w - PAD * 2);
         const v = SIM.state[col], warn = simIsExtrap(s, v), stop = simAtClip(s, v);
         const acc = warn ? '240,169,78' : '63,196,236';
-        const base = h - 3, top = 3;
+        const railY = h - 8;
+        const dTop = 2, dBot = railY - 7;   // 密度カーブを描く帯（レールの上）
 
+        // ① 学習データの密度（背景・控えめ）。裾が薄くなる形が「データが無い」の合図。
         const hs = simSmooth3(s.hist || []), mx = Math.max(...hs, 1);
         const bw = ((s.hist_hi - s.hist_lo) || 1) / Math.max(1, (s.hist || []).length);
-        const pts = hs.map((c, i) => ({ x: X(s.hist_lo + bw * (i + 0.5)), y: base - (c / mx) * (base - top) }));
-        pts.unshift({ x: X(s.hist_lo), y: base }); pts.push({ x: X(s.hist_hi), y: base });
-        ctx.beginPath(); simCurve(ctx, pts);
-        ctx.lineTo(pts[pts.length - 1].x, base); ctx.lineTo(pts[0].x, base); ctx.closePath();
-        const g = ctx.createLinearGradient(0, top, 0, base);
-        g.addColorStop(0, 'rgba(63,196,236,0.22)'); g.addColorStop(1, 'rgba(63,196,236,0.03)');
-        ctx.fillStyle = g; ctx.fill();
-        ctx.beginPath(); simCurve(ctx, pts);
-        ctx.strokeStyle = 'rgba(63,196,236,0.32)'; ctx.lineWidth = 1; ctx.stroke();
+        if (hs.length) {
+            const pts = hs.map((c, i) => ({ x: X(s.hist_lo + bw * (i + 0.5)),
+                                            y: dBot - (c / mx) * (dBot - dTop) }));
+            pts.unshift({ x: X(s.hist_lo), y: dBot }); pts.push({ x: X(s.hist_hi), y: dBot });
+            ctx.beginPath(); simCurve(ctx, pts);
+            ctx.lineTo(pts[pts.length - 1].x, dBot); ctx.lineTo(pts[0].x, dBot); ctx.closePath();
+            ctx.fillStyle = 'rgba(63,196,236,0.10)'; ctx.fill();
+            ctx.beginPath(); simCurve(ctx, pts);
+            ctx.strokeStyle = 'rgba(63,196,236,0.20)'; ctx.lineWidth = 1; ctx.stroke();
+        }
 
-        // スライドバーの軌道。左から現在値までを明るくして「つまみを引いた量」が
-        // 一目で分かるようにする(密度カーブだけだとスライダーに見えないため)。
-        const tx0 = X(Math.min(Math.max(v, lo), hi));
-        ctx.strokeStyle = 'rgba(160,190,220,0.22)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
-        ctx.beginPath(); ctx.moveTo(2, base + 0.5); ctx.lineTo(w - 2, base + 0.5); ctx.stroke();
-        ctx.strokeStyle = `rgba(${acc},0.75)`; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(2, base + 0.5); ctx.lineTo(Math.max(2, tx0), base + 0.5); ctx.stroke();
+        // ② レール（未選択部）と、左端から現在値までの塗り（選択部）
+        const tx = X(Math.min(Math.max(v, lo), hi));
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(160,190,220,0.28)'; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(PAD, railY); ctx.lineTo(w - PAD, railY); ctx.stroke();
+        ctx.strokeStyle = `rgba(${acc},0.85)`; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(PAD, railY); ctx.lineTo(Math.max(PAD, tx), railY); ctx.stroke();
         ctx.lineCap = 'butt';
 
-        // x_clip = 行き止まりの壁。ここから先はエンジンが入力をクリップするため
-        // つまみを動かしても予測が変わらない。壁として描くことで文章の説明が要らなくなる。
+        // ③ x_clip の壁。ここから先はエンジンが入力をクリップするので予測が動かない。
         [[s.x_clip_lo, -1], [s.x_clip_hi, 1]].forEach(([bv, dir]) => {
             if (bv == null) return;
             const bx = X(bv);
-            ctx.strokeStyle = stop ? 'rgba(239,92,92,0.85)' : 'rgba(160,190,220,0.2)';
-            ctx.lineWidth = stop ? 1.5 : 1;
-            ctx.beginPath(); ctx.moveTo(bx, top - 1); ctx.lineTo(bx, base + 1); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(bx, base + 1); ctx.lineTo(bx + dir * 3, base + 1); ctx.stroke();
+            if (bx < PAD - 1 || bx > w - PAD + 1) return;
+            // 実際に当たっている側の壁だけ赤くする（両端を赤くすると、
+            // 動かせない方向がどちらなのか分からなくなる）
+            const hit = dir < 0 ? (v <= s.x_clip_lo) : (v >= s.x_clip_hi);
+            ctx.strokeStyle = hit ? 'rgba(239,92,92,0.9)' : 'rgba(160,190,220,0.35)';
+            ctx.lineWidth = hit ? 2 : 1;
+            ctx.beginPath(); ctx.moveTo(bx, railY - 6); ctx.lineTo(bx, railY + 6); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(bx, railY + 6); ctx.lineTo(bx + dir * 3, railY + 6); ctx.stroke();
         });
 
+        // ④ 相関相手が示す「あるべき値」のゴースト。ズレていれば破線でつなぐ。
         const gh = simGhostFor(col);
         if (gh && isFinite(gh.v) && gh.v >= lo && gh.v <= hi) {
-            const gx = X(gh.v), tx = X(v), off = Math.abs(v - gh.v) / (gh.sd || 1);
-            ctx.strokeStyle = off > 1.5 ? 'rgba(240,169,78,0.55)' : 'rgba(160,190,220,0.26)';
+            const gx = X(gh.v), off = Math.abs(v - gh.v) / (gh.sd || 1);
+            ctx.strokeStyle = off > 1.5 ? 'rgba(240,169,78,0.6)' : 'rgba(160,190,220,0.3)';
             ctx.lineWidth = 1;
             if (off > 0.4) {
                 ctx.setLineDash([2, 3]); ctx.beginPath();
-                ctx.moveTo(gx, base - 5); ctx.lineTo(tx, base - 5); ctx.stroke(); ctx.setLineDash([]);
+                ctx.moveTo(gx, railY); ctx.lineTo(tx, railY); ctx.stroke(); ctx.setLineDash([]);
             }
-            ctx.beginPath(); ctx.arc(gx, base - 5, 2.8, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.arc(gx, railY, 3, 0, Math.PI * 2); ctx.stroke();
         }
 
-        // つまみは色だけでなく「形」でも状態を表す（色覚特性に依存させない）。
-        //   通常=丸 / 外挿=ひし形 / 飽和=角（壁に当たって潰れた形）
-        const tx = X(Math.min(Math.max(v, lo), hi));
-        ctx.shadowColor = `rgba(${acc},0.55)`; ctx.shadowBlur = 6; ctx.fillStyle = `rgb(${acc})`;
-        ctx.beginPath(); ctx.moveTo(tx, base); ctx.lineTo(tx - 4, base - 7);
-        ctx.lineTo(tx + 4, base - 7); ctx.closePath(); ctx.fill();
+        // ⑤ つまみ。まず背景色で抜いてレールから浮かせ、その上に色を乗せる。
+        //    形でも状態を表す（丸=通常 / ひし形=外挿 / 角=飽和）ので色覚に依存しない。
+        ctx.fillStyle = '#0b0f1a';
+        ctx.beginPath(); ctx.arc(tx, railY, 7.5, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowColor = `rgba(${acc},0.65)`; ctx.shadowBlur = 7;
+        ctx.fillStyle = `rgb(${acc})`;
         if (stop) {
-            ctx.fillRect(tx - 3.5, base - 12, 7, 5);
+            ctx.fillRect(tx - 5, railY - 5, 10, 10);
         } else if (warn) {
-            ctx.beginPath(); ctx.moveTo(tx, base - 13); ctx.lineTo(tx + 3.8, base - 9.5);
-            ctx.lineTo(tx, base - 6); ctx.lineTo(tx - 3.8, base - 9.5); ctx.closePath(); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(tx, railY - 6); ctx.lineTo(tx + 6, railY);
+            ctx.lineTo(tx, railY + 6); ctx.lineTo(tx - 6, railY); ctx.closePath(); ctx.fill();
         } else {
-            ctx.beginPath(); ctx.arc(tx, base - 9.5, 3.4, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(tx, railY, 5.5, 0, Math.PI * 2); ctx.fill();
         }
         ctx.shadowBlur = 0;
+        // つまみの中心に暗い芯を入れて「掴む場所」であることを強調する
+        ctx.fillStyle = 'rgba(6,8,15,0.55)';
+        ctx.beginPath(); ctx.arc(tx, railY, 1.8, 0, Math.PI * 2); ctx.fill();
     }
 
     function simSetVal(col, v, dragging) {
@@ -4750,7 +4766,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         const col = row.dataset.col, s = SIM.specBy[col];
         const cv = row.querySelector('.sim-spark');
         if (!cv || !s) return;
-        const w = 40, h = 22;
+        const w = 40, h = 26;
         const pts = [];
         if (s.kind === 'numeric') {
             const [lo, hi] = simRange(s);
