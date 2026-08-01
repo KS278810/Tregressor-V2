@@ -36,7 +36,7 @@ if(!w.TextEncoder) w.TextEncoder=require('util').TextEncoder;
 Object.defineProperty(w.Element.prototype,'clientWidth',{get(){return 300;}});
 w.addEventListener('error',e=>errs.push('window.error: '+e.message));
 const code=html.match(/<script>([\s\S]*)<\/script>/)[1];
-try{w.eval(code+'\n;window.__H__={Platform:Platform,applyTrainingResult:applyTrainingResult,showTrainedTab:showTrainedTab,SIM:SIM};');}catch(e){errs.push('THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,6).join('\n'));}
+try{w.eval(code+'\n;window.__H__={Platform:Platform,applyTrainingResult:applyTrainingResult,showTrainedTab:showTrainedTab,SIM:SIM,simSobolCount:simSobolCount,simSobol:simSobol};');}catch(e){errs.push('THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,6).join('\n'));}
 
 console.log('[0] 埋め込みエンジン');
 chk(errs.length===0,'スクリプトが例外なく実行される'); if(errs.length){console.log(errs.join('\n'));process.exit(1);}
@@ -153,7 +153,21 @@ chk(q('.sim-row.changed')===0,'列名クリックでその変数だけ元に戻�
 
 console.log('\n[4] Sobol走査による応答分布');
 chk(!!H.SIM.dist,'応答分布が作られている');
-chk(H.SIM.dist.n>=256,`Sobol点数 ${H.SIM.dist.n}`);
+{const isPow2=x=>x>0&&(x&(x-1))===0;
+ chk(isPow2(H.SIM.dist.n)&&H.SIM.dist.n>=256&&H.SIM.dist.n<=4096,
+   `Sobol点数は2のべき乗で範囲内 (${H.SIM.dist.n}点 / 変数${sliderSpec.length}個)`);
+ // 点数が変数の数に応じて増える（1変数あたり128点の目安、512〜4096でクランプ）
+ const c=H.simSobolCount;
+ chk(c(1)===512&&c(5)===1024&&c(10)===2048&&c(20)===4096&&c(100)===4096,
+   `点数の決め方: 1→${c(1)} 5→${c(5)} 10→${c(10)} 20→${c(20)} 100→${c(100)}`);
+ chk(c(3)<=c(10)&&c(10)<=c(30),'変数が増えるほど点数が増える(単調)');
+ // Sobol列そのものの一様性（各次元を8分割した箱の偏り）
+ const pts=H.simSobol(8,512); let worst=0;
+ for(let j=0;j<8;j++){const b=new Array(8).fill(0);
+   for(const p of pts)b[Math.min(7,Math.floor(p[j]*8))]++;
+   worst=Math.max(worst,Math.max(...b.map(x=>Math.abs(x-64)))/64);}
+ chk(worst<0.10,`Sobol列が一様(8分割の最大偏り ${(worst*100).toFixed(1)}% < 10%)`);
+ chk(pts.every(p=>p.every(v=>v>=0&&v<1)),'Sobol点が[0,1)に収まる');}
 chk(H.SIM.dist.hi>=H.SIM.dist.lo,`応答範囲 ${simFmtLike(H.SIM.dist.lo)}〜${simFmtLike(H.SIM.dist.hi)}`);
 chk(H.SIM.dist.counts.reduce((a,b)=>a+b,0)===H.SIM.dist.n,'ヒストグラムの合計が点数と一致');
 chk(!!H.SIM.dist.best&&Number.isFinite(H.SIM.dist.best.y),`最小応答の点がある (${simFmtLike(H.SIM.dist.best.y)})`);
@@ -206,7 +220,7 @@ chk(el('simulateOverlay').style.display==='none','Escで閉じる');
 d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 
 console.log('\n[10] ワークフロー側の表示');
-chk(!!d.getElementById('deployHint'),'④に「学習後に使えます」のヒントがある');
+chk(!d.getElementById('deployHint'),'④のヒント表示は無い');
 chk(!/no network/i.test(html)&&!/ネットワーク不要/.test(html),'NO NETWORK 表示は無い');
 
 console.log('\n[8] 画面に出る文字量');
