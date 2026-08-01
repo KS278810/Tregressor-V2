@@ -36,7 +36,7 @@ if(!w.TextEncoder) w.TextEncoder=require('util').TextEncoder;
 Object.defineProperty(w.Element.prototype,'clientWidth',{get(){return 300;}});
 w.addEventListener('error',e=>errs.push('window.error: '+e.message));
 const code=html.match(/<script>([\s\S]*)<\/script>/)[1];
-try{w.eval(code+'\n;window.__H__={Platform:Platform,applyTrainingResult:applyTrainingResult,showTrainedTab:showTrainedTab,SIM:SIM,simSobolCount:simSobolCount,simSobol:simSobol,simSobolEach:simSobolEach};');}catch(e){errs.push('THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,6).join('\n'));}
+try{w.eval(code+'\n;window.__H__={Platform:Platform,applyTrainingResult:applyTrainingResult,showTrainedTab:showTrainedTab,SIM:SIM,simSobolCount:simSobolCount,simSobol:simSobol,simSobolEach:simSobolEach,simAddModelFile:simAddModelFile};');}catch(e){errs.push('THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,6).join('\n'));}
 
 console.log('[0] 埋め込みエンジン');
 chk(errs.length===0,'スクリプトが例外なく実行される'); if(errs.length){console.log(errs.join('\n'));process.exit(1);}
@@ -110,19 +110,28 @@ chk(el('tabPredict').style.display==='none','SIMULATEはタブではなく③か
 chk(el('simulateOverlay').style.display==='none','初期状態ではオーバーレイは閉じている');
 d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(el('simulateOverlay').style.display==='flex','③クリックで全画面オーバーレイが開く');
-chk(el('simSubtitle').textContent.length>0,`サブタイトル: ${el('simSubtitle').textContent}`);
+chk(!d.getElementById('simSubtitle'),'説明文（Move the sliders…）は出さない');
 chk(q('.sim-row')===21,`全21変数にスライダーが用意される (実測 ${q('.sim-row')})`);
 chk(!d.getElementById('simChipRow'),'固定チップ行は無い（全変数が常にスライダー）');
 chk(!d.querySelector('.sim-row .sim-val'),'スライダー横の数値は出さない');
 chk(!d.querySelector('.sim-row .sim-spark'),'スライダー横の感度グラフは出さない');
+chk([...d.querySelectorAll('.sim-row')].every(r=>r.querySelector('input[type=range]')),
+  'カテゴリも含め全ての行がスライダー');
+{const catRow=[...d.querySelectorAll('.sim-row')].find(r=>r.dataset.col==='grade');
+ const rg=catRow&&catRow.querySelector('input[type=range]');
+ chk(!!rg&&Number(rg.min)===0&&Number(rg.max)===1&&Number(rg.step)===1,
+   `カテゴリは水準番号のスライダー (${rg&&rg.min}〜${rg&&rg.max})`);}
+chk(/\.sim-sliders \{ align-items: center;/.test(html)||/align-items: center/.test(html.slice(html.indexOf('.sim-sliders {'),html.indexOf('.sim-sliders {')+400)),
+  'スライダーは中央寄せ');
 chk(!d.getElementById('simDelta')&&!d.getElementById('simRingCanvas')&&!d.getElementById('simFlags'),
   '応答側はグラフと応答値だけ（差分・リング・フラグは無い）');
 chk(/\.sim-sliders \{ display: flex; flex-direction: column;/.test(html),'スライダーは縦一列');
 {// 全画面ではなく元ツールの外形に収まる大きさか（#simulatePanel の指定を見る）
  const blk=html.slice(html.indexOf('#simulatePanel {'), html.indexOf('#simulatePanel {')+400);
- const mw=blk.match(/width: min\((\d+)px/), mh=blk.match(/height: min\((\d+)px/);
- chk(!!mw&&Number(mw[1])<=1200&&!!mh&&Number(mh[1])<=760,
-   `パネルは元ツールの外形内 (${mw&&mw[1]}x${mh&&mh[1]}px)`);}
+ const mw=blk.match(/max-width: (\d+)px/), mh=blk.match(/max-height: (\d+)px/);
+ chk(/calc\(100vw - \d+px\)/.test(blk)&&/calc\(100vh - \d+px\)/.test(blk),
+   'パネルは画面いっぱいに広がる');
+ chk(!!mw&&!!mh,`上限あり (${mw&&mw[1]}x${mh&&mh[1]}px)`);}
 
 console.log('\n[2] 予測値が推論エンジンと一致するか（最重要）');
 const pv=el('simPredVal').textContent;
@@ -223,10 +232,11 @@ console.log('\n[4b] Sobol列そのものの健全性');
 
 console.log('\n[5] カテゴリ・連動・保存・凡例');
 const catRow=[...d.querySelectorAll('.sim-row')].find(r=>r.dataset.col==='grade');
-chk(!!catRow&&catRow.querySelectorAll('.sim-pill').length===2,'カテゴリはピル表示');
-const pB=[...catRow.querySelectorAll('.sim-pill')].find(p=>p.dataset.v==='B');
-pB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(catRow.querySelector('.sim-pill.on').dataset.v==='B','ピルで切り替わる');
+const catRng=catRow.querySelector('input[type=range]');
+catRng.value='1'; catRng.dispatchEvent(new w.Event('input',{bubbles:true}));
+catRng.dispatchEvent(new w.Event('change',{bubbles:true}));
+chk(H.SIM.state['grade']==='B','カテゴリをスライダーで切り替えられる');
+chk(catRng.getAttribute('aria-valuetext')==='B','カテゴリの読み上げ値が水準名');
 {// ★で最適点へ移動すると、応答が走査中の最小値に一致する
  d.getElementById('simBestBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
  chk(Math.abs(Number(el('simPredVal').textContent)-Number(H.SIM.dist.best.y.toFixed(1)))<0.06,
@@ -262,6 +272,33 @@ d.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
 chk(el('simulateOverlay').style.display==='none','Escで閉じる');
 d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 
+console.log('\n[9] 学習済みモデルの持ち込み（複数連動）');
+{chk(!!d.getElementById('simAddBtn')&&!!d.getElementById('simAddInput'),'モデル読み込みの入口がある');
+ const before=H.SIM.models.length, colsBefore=q('.sim-row');
+ // .treg をそのまま読み込む（テストなので内部APIを直接呼ぶ）
+ const fakeFile={name:'other_model.treg',
+   arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)};
+ return H.simAddModelFile(fakeFile).then(ok=>{
+  chk(ok===true,'.treg を読み込める');
+  chk(H.SIM.models.length===before+1,`モデルが増える (${H.SIM.models.length}個)`);
+  chk(q('.sim-mrow')===H.SIM.models.length,'応答一覧に全モデルが並ぶ');
+  chk(q('.sim-row')>=colsBefore,'スライダーは減らない（列は和集合）');
+  // 同じスライダーで全モデルの応答が動く
+  const vals=()=>[...d.querySelectorAll('.sim-mval')].map(e=>e.textContent);
+  const v0=vals();
+  const r=d.querySelector('.sim-row input[type=range]');
+  r.value=r.max; r.dispatchEvent(new w.Event('change',{bubbles:true}));
+  const v1=vals();
+  chk(v1.length===H.SIM.models.length&&v1.every(x=>x.length>0),
+    `全モデルの応答が表示される (${v1.join(' / ')})`);
+  chk(!!H.SIM.models[1].spec.length,'読み込んだモデルからスライダー仕様を復元できる');
+  // 外す
+  d.querySelector('.sim-mx').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+  chk(H.SIM.models.length===before,'×でモデルを外せる');
+  finish();
+ });}
+
+function finish(){
 console.log('\n[10] ワークフロー側の表示');
 chk(!d.getElementById('deployHint'),'④のヒント表示は無い');
 chk(!/no network/i.test(html)&&!/ネットワーク不要/.test(html),'NO NETWORK 表示は無い');
@@ -276,6 +313,7 @@ console.log('');
 if(errs.length){console.log('ERRORS:\n'+errs.join('\n'));process.exit(1);}
 if(FAIL.length){console.log(`NG: ${FAIL.length} 件失敗`);FAIL.forEach(m=>console.log('  - '+m));process.exit(1);}
 console.log('すべて成功');
+}
 
 // jsdom の rAF ループが残るとプロセスが終了しないため、明示的に閉じて終了する
 try { dom.window.close(); } catch (_) {}
