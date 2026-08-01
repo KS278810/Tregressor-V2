@@ -94,6 +94,7 @@ try{ H.applyTrainingResult(RESULT); }
 catch(e){ errs.push('applyTrainingResult THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,5).join('\n')); }
 if(errs.length){console.log(errs.join('\n'));process.exit(1);}
 const d=w.document,q=s=>d.querySelectorAll(s).length,el=id=>d.getElementById(id);
+const simSpecCols=sliderSpec.map(s=>s.col);
 // 画面表示と同じ丸めをテスト側でも使う
 function simFmtLike(v){const a=Math.abs(v);let x;
   if(a>=1000)return String(Math.round(v));
@@ -279,8 +280,16 @@ chk(catRng.getAttribute('aria-valuetext')==='B','カテゴリの読み上げ値�
  chk(Math.abs(Number(el('simPredVal').textContent)-Number(H.SIM.dist.best.y.toFixed(1)))<0.06,
    `★で最適点へ: 表示 ${el('simPredVal').textContent} == 走査の最小 ${simFmtLike(H.SIM.dist.best.y)}`);
  d.getElementById('simResetBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));}
-el('simLinkBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(el('simLinkBtn').classList.contains('on'),'連動モードON');
+chk(!d.getElementById('simLinkBtn'),'連動モードのボタンは無い（変数は常に独立）');
+{// 1本動かしても他の変数の値は変わらない
+ const before={}; simSpecCols.forEach(c=>before[c]=String(H.SIM.state[c]));
+ const rr=d.querySelectorAll('.sim-row input[type=range]')[2];
+ const cc=d.querySelectorAll('.sim-row')[2].dataset.col;
+ rr.value=rr.max; rr.dispatchEvent(new w.Event('change',{bubbles:true}));
+ const moved=simSpecCols.filter(c=>String(H.SIM.state[c])!==before[c]);
+ chk(moved.length===1&&moved[0]===cc,
+   `動かした1本だけが変わる (変化した変数: ${moved.join(',')||'なし'})`);
+ d.getElementById('simResetBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));}
 H.Platform.downloadFile=(b,n,m)=>{w.__SAVED__={n:n,len:b.length};};
 el('simSaveBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(!!w.__SAVED__&&w.__SAVED__.n==='scenario.csv',`CSV保存 (${w.__SAVED__&&w.__SAVED__.len} bytes)`);
@@ -339,6 +348,18 @@ function finish(){
 {// 親の clientWidth は padding を含むので、それで描くと右端がはみ出す
  chk(/cv\.style\.width = '100%';[\s\S]{0,120}cv\.clientWidth/.test(html),
    'ヒストグラムは自分自身の内容幅で描く（右端が切れない）');}
+
+{// 詳細ポップアップの散布図は「軸の内側」が正方形であるべき
+ const m=html.match(/const _pad = \{ l: (\d+), r: (\d+), t: (\d+), b: (\d+) \};/);
+ const hm=html.match(/const cssH = cssW - \(_pad\.l \+ _pad\.r\) \+ \(_pad\.t \+ _pad\.b\);/);
+ chk(!!m&&!!hm,'散布図はpadの差を足した高さにしている');
+ if(m){const L=+m[1],R=+m[2],T=+m[3],B=+m[4];
+  const cssW=400, cssH=cssW-(L+R)+(T+B);
+  chk(cssW-L-R===cssH-T-B,`グラフ本体が正方形 (${cssW-L-R}x${cssH-T-B})`);}}
+{// ライセンス表記は「できること」を先に出す
+ const jaLic=html.match(/'terms\.licenseLine': '([^']+)'/);
+ chk(!!jaLic&&/教育|研究/.test(jaLic[1]),`ライセンス表記が用途を先に述べる: ${jaLic&&jaLic[1].slice(0,40)}...`);
+ chk(!/❌/.test(html),'「できない」を強調する記号(❌)を使っていない');}
 
 console.log('\n[10] ワークフロー側の表示');
 chk(!d.getElementById('deployHint'),'④のヒント表示は無い');

@@ -1108,7 +1108,6 @@
             <div class="sim-toolbar">
                 <button class="sim-iconbtn" id="simResetBtn" data-i18n-title="sim.resetTitle" title="最初の値に戻す">↺</button>
                 <button class="sim-iconbtn" id="simBestBtn" data-i18n-title="sim.bestTitle" title="応答が最小だった点にスライダーを合わせる">★</button>
-                <button class="sim-iconbtn" id="simLinkBtn" data-i18n-title="sim.linkTitle" title="相関する列を連動させる">⇄</button>
             </div>
             <div id="simSliders" class="sim-sliders"></div>
         </div>
@@ -1168,7 +1167,7 @@
         <div class="settings-info-body" data-i18n="ui.settingsAboutBody">
             作者: Kohei Shintani, Ph.D.<br>
             連絡先: <a href="mailto:mailad4me@gmail.com">mailad4me@gmail.com</a><br>
-            ライセンス: <b>CC BY-NC 4.0</b>（表示・非営利）— 商用利用には事前のご連絡・許諾が必要です。詳細は初回同意画面をご参照ください。
+            ライセンス: <b>CC BY-NC 4.0</b>（表示・非営利）— 学習・研究・教材づくりなど、教育目的なら自由にお使いいただけます。商用でのご利用はご相談ください。
         </div>
     </div>
 </div>
@@ -1179,14 +1178,14 @@
         <div class="settings-header">
             <span class="settings-title" data-i18n="terms.title">利用規約に同意してください</span>
         </div>
-        <p data-i18n="terms.licenseLine">このツールは <b>CC BY-NC 4.0</b>（表示・非営利）でライセンスされています。</p>
+        <p data-i18n="terms.licenseLine">このツールは <b>CC BY-NC 4.0</b>（表示・非営利）です。教育・研究の場で自由に使っていただくことを目的にしています。</p>
         <div class="settings-info-box">
-            <div class="settings-info-title" data-i18n="terms.eduTitle">✅ 教育目的での利用（自由）</div>
-            <div class="settings-info-body" data-i18n="terms.eduBody">学校・大学での学習・研究、学習教材の作成、個人の学習・研究目的での利用は自由に行えます。</div>
+            <div class="settings-info-title" data-i18n="terms.eduTitle">✅ 教育・研究での利用は自由です</div>
+            <div class="settings-info-body" data-i18n="terms.eduBody">学校・大学の授業や研究、学習教材の作成、個人の学習や研究に、申請なしでそのままお使いいただけます。授業での配布や学会発表での利用も歓迎します。</div>
         </div>
         <div class="settings-info-box">
-            <div class="settings-info-title" data-i18n="terms.commTitle">❌ 商用利用について（事前許可が必要）</div>
-            <div class="settings-info-body" data-i18n="terms.commBody">SaaS化・API化しての販売・企業研修等での利用は商用利用とみなします。事前に <a href="mailto:kohei.shintani@brainverse.jp">kohei.shintani@brainverse.jp</a> までご相談ください。</div>
+            <div class="settings-info-title" data-i18n="terms.commTitle">商用でのご利用はご相談ください</div>
+            <div class="settings-info-body" data-i18n="terms.commBody">有償サービス化・API提供・企業研修などでのご利用は、<a href="mailto:kohei.shintani@brainverse.jp">kohei.shintani@brainverse.jp</a> までひとことご連絡ください。多くの場合は許諾しています。</div>
         </div>
         <label class="terms-agree-row">
             <input type="checkbox" id="termsAgreeCheckbox">
@@ -1236,7 +1235,6 @@
             'sim.lgThumb': 'つまみ＝現在値',
             'sim.lgExtrap': 'ひし形＝学習データの外側',
             'sim.lgClip': '角＝これ以上動かしても予測は変わらない',
-            'sim.lgGhost': '中空の丸＝相関する変数から見た自然な値',
             'sim.lgActual': '緑の丸＝基準行の実測値',
             'sim.lgChanged': '左の縦線＝動かした変数（列名クリックで戻す）',
             'sim.lgDensity': '山＝応答が良い上位10%が集まる位置',
@@ -1321,7 +1319,7 @@
             'ui.settingsAboutBody':
                 '作者: Kohei Shintani, Ph.D.<br>' +
                 '連絡先: <a href="mailto:mailad4me@gmail.com">mailad4me@gmail.com</a><br>' +
-                'ライセンス: <b>CC BY-NC 4.0</b>（表示・非営利）— 商用利用には事前のご連絡・許諾が必要です。詳細は初回同意画面をご参照ください。',
+                'ライセンス: <b>CC BY-NC 4.0</b>（表示・非営利）— 学習・研究・教材づくりなど、教育目的なら自由にお使いいただけます。商用でのご利用はご相談ください。',
             'ui.creditTitle': 'ライセンス・連絡先',
             'ui.footerCredit': '© Kohei Shintani, Ph.D. · CC BY-NC 4.0',
 
@@ -1501,11 +1499,11 @@
             'r2interp.nonfunctional': 'モデルが機能していません',
 
             'terms.title': '利用規約に同意してください',
-            'terms.licenseLine': 'このツールは <b>CC BY-NC 4.0</b>（表示・非営利）でライセンスされています。',
-            'terms.eduTitle': '✅ 教育目的での利用（自由）',
-            'terms.eduBody': '学校・大学での学習・研究、学習教材の作成、個人の学習・研究目的での利用は自由に行えます。',
-            'terms.commTitle': '❌ 商用利用について（事前許可が必要）',
-            'terms.commBody': 'SaaS化・API化しての販売・企業研修等での利用は商用利用とみなします。事前に <a href="mailto:kohei.shintani@brainverse.jp">kohei.shintani@brainverse.jp</a> までご相談ください。',
+            'terms.licenseLine': 'このツールは <b>CC BY-NC 4.0</b>（表示・非営利）です。教育・研究の場で自由に使っていただくことを目的にしています。',
+            'terms.eduTitle': '✅ 教育・研究での利用は自由です',
+            'terms.eduBody': '学校・大学の授業や研究、学習教材の作成、個人の学習や研究に、申請なしでそのままお使いいただけます。授業での配布や学会発表での利用も歓迎します。',
+            'terms.commTitle': '商用でのご利用はご相談ください',
+            'terms.commBody': '有償サービス化・API提供・企業研修などでのご利用は、<a href="mailto:kohei.shintani@brainverse.jp">kohei.shintani@brainverse.jp</a> までひとことご連絡ください。多くの場合は許諾しています。',
             'terms.agreeLabel': '利用規約に同意します',
             'terms.acceptBtn': '同意して続行',
         },
@@ -1527,7 +1525,6 @@
             'sim.lgThumb': 'Handle = current value',
             'sim.lgExtrap': 'Diamond = outside the training data',
             'sim.lgClip': 'Flat top = moving further changes nothing',
-            'sim.lgGhost': 'Hollow circle = value implied by a correlated variable',
             'sim.lgActual': 'Green circle = actual value of the reference row',
             'sim.lgChanged': 'Left bar = moved variable (click the name to revert)',
             'sim.lgDensity': 'Hill = where the best 10% of responses cluster',
@@ -1792,11 +1789,11 @@
             'r2interp.nonfunctional': 'Model is not functioning',
 
             'terms.title': 'Please agree to the terms of use',
-            'terms.licenseLine': 'This tool is licensed under <b>CC BY-NC 4.0</b> (Attribution-NonCommercial).',
-            'terms.eduTitle': '✅ Educational use (free)',
-            'terms.eduBody': 'Learning and research at schools/universities, creating learning materials, and personal learning/research use are all free.',
-            'terms.commTitle': '❌ Commercial use (permission required)',
-            'terms.commBody': 'Turning this into a paid SaaS, selling it as an API, or using it in corporate training counts as commercial use. Please contact <a href="mailto:kohei.shintani@brainverse.jp">kohei.shintani@brainverse.jp</a> beforehand.',
+            'terms.licenseLine': 'This tool is <b>CC BY-NC 4.0</b> (Attribution-NonCommercial), made to be used freely in education and research.',
+            'terms.eduTitle': '✅ Free for education and research',
+            'terms.eduBody': 'Use it in classes and research at schools and universities, to build teaching materials, or for your own study — no permission needed. Sharing it in class or at a conference is welcome.',
+            'terms.commTitle': 'Commercial use — just get in touch',
+            'terms.commBody': 'For paid services, API offerings, or corporate training, please drop a note to <a href="mailto:kohei.shintani@brainverse.jp">kohei.shintani@brainverse.jp</a>. Permission is usually granted.',
             'terms.agreeLabel': 'I agree to the terms of use',
             'terms.acceptBtn': 'Agree and continue',
         },
@@ -2679,7 +2676,11 @@
         const cssW = canvas.parentElement.clientWidth || 320;
         // 2026-07指摘: 幅=コンテナ全幅・高さ=固定260pxだと散布図が引き伸ばされた
         // 長方形になり見苦しい。予測=実測の対角線が視覚的に45°になるよう正方形にする。
-        const cssH = cssW;
+        // 正方形にすべきなのはキャンバス全体ではなく「軸の内側(グラフ本体)」。
+        // キャンバスを正方形にすると左右と上下で余白(pad)が違うぶんグラフ本体が
+        // 縦長になっていた。pad の差を足して plotW == plotH になる高さにする。
+        const _pad = { l: 46, r: 12, t: 10, b: 34 };
+        const cssH = cssW - (_pad.l + _pad.r) + (_pad.t + _pad.b);
         const dpr = window.devicePixelRatio || 1;
         canvas.width = Math.round(cssW * dpr);
         canvas.height = Math.round(cssH * dpr);
@@ -2688,7 +2689,7 @@
         const ctx = canvas.getContext('2d');
         ctx.scale(dpr, dpr);
 
-        const pad = { l: 46, r: 12, t: 10, b: 34 };
+        const pad = _pad;
         const plotW = cssW - pad.l - pad.r;
         const plotH = cssH - pad.t - pad.b;
 
@@ -3567,8 +3568,8 @@
     // 推論ロジックは一切ここに書かない（3実装のパリティ体系に手を入れないため）。
     // 設計: docs/interactive-predict-design.md
     const SIM = {
-        ready: false, spec: [], specBy: {}, baseSpec: [], seeds: [], corr: [],
-        state: {}, anim: {}, seedLabel: null, linkMode: false, dist: null,
+        ready: false, spec: [], specBy: {}, baseSpec: [], seeds: [],
+        state: {}, anim: {}, seedLabel: null, dist: null,
         models: [],            // [{id,name,model,target,rmse,r2,refOnly,spec}]
         animRaf: 0, predShown: NaN,
     };
@@ -3833,17 +3834,6 @@
     }
     const simPredict = (st) => simPredictWith(simPrimary(), st);
 
-    // 相関相手から導かれる「あるべき値」。文章ではなくトラック上のゴーストで見せる。
-    function simGhostFor(col) {
-        for (const p of SIM.corr) {
-            if (p.a === col && SIM.state[p.b] !== undefined)
-                return { v: p.sBA * SIM.state[p.b] + p.iBA, sd: p.sdA, other: p.b, r: p.r };
-            if (p.b === col && SIM.state[p.a] !== undefined)
-                return { v: p.sAB * SIM.state[p.a] + p.iAB, sd: p.sdB, other: p.a, r: p.r };
-        }
-        return null;
-    }
-
     // ── 出発点との差分／個別リセット ──────────────────────────────────────────
     function simSeedValueOf(col) {
         const sr = SIM.seeds.find(s => s.label === SIM.seedLabel);
@@ -4050,21 +4040,6 @@
             ctx.beginPath(); ctx.moveTo(bx, railY - 6); ctx.lineTo(bx, railY + 6); ctx.stroke();
         });
 
-        // ④ 相関相手が示すゴースト
-        if (isNum) {
-            const gh = simGhostFor(col);
-            if (gh && isFinite(gh.v) && gh.v >= lo && gh.v <= hi) {
-                const gx = X(gh.v), off = Math.abs(v - gh.v) / (gh.sd || 1);
-                ctx.strokeStyle = off > 1.5 ? 'rgba(240,169,78,0.55)' : 'rgba(160,190,220,0.28)';
-                ctx.lineWidth = 1;
-                if (off > 0.4) {
-                    ctx.setLineDash([2, 3]); ctx.beginPath();
-                    ctx.moveTo(gx, railY); ctx.lineTo(tx, railY); ctx.stroke(); ctx.setLineDash([]);
-                }
-                ctx.beginPath(); ctx.arc(gx, railY, 3, 0, Math.PI * 2); ctx.stroke();
-            }
-        }
-
         // ⑤ 最適点でのこの変数の値。右のグラフの印と「同じ色・同じ形」にして、
         //    どちらが同じ点を指しているのか一目で対応が取れるようにする。
         const bstate = SIM.dist && SIM.dist.best && SIM.dist.best.state;
@@ -4097,22 +4072,10 @@
         // カテゴリの水準名は右の入力欄に出すので、ここには描かない
     }
 
+    // 変数は常に独立に動かす。以前は相関する列を一緒に動かす機能があったが、
+    // 「1本だけ動かしたいのに連れて動く」ため撤去した。
     function simSetVal(col, v, dragging) {
         SIM.state[col] = v;
-        if (SIM.linkMode && SIM.specBy[col] && SIM.specBy[col].kind === 'numeric') {
-            for (const p of SIM.corr) {
-                let other = null, f = null;
-                if (p.a === col) { other = p.b; f = (x) => p.sAB * x + p.iAB; }
-                else if (p.b === col) { other = p.a; f = (x) => p.sBA * x + p.iBA; }
-                if (other && SIM.state[other] !== undefined && SIM.specBy[other]) {
-                    const s2 = SIM.specBy[other], r2 = simRange(s2);
-                    SIM.state[other] = Math.min(r2[1], Math.max(r2[0], f(v)));
-                    const orow = simRowEl(other);
-                    const el = orow && orow.querySelector('input[type=range]');
-                    if (el) el.value = SIM.state[other];
-                }
-            }
-        }
         simRefreshSliders();
         simKick();
     }
@@ -4138,8 +4101,6 @@
                                                   hi: simFmt(s.p99 != null ? s.p99 : s.max) })];
                 if (simIsExtrap(s, v)) tips.push(t('sim.tipExtrap'));
                 if (simAtClip(s, v)) tips.push(t('sim.tipSaturated'));
-                const gh = simGhostFor(col);
-                if (gh) tips.push(t('sim.tipCorr', { other: gh.other, r: gh.r, v: simFmt(gh.v) }));
                 row.title = tips.join(SIM_ROW_TIPS_SEP);
             } else {
                 if (val) val.value = String(v);
@@ -4420,8 +4381,6 @@
                         refOnly: !!result.r2_reference_only, spec: result.slider_spec }];
         SIM.baseSpec = result.slider_spec;
         SIM.seeds    = Array.isArray(result.seed_rows) ? result.seed_rows : [];
-        SIM.corr     = Array.isArray(result.corr_pairs) ? result.corr_pairs : [];
-        SIM.linkMode = false;
         SIM.seedLabel = simPickSeedLabel();
         SIM.ready = true;
         simRebuildSpec();
@@ -4503,11 +4462,6 @@
             SIM.state[sp.col] = b.state[sp.col];
         }
         simRefreshSliders(); simRenderPrediction(); simKick();
-    });
-    simEl('simLinkBtn').addEventListener('click', function () {
-        SIM.linkMode = !SIM.linkMode;
-        simEl('simLinkBtn').classList.toggle('on', SIM.linkMode);
-        simRefreshSliders(); simKick();
     });
     simEl('simLegendBtn').addEventListener('click', function () {
         const lg = simEl('simLegend');
