@@ -121,6 +121,10 @@ chk(!d.getElementById('simChipRow'),'固定チップ行は無い（全変数が�
  const blk=html.slice(html.indexOf('.sim-val {'), html.indexOf('.sim-val {')+400);
  chk(/font-family: var\(--font-display\)/.test(blk),'数値は本体と同じ書体(--font-display)');
  chk(/tabular-nums/.test(blk),'桁が揺れないよう tabular-nums');
+ // 応答の数値も同じ書体
+ const pblk=html.slice(html.indexOf('.sim-pnum {'), html.indexOf('.sim-pnum {')+300);
+ chk(/font-family: var\(--font-display\)/.test(pblk),'応答の数値も本体と同じ書体');
+ chk(/tabular-nums/.test(pblk),'応答の数値も tabular-nums');
  const r2blk=html.slice(html.indexOf('.r2-big {'), html.indexOf('.r2-big {')+200);
  chk(/font-family: var\(--font-display\)/.test(r2blk),'本体のR²表示も同じ書体（踏襲できている）');}
 chk(!d.querySelector('.sim-row .sim-spark'),'スライダー横の感度グラフは出さない');
@@ -397,15 +401,18 @@ console.log('\n[12] ④モデルのDL＝SIMULATE単体HTML');
   Object.defineProperty(w2.Element.prototype,'clientWidth',{get(){return 300;}});
   const errs2=[];
   w2.addEventListener('error',e=>errs2.push(e.message));
+  w2.addEventListener('unhandledrejection',e=>errs2.push('unhandled: '+(e.reason&&e.reason.message||e.reason)));
+  process.on('unhandledRejection',r=>errs2.push('unhandled: '+(r&&r.message||r)));
   const code2=saved.text.match(/<script>([\s\S]*)<\/script>/)[1];
   try{ w2.eval(code2+'\n;window.__H2__={SIM:SIM,IS_EMBEDDED:IS_EMBEDDED,bootEmbedded:_bootEmbedded};'); }
   catch(e){ errs2.push('THROW: '+e.message); }
   chk(errs2.length===0,'書き出したHTMLが例外なく実行される'+(errs2.length?': '+errs2[0]:''));
   const H2=w2.__H2__||{};
   chk(H2.IS_EMBEDDED===true,'埋め込みモードとして認識される');
-  if(H2.bootEmbedded){
-    try{ H2.bootEmbedded(); }catch(e){ errs2.push('boot: '+e.message); }
-  }
+  // 起動処理は手で呼ばない。実際のブラウザと同じく、ページ自身が立ち上げられるか見る。
+  // (以前ここを手で呼んでいたため、起動が TDZ で落ちて真っ黒になる不具合を見逃した)
+  return new Promise(res=>setTimeout(res,300)).then(()=>{
+  chk(errs2.length===0,'起動時に例外が出ない'+(errs2.length?': '+errs2[0]:''));
   chk(w2.document.body.classList.contains('sim-only'),'本体UIを隠すモードになる');
   chk(w2.document.getElementById('simulateOverlay').style.display==='flex','SIMULATEが自動で開く');
   chk(w2.document.querySelectorAll('.sim-row').length===21,
@@ -416,6 +423,7 @@ console.log('\n[12] ④モデルのDL＝SIMULATE単体HTML');
     `書き出し先でも同じ予測になる (${pv2})`);
   try{ d2.window.close(); }catch(_){}
   finish2();
+  });
  });}
 
 function finish2(){

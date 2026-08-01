@@ -791,9 +791,11 @@
             color: var(--ink-faint); text-align: center; margin-bottom: 3px;
         }
         .sim-pred { display: flex; align-items: flex-end; gap: 8px; justify-content: center; }
+        /* 応答の数値も、本体のR²表示やスライダーの数値と同じ書体に揃える */
         .sim-pnum {
-            font-family: var(--font-mono); font-size: 34px; font-weight: 600;
-            color: var(--cyan); line-height: 1; letter-spacing: -0.01em; transition: color 0.2s;
+            font-family: var(--font-display); font-size: 34px; font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: var(--cyan); line-height: 1; letter-spacing: 0.01em; transition: color 0.2s;
         }
         .sim-right.lowq .sim-pnum { color: var(--ink-dim); }
         .sim-pband { font-family: var(--font-mono); font-size: 12px; color: var(--ink-faint); padding-bottom: 4px; }
@@ -868,7 +870,7 @@
 
         .sim-row { height: 40px; }
         .sim-imp { width: 3px; border-radius: 2px; }
-        .sim-pnum { font-size: 44px; letter-spacing: -0.02em; text-shadow: 0 0 26px rgba(63,196,236,0.28); }
+        .sim-pnum { font-size: 44px; letter-spacing: 0.01em; text-shadow: 0 0 26px rgba(63,196,236,0.28); }
         .sim-ptag { letter-spacing: 0.26em; }
         .sim-legend-btn.err { color: var(--bad); border-color: rgba(239,92,92,0.6); }
         /* 複数モデルを読み込んだときの応答一覧（同じスライダーで一緒に動く） */
@@ -3060,7 +3062,10 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                     return;
                 }
             }
-            if (IS_EMBEDDED) { _bootEmbedded(); return; }
+            // 埋め込みモードの起動は SIM の初期化(このスクリプトの後半)より後に
+            // 行う必要がある。ここで直接呼ぶと const SIM の TDZ に当たって
+            // 例外になり、画面が真っ黒のまま止まる。次のタスクへ回す。
+            if (IS_EMBEDDED) { setTimeout(_bootEmbedded, 0); return; }
             try {
                 await Platform.warmup({ onStatus: (msg, pct) => _setStartup(msg, pct) });
                 _hideStartup();
@@ -5133,17 +5138,24 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         return u8;
     }
     function _bootEmbedded() {
-        document.body.classList.add('sim-only');
-        _hideStartup();
-        const bytes = _b64ToBytes(EMBEDDED_MODEL.treg);
-        Platform.getTregBytes = () => bytes;
-        if (!simInit(EMBEDDED_MODEL.result)) {
+        // どこで失敗しても「真っ黒な画面」にならないよう、必ず表示を戻して理由を出す。
+        const fail = (detail) => {
             document.body.classList.remove('sim-only');
+            const ov = document.getElementById('startupOverlay');
+            if (ov) { ov.style.display = ''; ov.classList.remove('fade-out'); }
             const st = document.getElementById('suStatus');
-            if (st) { st.textContent = t('startup.failed', { detail: 'model' }); st.style.color = '#f87171'; }
-            return;
+            if (st) { st.textContent = t('startup.failed', { detail: detail }); st.style.color = '#f87171'; }
+        };
+        try {
+            document.body.classList.add('sim-only');
+            const bytes = _b64ToBytes(EMBEDDED_MODEL.treg);
+            Platform.getTregBytes = () => bytes;
+            if (!simInit(EMBEDDED_MODEL.result)) { fail('model'); return; }
+            simOpen();
+            _hideStartup();
+        } catch (e) {
+            fail(String((e && e.message) || e));
         }
-        simOpen();
     }
 
     // ── ③ 予測完了 ────────────────────────────────────────────────────────
