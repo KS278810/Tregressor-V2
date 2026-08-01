@@ -103,9 +103,10 @@ chk(el('simulateOverlay').style.display==='none','初期状態ではオーバー
 d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(el('simulateOverlay').style.display==='flex','③クリックで全画面オーバーレイが開く');
 chk(el('simSubtitle').textContent.length>0,`サブタイトル: ${el('simSubtitle').textContent}`);
-chk(q('.sim-row')===12,`既定12本のスライダー (実測 ${q('.sim-row')})`);
-chk(q('#simChips .sim-chip')===9,`残りは固定チップ (実測 ${q('#simChips .sim-chip')})`);
-chk(el('simTCount').textContent==='12 / 21',`本数表示 ${el('simTCount').textContent}`);
+chk(q('.sim-row')===21,`全21変数にスライダーが用意される (実測 ${q('.sim-row')})`);
+chk(q('#simChips .sim-chip')===0,'既定では固定チップは無い');
+chk(el('simChipRow').style.display==='none','固定行は出ない');
+chk(el('simTCount').textContent==='21 / 21',`本数表示 ${el('simTCount').textContent}`);
 
 console.log('\n[2] 予測値が推論エンジンと一致するか（最重要）');
 const pv=el('simPredVal').textContent;
@@ -144,20 +145,19 @@ chk(el('simPredVal').textContent===at,'x_clip境界の外では予測が変化�
 
 console.log('\n[4] 変数が多い場合の操作');
 el('simExpandBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(q('.sim-row')===21,`全展開で全21列 (実測 ${q('.sim-row')})`);
-chk(el('simChipRow').style.display==='none','全展開すると固定行が消える');
+chk(q('.sim-row')===12,`▴で重要度上位12変数に絞れる (実測 ${q('.sim-row')})`);
+chk(el('simChipRow').style.display==='','絞ると固定行が出る');
 el('simExpandBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(q('.sim-row')===12,'折りたたむと既定12本に戻る');
+chk(q('.sim-row')===21,'▾で全変数に戻る');
+el('simExpandBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 const names=()=>[...d.querySelectorAll('.sim-name')].map(e=>e.textContent);
 d.querySelector('#simChips .sim-chip').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(q('.sim-row')===13,'チップから昇格できる');
 d.querySelector('.sim-x').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(q('.sim-row')===12,'×で降格できる');
+el('simExpandBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 
 console.log('\n[5] カテゴリ・基準行・連動・保存');
-const catRow=[...d.querySelectorAll('.sim-row')].find(r=>r.dataset.col==='grade');
-chk(!catRow,'重要度の低いカテゴリ列は既定では固定側');
-el('simExpandBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 const catRow2=[...d.querySelectorAll('.sim-row')].find(r=>r.dataset.col==='grade');
 chk(!!catRow2&&catRow2.querySelectorAll('.sim-pill').length===2,'カテゴリはピル表示');
 chk(catRow2.querySelector('.sim-pill.on').dataset.v==='A','初期値が選択状態');
@@ -173,7 +173,7 @@ seedBtns.find(b=>b.dataset.label==='high').dispatchEvent(new w.MouseEvent('click
  const ex=core.predictRow(m1,row,raw);
  chk(Math.abs(Number(el('simPredVal').textContent)-Number(ex.toFixed(1)))<0.06,
    `基準行HIGHの表示 ${el('simPredVal').textContent} == エンジン ${ex.toFixed(4)}`);}
-chk(q('.sim-row')===12,'基準行の切替でスライダー本数が既定に戻る');
+chk(q('.sim-row')===21,'基準行を切り替えても全変数のスライダーが並ぶ');
 el('simLinkBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(el('simLinkBtn').classList.contains('on'),'連動モードON');
 let saved=null; H.Platform.downloadFile=(b,n,m)=>{w.__SAVED__={n:n,m:m,len:b.length};};
@@ -196,7 +196,7 @@ chk(!d.getElementById('predictZone').className.includes('sim-open-btn'),'.treg �
 H.Platform.getTregBytes=()=>w.__TREG__; const R3=JSON.parse(JSON.stringify(RESULT)); R3.slider_spec=[]; H.applyTrainingResult(R3);
 chk(!d.getElementById('predictZone').className.includes('sim-open-btn'),'slider_spec が空でも安全に無効化');
 H.applyTrainingResult(RESULT); d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(el('simulateOverlay').style.display==='flex'&&q('.sim-row')===12,'正常なresultで復帰する');
+chk(el('simulateOverlay').style.display==='flex'&&q('.sim-row')===21,'正常なresultで復帰する');
 // 閉じる操作
 d.getElementById('simCloseBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(el('simulateOverlay').style.display==='none','✕で閉じる');
@@ -216,7 +216,7 @@ console.log('\n[7b] 日英切替');
    const jb=[...d.querySelectorAll('.lang-toggle-btn')].find(b=>b.dataset.lang==='ja');
    jb.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
    chk(el('simFoot').textContent.includes('デスクトップ版'),'日本語に戻る: '+el('simFoot').textContent);
-   chk(q('.sim-row')===12,'言語切替後もスライダーが維持される');}}
+   chk(q('.sim-row')===21,'言語切替後もスライダーが維持される');}}
 
 console.log('\n[8] 画面に出る文字量');
 const shown=el('simulateSection').textContent.replace(/\s+/g,' ').trim();
