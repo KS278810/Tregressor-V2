@@ -631,11 +631,11 @@
         #simulateOverlay {
             position: fixed; inset: 0; z-index: 60;
             background: rgba(4, 6, 12, 0.82); backdrop-filter: blur(3px);
-            display: flex; align-items: center; justify-content: center; padding: 22px 22px 14px;
+            display: flex; align-items: center; justify-content: center; padding: 40px;
         }
         #simulatePanel {
-            /* 元ツールの画面(body の padding 22px/22px/14px の内側)と同じ枠に収める */
-            width: calc(100vw - 44px); height: calc(100vh - 36px);
+            /* 元ツールの上に浮くポップアップ。画面から見切れないよう余白を大きめに取る */
+            width: min(1180px, calc(100vw - 120px)); height: min(720px, calc(100vh - 120px));
             background: #080d18; border: 1px solid rgba(63,196,236,0.22);
             border-radius: 10px; box-shadow: 0 24px 70px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4);
             display: flex; flex-direction: column; overflow: hidden;
@@ -711,13 +711,19 @@
         .sim-row:hover .sim-name { color: var(--ink); }
         /* 値は表示専用ではなく直接入力できるようにする。スライダーだけでは
            「ちょうど 22.5」のような狙った値を置けず、実務では致命的なため。 */
+        /* 数値は本体のR²表示と同じ書体(--font-display = Chakra Petch)。
+           本体がスコアなどの数字にこの書体を使っているので、デジタル感を踏襲する。
+           tabular-nums で桁が揺れないようにし、スライダーを動かしても幅が動かない。 */
         .sim-val {
-            width: 52px; flex: none; text-align: right; font-family: var(--font-mono);
-            font-size: 11.5px; color: var(--cyan); transition: color 0.15s;
-            background: transparent; border: 1px solid transparent; border-radius: 3px;
-            padding: 1px 3px; outline: none; min-width: 0;
+            width: 74px; flex: none; text-align: right;
+            font-family: var(--font-display); font-weight: 700; font-size: 14px;
+            font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+            color: var(--cyan); transition: color 0.15s;
+            background: transparent; border: 1px solid transparent; border-radius: 4px;
+            padding: 2px 5px; outline: none; min-width: 0;
         }
-        input.sim-val:hover { border-color: rgba(160,190,220,0.25); }
+        input.sim-val:not([readonly]):hover { border-color: rgba(160,190,220,0.28); }
+        input.sim-val[readonly] { cursor: default; color: var(--ink); font-size: 12.5px; }
         input.sim-val:focus { border-color: var(--cyan); background: rgba(63,196,236,0.07); }
         .sim-row.warn .sim-val, .sim-row.warn .sim-name { color: var(--gold); }
         /* キーボード操作時にどのスライダーにいるかが見えるようにする
@@ -733,16 +739,16 @@
         }
         .sim-row:hover .sim-x { opacity: 1; }
         .sim-x:hover { color: var(--bad); }
-        .sim-track { position: relative; flex: 1; height: 26px; min-width: 140px; }
-        .sim-track canvas { position: absolute; inset: 0; width: 100%; height: 26px; display: block; pointer-events: none; }
+        .sim-track { position: relative; flex: 1; height: 30px; min-width: 140px; }
+        .sim-track canvas { position: absolute; inset: 0; width: 100%; height: 30px; display: block; pointer-events: none; }
         .sim-track input[type=range] {
-            position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 26px;
+            position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 30px;
             margin: 0; -webkit-appearance: none; appearance: none; background: transparent; cursor: grab;
         }
-        .sim-track input[type=range]::-webkit-slider-runnable-track { height: 26px; background: transparent; }
-        .sim-track input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; background: transparent; border: none; }
-        .sim-track input[type=range]::-moz-range-track { height: 26px; background: transparent; }
-        .sim-track input[type=range]::-moz-range-thumb { width: 26px; height: 26px; background: transparent; border: none; }
+        .sim-track input[type=range]::-webkit-slider-runnable-track { height: 30px; background: transparent; }
+        .sim-track input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 30px; height: 30px; background: transparent; border: none; }
+        .sim-track input[type=range]::-moz-range-track { height: 30px; background: transparent; }
+        .sim-track input[type=range]::-moz-range-thumb { width: 30px; height: 30px; background: transparent; border: none; }
         /* カテゴリは折り返さず横スクロール。行の高さを一定に保つ */
         .sim-pills { display: flex; gap: 3px; flex: 1; min-width: 140px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
         .sim-pills::-webkit-scrollbar { display: none; }
@@ -844,8 +850,7 @@
         @media (max-width: 900px) {
             .sim-grid { grid-template-columns: 1fr; }
             .sim-right { order: -1; position: static; border-left: none; border-bottom: 1px solid var(--hairline); padding: 2px 2px 10px 2px; }
-        }
-
+        }
 
         /* ── SIMULATE: 見た目の調整 ─────────────────────────────────── */
         #simulatePanel {
@@ -856,17 +861,12 @@
         .sim-title { font-size: 13.5px; letter-spacing: 0.26em; }
         /* スライダーは縦一列で中央寄せ。幅を絞ると1本1本が読みやすくなる。 */
         .sim-sliders { align-items: center; }
-        .sim-row { width: 100%; max-width: 720px; }
+        .sim-row { width: 100%; max-width: 680px; }
         .sim-left { justify-content: center; }
-        .sim-name { width: 128px; font-size: 11px; letter-spacing: 0.01em; }
-        .sim-track { height: 30px; min-width: 150px; }
-        .sim-track canvas { height: 30px; }
-        .sim-track input[type=range] { height: 30px; }
-        .sim-track input[type=range]::-webkit-slider-runnable-track { height: 30px; }
-        .sim-track input[type=range]::-webkit-slider-thumb { width: 30px; height: 30px; }
-        .sim-track input[type=range]::-moz-range-track { height: 30px; }
-        .sim-track input[type=range]::-moz-range-thumb { width: 30px; height: 30px; }
-        .sim-row { height: 38px; }
+        .sim-name { width: 124px; font-size: 11px; letter-spacing: 0.01em; }
+        .sim-track { min-width: 150px; }
+
+        .sim-row { height: 40px; }
         .sim-imp { width: 3px; border-radius: 2px; }
         .sim-pnum { font-size: 44px; letter-spacing: -0.02em; text-shadow: 0 0 26px rgba(63,196,236,0.28); }
         .sim-ptag { letter-spacing: 0.26em; }
@@ -3406,8 +3406,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         const el = document.getElementById('step3Label');
         if (el) el.textContent = IS_TAURI ? 'PREDICT' : 'SIMULATE';
     }
-    _applyStep3Label();
-   
+    _applyStep3Label();
 
     // ── 言語切替(ヘッダー常時表示のトグル) ───────────────────────────────────
     applyStaticI18n();
@@ -3865,8 +3864,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             sampleCsvBtn.textContent = t('ui.sampleCsvBtn');
             setBubble(t('robot.sampleSaveFailed', { detail: e }), true);
         }
-    });
-
+    });
 
     // ── ① ドラッグ&ドロップ配線（実装は Platform 側: exe=OSネイティブ座標判定 / Web=HTML5） ──
     Platform.wireDragAndDrop({
@@ -4530,6 +4528,10 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             nm.addEventListener('click', () => { if (row.classList.contains('changed')) simResetOne(col); });
             row.appendChild(imp); row.appendChild(nm);
 
+            const val = document.createElement('input');
+            val.className = 'sim-val'; val.type = 'text'; val.inputMode = 'decimal';
+            val.setAttribute('aria-label', col);
+            if (s.kind !== 'numeric') val.readOnly = true;   // カテゴリは水準名の表示のみ
             const wrap = document.createElement('div'); wrap.className = 'sim-track';
             const cv = document.createElement('canvas');
             const inp = document.createElement('input');
@@ -4552,7 +4554,21 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             }
             inp.setAttribute('aria-label', col);
             wrap.appendChild(cv); wrap.appendChild(inp);
-            row.appendChild(wrap);
+            row.appendChild(wrap); row.appendChild(val);
+            if (s.kind === 'numeric') {
+                // スライダーだけでは「ちょうど 22.5」のような狙った値を置けない
+                const commit = () => {
+                    const n = Number(String(val.value).replace(/[,\s]/g, ''));
+                    if (!Number.isFinite(n)) { simRefreshSliders(); return; }
+                    const r = simRange(s);
+                    simSetVal(col, Math.min(r[1], Math.max(r[0], n)), false);
+                };
+                val.addEventListener('change', commit);
+                val.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commit(); val.blur(); }
+                });
+                val.addEventListener('focus', () => val.select());
+            }
             host.appendChild(row);
         }
         simRefreshSliders();
@@ -4678,14 +4694,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         ctx.shadowBlur = 0;
         ctx.fillStyle = 'rgba(6,8,15,0.5)';
         ctx.beginPath(); ctx.arc(tx, railY, 1.9, 0, Math.PI * 2); ctx.fill();
-
-        // カテゴリは現在の水準名をつまみの上に出す（名前が無いと選べないため）
-        if (!isNum) {
-            ctx.fillStyle = 'rgba(238,243,250,0.9)';
-            ctx.font = '9.5px ' + SIM_MONO;
-            ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-            ctx.fillText(String(SIM.state[col]), Math.min(w - 24, Math.max(24, tx)), 10);
-        }
+        // カテゴリの水準名は右の入力欄に出すので、ここには描かない
     }
 
     function simSetVal(col, v, dragging) {
@@ -4715,7 +4724,10 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             const v = SIM.state[col];
             row.classList.toggle('changed', simIsChanged(col));
             const rng = row.querySelector('input[type=range]');
+            const val = row.querySelector('input.sim-val');
             if (s.kind === 'numeric') {
+                // 入力中の欄は上書きしない（打鍵の途中で値が飛ぶのを防ぐ）
+                if (val && document.activeElement !== val) val.value = simFmt(v);
                 if (rng) {
                     if (document.activeElement !== rng) rng.value = v;
                     rng.setAttribute('aria-valuetext', simFmt(v));
@@ -4730,6 +4742,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                 if (gh) tips.push(t('sim.tipCorr', { other: gh.other, r: gh.r, v: simFmt(gh.v) }));
                 row.title = tips.join(SIM_ROW_TIPS_SEP);
             } else {
+                if (val) val.value = String(v);
                 if (rng) {
                     if (document.activeElement !== rng) rng.value = simLevelIndex(s, v);
                     rng.setAttribute('aria-valuetext', String(v));
@@ -4769,7 +4782,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         if (!pm) return;
         const shown = Number.isFinite(SIM.predShown) ? SIM.predShown : simPredict(SIM.state);
         simEl('simPredVal').textContent = simFmt(shown);
-        simEl('simTargetTag').textContent = 'PREDICTED ' + String(pm.target || '').toUpperCase();
+        simEl('simTargetTag').textContent = 'PREDICTED';
         for (const el of document.querySelectorAll('.sim-mval')) {
             const m = SIM.models.find(x => String(x.id) === el.dataset.mid);
             if (m) el.textContent = simFmt(simPredictWith(m, SIM.state));
@@ -4807,7 +4820,10 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
     // 走査の中で応答が最小だった点を重ねる。最適点の印はスライダー上と同じ色・同じ形。
     function simDrawHistogram(p) {
         const cv = simEl('simHistCanvas');
-        const w = cv.parentElement.clientWidth || 0;
+        // 親の clientWidth は padding を含むので、その値で描くと右端がはみ出す。
+        // 一旦 100% に戻して自分自身の内容幅を測る。
+        cv.style.width = '100%';
+        const w = cv.clientWidth || 0;
         if (w <= 0 || !SIM.dist) return;
         const pm = simPrimary();
         const rmse = pm ? pm.rmse : null;

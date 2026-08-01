@@ -113,7 +113,15 @@ chk(el('simulateOverlay').style.display==='flex','③クリックで全画面オ
 chk(!d.getElementById('simSubtitle'),'説明文（Move the sliders…）は出さない');
 chk(q('.sim-row')===21,`全21変数にスライダーが用意される (実測 ${q('.sim-row')})`);
 chk(!d.getElementById('simChipRow'),'固定チップ行は無い（全変数が常にスライダー）');
-chk(!d.querySelector('.sim-row .sim-val'),'スライダー横の数値は出さない');
+{const v0=d.querySelector('.sim-row input.sim-val');
+ chk(!!v0,'スライダー横に数値欄がある');
+ chk(v0.value.length>0,`数値が表示される (${v0.value})`);
+ // 本体のR²表示と同じ書体（デジタル感のある --font-display）を使う
+ const blk=html.slice(html.indexOf('.sim-val {'), html.indexOf('.sim-val {')+400);
+ chk(/font-family: var\(--font-display\)/.test(blk),'数値は本体と同じ書体(--font-display)');
+ chk(/tabular-nums/.test(blk),'桁が揺れないよう tabular-nums');
+ const r2blk=html.slice(html.indexOf('.r2-big {'), html.indexOf('.r2-big {')+200);
+ chk(/font-family: var\(--font-display\)/.test(r2blk),'本体のR²表示も同じ書体（踏襲できている）');}
 chk(!d.querySelector('.sim-row .sim-spark'),'スライダー横の感度グラフは出さない');
 chk([...d.querySelectorAll('.sim-row')].every(r=>r.querySelector('input[type=range]')),
   'カテゴリも含め全ての行がスライダー');
@@ -130,12 +138,16 @@ chk(!d.getElementById('simDelta')&&!d.getElementById('simRingCanvas')&&!d.getEle
 chk(/\.sim-sliders \{ display: flex; flex-direction: column;/.test(html),'スライダーは縦一列');
 {// 全画面ではなく元ツールの外形に収まる大きさか（#simulatePanel の指定を見る）
  const blk=html.slice(html.indexOf('#simulatePanel {'), html.indexOf('#simulatePanel {')+400);
- const mw=blk.match(/width: calc\(100vw - (\d+)px\)/), mh=blk.match(/height: calc\(100vh - (\d+)px\)/);
- // 元ツール本体は body の padding(22px 22px 14px)の内側。同じ枠に収まっているか。
- const bodyPad=html.match(/body \{[^}]*padding: (\d+)px (\d+)px (\d+)px/s);
- const want=bodyPad?Number(bodyPad[2])*2:44, wantH=bodyPad?Number(bodyPad[1])+Number(bodyPad[3]):36;
- chk(!!mw&&Number(mw[1])===want&&!!mh&&Number(mh[1])===wantH,
-   `パネルが元ツールと同じ枠 (100vw-${mw&&mw[1]} x 100vh-${mh&&mh[1]})`);}
+ const mw=blk.match(/width: min\((\d+)px, calc\(100vw - (\d+)px\)\)/);
+ const mh=blk.match(/height: min\((\d+)px, calc\(100vh - (\d+)px\)\)/);
+ chk(!!mw&&!!mh,'パネルは上限つきのポップアップ');
+ chk(mw&&Number(mw[2])>=80&&mh&&Number(mh[2])>=80,
+   `画面から見切れない余白がある (左右${mw&&mw[2]}px / 上下${mh&&mh[2]}px)`);
+ chk(mw&&Number(mw[1])<=1300&&mh&&Number(mh[1])<=800,
+   `ポップアップとして控えめな上限 (${mw&&mw[1]}x${mh&&mh[1]}px)`);}
+
+chk(el('simTargetTag').textContent.trim()==='PREDICTED',
+  `見出しに目的変数名を含めない (${el('simTargetTag').textContent})`);
 
 console.log('\n[2] 予測値が推論エンジンと一致するか（最重要）');
 const pv=el('simPredVal').textContent;
@@ -161,6 +173,23 @@ r0.dispatchEvent(new w.Event('change',{bubbles:true}));
  chk(Math.abs(Number(el('simPredVal').textContent)-Number(ex.toFixed(1)))<0.06,
    `${col0} を上限へ: 表示 ${el('simPredVal').textContent} == エンジン ${ex.toFixed(4)}`);}
 chk(d.querySelector('.sim-row').classList.contains('changed'),'動かした変数に印が付く');
+{// 数値欄への直接入力が予測に反映される
+ const vi=d.querySelector('.sim-row input.sim-val');
+ const target=(sp0.min+sp0.max)/2;
+ vi.value=String(target);
+ vi.dispatchEvent(new w.Event('change',{bubbles:true}));
+ const st=stateOf({[col0]:target});const ex=core.predictRow(m1,st.row,st.raw);
+ chk(Math.abs(Number(el('simPredVal').textContent)-Number(ex.toFixed(1)))<0.06,
+   `数値を直接入力すると予測に反映される (${col0}=${simFmtLike(target)})`);
+ vi.value='999999'; vi.dispatchEvent(new w.Event('change',{bubbles:true}));
+ chk(Math.abs(Number(vi.value)-Number(simFmtLike(sp0.max)))<Math.max(0.2,Math.abs(sp0.max)*0.02),
+   `範囲外の入力は上限へ丸められる (${vi.value})`);
+ vi.value='abc'; vi.dispatchEvent(new w.Event('change',{bubbles:true}));
+ chk(Number.isFinite(Number(vi.value)),'数値でない入力を入れても壊れない');
+ // カテゴリは水準名を表示する読み取り専用欄
+ const cr=[...d.querySelectorAll('.sim-row')].find(r=>r.dataset.col==='grade');
+ const cv2=cr&&cr.querySelector('input.sim-val');
+ chk(!!cv2&&cv2.readOnly&&cv2.value==='A',`カテゴリは水準名を表示 (${cv2&&cv2.value})`);}
 chk(!d.querySelector('.sim-row.warn'),'上下限まで動かしてもオレンジにはならない');
 {const sp0b=sliderSpec.find(x=>x.col===col0);
  chk(Math.abs(Number(r0.min)-sp0b.min)<1e-9&&Math.abs(Number(r0.max)-sp0b.max)<1e-9,
@@ -307,6 +336,10 @@ console.log('\n[9] 学習済みモデルの持ち込み（複数連動）');
  });}
 
 function finish(){
+{// 親の clientWidth は padding を含むので、それで描くと右端がはみ出す
+ chk(/cv\.style\.width = '100%';[\s\S]{0,120}cv\.clientWidth/.test(html),
+   'ヒストグラムは自分自身の内容幅で描く（右端が切れない）');}
+
 console.log('\n[10] ワークフロー側の表示');
 chk(!d.getElementById('deployHint'),'④のヒント表示は無い');
 chk(!/no network/i.test(html)&&!/ネットワーク不要/.test(html),'NO NETWORK 表示は無い');
@@ -316,6 +349,32 @@ chk(/_preloadRobotGifs/.test(html),'ロボのgifを起動時にプリロード�
 {const imgs=d.querySelectorAll('#charBox img');
  chk(imgs.length>=3,`gifを<img>として保持している (${imgs.length}枚)`);
  chk([...imgs].every(i=>!/\?t=/.test(i.getAttribute('src')||'')),'srcにクエリが付いていない');}
+
+
+console.log('\n[11] レイアウトの幅（jsdomは自動レイアウトしないのでCSSの数値で検算）');
+// 1行 = [重要度][列名][トラック][数値]。固定要素の合計が行幅を食い潰すと
+// スライダー本体が潰れて「見えない」状態になる（実際に一度起きた）。
+{const num=(re)=>{const m=html.match(re);return m?Number(m[1]):null;};
+ const rowMax = num(/\.sim-row \{ width: 100%; max-width: (\d+)px; \}/);
+ const nameW  = num(/\.sim-name \{ width: (\d+)px/);
+ const valW   = num(/\.sim-val \{[\s\S]{0,200}?width: (\d+)px/);
+ const impW   = num(/\.sim-imp \{ width: (\d+)px/);
+ const gap    = num(/\.sim-row \{[^}]*gap: (\d+)px/s);
+ const trackMin = num(/\.sim-track \{[^}]*min-width: (\d+)px/s);
+ const rowPad = 8;
+ const fixed = impW + nameW + valW + gap * 3 + rowPad;
+ const track = rowMax - fixed;
+ console.log(`       行の最大幅 ${rowMax}px / 固定 ${fixed}px (imp${impW}+name${nameW}+val${valW}+gap${gap}x3+pad${rowPad})`);
+ console.log(`       → スライダー本体に残る幅 ${track}px (min-width ${trackMin}px)`);
+ chk(track >= trackMin, `スライダー本体が min-width(${trackMin}px) 以上を確保できる`);
+ chk(track >= 200, `スライダーとして十分な幅がある (${track}px >= 200px)`);
+ const trackH = num(/\.sim-track \{[^}]*height: (\d+)px/s);
+ const jsTrackH = num(/const w = wrap\.clientWidth \|\| 0, h = (\d+)/);
+ chk(trackH === jsTrackH, `トラックのCSS高さ(${trackH}px)とCanvas描画高さ(${jsTrackH}px)が一致`);
+ const rowH = num(/\.sim-row \{[^}]*height: (\d+)px/s);
+ chk(rowH >= trackH, `行の高さ(${rowH}px)がトラック(${trackH}px)を収められる`);
+ const pad = num(/const PAD = (\d+);/);
+ chk(pad >= 8, `つまみが端で切れない余白がある (PAD=${pad}px)`);}
 
 console.log('\n[8] 画面に出る文字量');
 const shown=el('simulateSection').textContent.replace(/\s+/g,' ').trim();
