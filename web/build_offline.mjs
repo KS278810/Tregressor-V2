@@ -14,9 +14,11 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const VENDOR_DIR = path.join(ROOT, "vendor", "pyodide");
 const PY_DIR = path.join(ROOT, "py");
 const PREDICT_TEMPLATE = path.join(ROOT, "predict_template.html");
+// ④「モデルをDL」用の雛形（build_frontend.mjs が index.html の複製として生成する）
+const SIMULATE_TEMPLATE = path.join(ROOT, "simulate_template.html");
 const OUT = path.join(ROOT, "offline-embed.js");
 
-const embed = { pyodide: {}, py: {}, csv: "", predictTemplate: "" };
+const embed = { pyodide: {}, py: {}, csv: "", predictTemplate: "", simulateTemplate: "" };
 
 for (const f of fs.readdirSync(VENDOR_DIR)) {
   embed.pyodide[f] = fs.readFileSync(path.join(VENDOR_DIR, f)).toString("base64");
@@ -30,6 +32,10 @@ embed.csv = fs.readFileSync(path.join(ROOT, "sample_data.csv"), "utf-8");
 // 旧: predict_native.exe を同梱してtregを追記する方式だったが、Windows MOTW/
 // SmartScreenで未署名exeがブロックされる問題があったためHTML方式に置換(2026-07)。
 embed.predictTemplate = fs.readFileSync(PREDICT_TEMPLATE, "utf-8");
+if (!fs.existsSync(SIMULATE_TEMPLATE)) {
+  throw new Error("simulate_template.html がありません。先に node build_frontend.mjs を実行してください");
+}
+embed.simulateTemplate = fs.readFileSync(SIMULATE_TEMPLATE, "utf-8");
 
 const src = `// 自動生成ファイル。編集しないこと。生成: node build_offline.mjs\n` +
   `window.__TREG_OFFLINE_EMBED = ${JSON.stringify(embed)};\n`;
@@ -40,4 +46,5 @@ console.log(`生成: ${OUT}`);
 console.log(`  pyodide同梱: ${Object.keys(embed.pyodide).length}ファイル`);
 console.log(`  pyソース: ${Object.keys(embed.py).length}ファイル`);
 console.log(`  predict_template.html: ${mb(fs.statSync(PREDICT_TEMPLATE).size)} MB`);
+console.log(`  simulate_template.html: ${mb(fs.statSync(SIMULATE_TEMPLATE).size)} MB`);
 console.log(`  出力サイズ: ${mb(fs.statSync(OUT).size)} MB`);

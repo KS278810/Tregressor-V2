@@ -886,6 +886,14 @@
             cursor: pointer; font-size: 11px; line-height: 1; padding: 0 2px;
         }
         .sim-mx:hover { color: var(--bad); }
+        /* 書き出した単体HTML（シミュレータ）では、①〜④のワークフローや
+           ステータスバーを出さず、SIMULATE だけを全面に出す。 */
+        body.sim-only header, body.sim-only .top-panel,
+        body.sim-only .main-content, body.sim-only .status-bar,
+        body.sim-only #startupOverlay, body.sim-only #termsOverlay { display: none !important; }
+        body.sim-only #simulateOverlay { background: transparent; backdrop-filter: none; padding: 20px; }
+        body.sim-only #simulatePanel { width: calc(100vw - 40px); height: calc(100vh - 40px); }
+        body.sim-only #simCloseBtn { display: none; }
     </style>
 </head>
 <body>
@@ -1196,6 +1204,12 @@
 </div>
 
 <script>
+    // ④「モデルをDL」で書き出す単体HTMLは、このページ自身を雛形にして
+    // ここへ学習結果とモデル本体を差し込んだものになる。値が入っていれば
+    // ①〜④のワークフローを出さず、SIMULATE だけを開くシミュレータとして動く。
+    const EMBEDDED_MODEL = null /* __MODEL_SLOT__ */;
+    const IS_EMBEDDED = !!(EMBEDDED_MODEL && EMBEDDED_MODEL.treg && EMBEDDED_MODEL.result);
+
     // ── ③ SIMULATE 用の JS 推論エンジン挿入位置 ────────────────────────────────
     // Web版ビルド(web/build_frontend.mjs)がこのプレースホルダを
     // web/js_predict_poc/predict-core.js の中身で機械的に置換し、
@@ -2171,22 +2185,20 @@
         // downloadFile はトップレベル共有関数(高-4)。ここでは互換のため短い別名を残す。
         const download = downloadFile;
 
-        let _predictTemplateCache = null;
-        // オフライン版(ダブルクリック)は offline-embed.js に同梱済みのテンプレート文字列を使う。
-        // HTTP版は ./predict_template.html を同一オリジンから取得する。
-        // (旧: predict_native.exe にtregを追記する方式。Windows MOTW/SmartScreenで
-        //  未署名exeがブロックされる問題があったため、単体HTML+JS推論エンジン方式に置換。
-        //  詳細は web/js_predict_poc/README.md 参照)
-        async function getPredictTemplateText() {
-            if (_predictTemplateCache) return _predictTemplateCache;
-            if (window.TregEngine && window.TregEngine.getPredictTemplate) {
-                _predictTemplateCache = window.TregEngine.getPredictTemplate();
-                return _predictTemplateCache;
+        // ④のDLはこのページ自身(index.html)の複製を雛形にする。生成物は
+        // build_frontend.mjs が web/simulate_template.html として書き出す。
+        // オフライン版(file://)は fetch できないので offline-embed.js から取る。
+        let _simTemplateCache = null;
+        async function getSimulateTemplateText() {
+            if (_simTemplateCache) return _simTemplateCache;
+            if (window.TregEngine && window.TregEngine.getSimulateTemplate) {
+                _simTemplateCache = window.TregEngine.getSimulateTemplate();
+                return _simTemplateCache;
             }
-            const res = await fetch('./predict_template.html');
+            const res = await fetch('./simulate_template.html');
             if (!res.ok) throw new Error(t('error.predictTemplateFetchFailed', { status: res.status }));
-            _predictTemplateCache = await res.text();
-            return _predictTemplateCache;
+            _simTemplateCache = await res.text();
+            return _simTemplateCache;
         }
 
         // Uint8Array -> base64。charCode の展開をチャンク分割し、大きめの.tregでも
@@ -2270,14 +2282,34 @@
             // __TREG_BASE64__ プレースホルダを、学習済みモデルのtregバイト列(base64化)で
             // 置き換えて書き出す。HTMLファイルはWindowsの「安全でない実行ファイル」判定
             // (MOTW/SmartScreen)の対象外のため、未署名でも警告なしで開ける。
+            // ④「モデルをDL」は、このページ自身を雛形にして学習結果とモデルを
+            // 埋め込んだ単体HTMLを作る。開くと SIMULATE だけが立ち上がるシミュレータに
+            // なる（Pyodideは起動しない）。UI・推論エンジン・翻訳をすべて本体と共有する
+            // ため、書き出し用の画面をもう1つ作らずに済む。
             async exportModel({ fileStem }) {
-                if (!_lastTreg) throw new Error(t('error.modelDataNotFound'));
-                const treg = _lastTreg instanceof Uint8Array ? _lastTreg : new Uint8Array(_lastTreg);
-                const treg64 = bytesToBase64(treg);
-                const tmpl = await getPredictTemplateText();
-                if (!tmpl.includes('__TREG_BASE64__')) throw new Error(t('error.predictTemplateFormatInvalid'));
-                const label = 'T-regressor Web版 / ' + fileStem + ' / ' + new Date().toISOString();
-                const out = tmpl.replace('__TREG_BASE64__', treg64).replace('__EXPORT_LABEL__', label);
+                // SIMULATE と同じ入口(getTregBytes)から取る。同じ値を二重に参照しない。
+                const raw = this.getTregBytes();
+                if (!raw) throw new Error(t('error.modelDataNotFound'));
+                const treg = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+                const tmpl = await getSimulateTemplateText();
+                // 差し込み口の目印。ここに同じ文字列をそのまま書くと、雛形の中に
+                // 2箇所現れて置換先を取り違えうる。分割して書き、必ず1箇所だけに保つ。
+                const MARK = 'null /* __MODEL' + '_SLOT__ */';
+                if (!tmpl.includes(MARK)) throw new Error(t('error.predictTemplateFormatInvalid'));
+                const r = lastResult || {};
+                // SIMULATE に必要な情報だけを持たせる（学習ログや散布図は入れない）
+                const payload = {
+                    treg: bytesToBase64(treg),
+                    label: 'T-regressor / ' + fileStem + ' / ' + new Date().toISOString(),
+                    result: {
+                        target: r.target || '', best_model: r.best_model || '',
+                        rmse: (r.rmse === undefined ? null : r.rmse),
+                        r2: (r.r2 === undefined ? null : r.r2),
+                        r2_reference_only: !!r.r2_reference_only,
+                        slider_spec: r.slider_spec || [], seed_rows: r.seed_rows || [],
+                    },
+                };
+                const out = tmpl.replace(MARK, JSON.stringify(payload));
                 const name = fileStem + '.html';
                 download(new TextEncoder().encode(out), name, 'text/html');
                 return name;
@@ -2428,6 +2460,7 @@
                     return;
                 }
             }
+            if (IS_EMBEDDED) { _bootEmbedded(); return; }
             try {
                 await Platform.warmup({ onStatus: (msg, pct) => _setStartup(msg, pct) });
                 _hideStartup();
@@ -2826,7 +2859,7 @@
         const termsAcceptBtn = document.getElementById('termsAcceptBtn');
         let acceptedVersion = null;
         try { acceptedVersion = localStorage.getItem(TERMS_STORAGE_KEY); } catch (_) {}
-        if (acceptedVersion !== TERMS_VERSION) {
+        if (acceptedVersion !== TERMS_VERSION && !IS_EMBEDDED) {
             termsOverlay.style.display = 'flex';
         }
         termsAgreeCheckbox.addEventListener('change', (e) => {
@@ -4491,6 +4524,27 @@
         clearTimeout(_simRzTimer);
         _simRzTimer = setTimeout(function () { simRefreshSliders(); simRenderPrediction(); }, 120);
     });
+
+    // ── 書き出した単体HTML（シミュレータ）の起動 ──────────────────────────────
+    function _b64ToBytes(b64) {
+        const bin = atob(b64);
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        return u8;
+    }
+    function _bootEmbedded() {
+        document.body.classList.add('sim-only');
+        _hideStartup();
+        const bytes = _b64ToBytes(EMBEDDED_MODEL.treg);
+        Platform.getTregBytes = () => bytes;
+        if (!simInit(EMBEDDED_MODEL.result)) {
+            document.body.classList.remove('sim-only');
+            const st = document.getElementById('suStatus');
+            if (st) { st.textContent = t('startup.failed', { detail: 'model' }); st.style.color = '#f87171'; }
+            return;
+        }
+        simOpen();
+    }
 
     // ── ③ 予測完了 ────────────────────────────────────────────────────────
     function onPredictLog(_line) { /* 予測はログ表示なし（元実装どおり） */ }

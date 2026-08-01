@@ -244,7 +244,14 @@ runpy.run_path("/treg/predict_template.py", run_name="__main__")
     return EMBED.predictTemplate;
   }
 
+  // ④「モデルをDL」が使う雛形(simulate_template.html)。開くと SIMULATE だけが
+  // 立ち上がるシミュレータになる。プレースホルダ __MODEL_SLOT__ 入り・無改変。
+  function getSimulateTemplate() {
+    if (!EMBED.simulateTemplate) throw new Error("simulate_template.html が同梱されていません(offline-embed.js を再生成してください)");
+    return EMBED.simulateTemplate;
+  }
+
   function _readBytes(path) { return _pyodide.FS.readFile(path); }
 
-  return { isReady, initEngine, train, predict, loadModel, getSampleCsv, getPredictTemplate };
+  return { isReady, initEngine, train, predict, loadModel, getSampleCsv, getPredictTemplate, getSimulateTemplate };
 })();

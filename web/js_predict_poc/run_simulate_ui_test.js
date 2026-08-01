@@ -361,6 +361,65 @@ function finish(){
  chk(!!jaLic&&/教育|研究/.test(jaLic[1]),`ライセンス表記が用途を先に述べる: ${jaLic&&jaLic[1].slice(0,40)}...`);
  chk(!/❌/.test(html),'「できない」を強調する記号(❌)を使っていない');}
 
+
+console.log('\n[12] ④モデルのDL＝SIMULATE単体HTML');
+{const tmplPath=path.join(ROOT,'web/simulate_template.html');
+ chk(fs.existsSync(tmplPath),'書き出し用の雛形が生成されている');
+ const tmpl=fs.readFileSync(tmplPath,'utf8');
+ const MARK='null /* __MODEL'+'_SLOT__ */';
+ chk(tmpl.split(MARK).length-1===1,`雛形の差し込み口はちょうど1箇所 (${tmpl.split(MARK).length-1})`);
+ // 実際に書き出しを行い、その中身を別のjsdomで起動してSIMULATEが立ち上がるか確認する
+ let saved=null;
+ // jsdom には fetch が無いので、雛形の取得だけローカル読み込みに差し替える
+ w.fetch=async(u)=>({ok:true,text:async()=>fs.readFileSync(path.join(ROOT,'web',String(u).replace('./','')),'utf8')});
+ // 書き出しは Blob + <a download> で行われるので、そこを捕まえる
+ let blob=null,name=null;
+ // jsdom の Blob は .text() を持たないので、生成時のバイト列を横取りする
+ const OrigBlob=w.Blob;
+ w.Blob=function(parts,opts){ blob={parts:parts}; return new OrigBlob(parts,opts); };
+ w.URL.createObjectURL=()=>'blob:test';
+ w.URL.revokeObjectURL=()=>{};
+ w.HTMLAnchorElement.prototype.click=function(){ name=this.download; };
+ H.Platform.getTregBytes=()=>w.__TREG__;
+ return H.Platform.exportModel({fileStem:'model_test'}).then(()=>{const p0=blob.parts[0];
+  const text=(typeof p0==='string')?p0:Buffer.from(p0).toString('utf8');
+  saved={n:name,text:text};
+  chk(!!saved&&saved.n==='model_test.html',`単体HTMLを書き出す (${saved&&saved.n})`);
+  chk(saved.text.length>tmpl.length*0.9,'雛形と同等の大きさ（UIを含んでいる）');
+  chk(!saved.text.includes(MARK),'差し込み口が実データに置換されている');
+
+  // 書き出したHTMLを起動する
+  const d2=new JSDOM(saved.text,{runScripts:'outside-only',pretendToBeVisual:true,url:'http://localhost/'});
+  const w2=d2.window;
+  w2.HTMLCanvasElement.prototype.getContext=()=>ctx2d;
+  if(!w2.TextDecoder) w2.TextDecoder=require('util').TextDecoder;
+  if(!w2.TextEncoder) w2.TextEncoder=require('util').TextEncoder;
+  Object.defineProperty(w2.Element.prototype,'clientWidth',{get(){return 300;}});
+  const errs2=[];
+  w2.addEventListener('error',e=>errs2.push(e.message));
+  const code2=saved.text.match(/<script>([\s\S]*)<\/script>/)[1];
+  try{ w2.eval(code2+'\n;window.__H2__={SIM:SIM,IS_EMBEDDED:IS_EMBEDDED,bootEmbedded:_bootEmbedded};'); }
+  catch(e){ errs2.push('THROW: '+e.message); }
+  chk(errs2.length===0,'書き出したHTMLが例外なく実行される'+(errs2.length?': '+errs2[0]:''));
+  const H2=w2.__H2__||{};
+  chk(H2.IS_EMBEDDED===true,'埋め込みモードとして認識される');
+  if(H2.bootEmbedded){
+    try{ H2.bootEmbedded(); }catch(e){ errs2.push('boot: '+e.message); }
+  }
+  chk(w2.document.body.classList.contains('sim-only'),'本体UIを隠すモードになる');
+  chk(w2.document.getElementById('simulateOverlay').style.display==='flex','SIMULATEが自動で開く');
+  chk(w2.document.querySelectorAll('.sim-row').length===21,
+    `スライダーが並ぶ (${w2.document.querySelectorAll('.sim-row').length}本)`);
+  // 予測値が本体と一致する
+  const pv2=w2.document.getElementById('simPredVal').textContent;
+  chk(Math.abs(Number(pv2)-Number(expect.toFixed(1)))<0.06,
+    `書き出し先でも同じ予測になる (${pv2})`);
+  try{ d2.window.close(); }catch(_){}
+  finish2();
+ });}
+
+function finish2(){
+
 console.log('\n[10] ワークフロー側の表示');
 chk(!d.getElementById('deployHint'),'④のヒント表示は無い');
 chk(!/no network/i.test(html)&&!/ネットワーク不要/.test(html),'NO NETWORK 表示は無い');
@@ -407,6 +466,7 @@ console.log('');
 if(errs.length){console.log('ERRORS:\n'+errs.join('\n'));process.exit(1);}
 if(FAIL.length){console.log(`NG: ${FAIL.length} 件失敗`);FAIL.forEach(m=>console.log('  - '+m));process.exit(1);}
 console.log('すべて成功');
+}
 }
 
 // jsdom の rAF ループが残るとプロセスが終了しないため、明示的に閉じて終了する

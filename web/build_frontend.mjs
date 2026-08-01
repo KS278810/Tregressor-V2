@@ -143,6 +143,13 @@ function main() {
   fs.writeFileSync(httpOut, buildHttpVariant(html));
   console.log(`生成: ${httpOut}`);
 
+  // ④「モデルをDL」用の雛形。中身は HTTP 版と同じで、EMBEDDED_MODEL の差し込み口だけを
+  // 書き出し側が置換して使う（書き出し専用の画面を別に持たないため、UI・推論エンジン・
+  // 翻訳がすべて本体と自動的に一致する）。
+  const simTmplOut = path.join(WEB_DIR, "simulate_template.html");
+  fs.writeFileSync(simTmplOut, httpOut ? fs.readFileSync(httpOut, "utf-8") : "");
+  console.log(`生成: ${simTmplOut} (モデルDL用の雛形)`);
+
   const offlineOut = path.join(WEB_DIR, "offline.html");
   fs.writeFileSync(offlineOut, buildOfflineVariant(html));
   console.log(`生成: ${offlineOut}`);
