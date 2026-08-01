@@ -685,10 +685,19 @@
         /* 幅に応じて 1→2→3 列。列が増えるほど縦が縮み、変数が多くてもスクロールが消える */
         .sim-sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); column-gap: 16px; }
         .sim-row {
-            display: flex; align-items: center; gap: 6px; height: 26px; min-width: 0;
-            border-radius: 3px; padding: 0 2px; transition: background 0.12s;
+            display: flex; align-items: center; gap: 6px; height: 28px; min-width: 0;
+            border-radius: 3px; padding: 0 2px 0 6px; transition: background 0.12s;
+            position: relative;
         }
         .sim-row:hover { background: rgba(255,255,255,0.022); }
+        /* 基準行から動かした変数に印を付ける。What-if では「どこを触ったか」が
+           絶対値そのものと同じくらい重要なので、色ではなく位置(左端の縦線)で示す。 */
+        .sim-row.changed::before {
+            content: ''; position: absolute; left: 0; top: 5px; bottom: 5px; width: 2px;
+            border-radius: 1px; background: var(--gold);
+        }
+        .sim-row.changed .sim-name { color: var(--ink); cursor: pointer; }
+        .sim-row.changed .sim-name:hover { color: var(--gold); text-decoration: underline; }
         .sim-imp { width: 3px; border-radius: 2px; background: var(--cyan); opacity: 0.55; flex: none; }
         .sim-name {
             width: 80px; flex: none; font-family: var(--font-mono); font-size: 10.5px;
@@ -696,11 +705,23 @@
             text-overflow: ellipsis; transition: color 0.15s;
         }
         .sim-row:hover .sim-name { color: var(--ink); }
+        /* 値は表示専用ではなく直接入力できるようにする。スライダーだけでは
+           「ちょうど 22.5」のような狙った値を置けず、実務では致命的なため。 */
         .sim-val {
-            width: 50px; flex: none; text-align: right; font-family: var(--font-mono);
+            width: 58px; flex: none; text-align: right; font-family: var(--font-mono);
             font-size: 11.5px; color: var(--cyan); transition: color 0.15s;
+            background: transparent; border: 1px solid transparent; border-radius: 3px;
+            padding: 1px 3px; outline: none; min-width: 0;
         }
+        input.sim-val:hover { border-color: rgba(160,190,220,0.25); }
+        input.sim-val:focus { border-color: var(--cyan); background: rgba(63,196,236,0.07); }
         .sim-row.warn .sim-val, .sim-row.warn .sim-name { color: var(--gold); }
+        /* キーボード操作時にどのスライダーにいるかが見えるようにする
+           (つまみはCanvas描画で、range本体は透明なため既定のフォーカスリングが出ない) */
+        .sim-track input[type=range]:focus-visible { outline: none; }
+        .sim-track:has(input[type=range]:focus-visible) {
+            outline: 1px solid var(--cyan); outline-offset: 1px; border-radius: 3px;
+        }
         .sim-x {
             flex: none; width: 11px; opacity: 0; border: none; background: transparent;
             color: var(--ink-faint); cursor: pointer; font-size: 11px; line-height: 1;
@@ -708,17 +729,17 @@
         }
         .sim-row:hover .sim-x { opacity: 1; }
         .sim-x:hover { color: var(--bad); }
-        .sim-track { position: relative; flex: 1; height: 20px; min-width: 40px; }
-        .sim-track canvas { position: absolute; inset: 0; width: 100%; height: 20px; display: block; pointer-events: none; }
+        .sim-track { position: relative; flex: 1; height: 22px; min-width: 40px; }
+        .sim-track canvas { position: absolute; inset: 0; width: 100%; height: 22px; display: block; pointer-events: none; }
         .sim-track input[type=range] {
-            position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 20px;
+            position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 22px;
             margin: 0; -webkit-appearance: none; appearance: none; background: transparent; cursor: ew-resize;
         }
-        .sim-track input[type=range]::-webkit-slider-runnable-track { height: 20px; background: transparent; }
-        .sim-track input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 20px; background: transparent; border: none; }
-        .sim-track input[type=range]::-moz-range-track { height: 20px; background: transparent; }
-        .sim-track input[type=range]::-moz-range-thumb { width: 18px; height: 20px; background: transparent; border: none; }
-        .sim-spark { width: 40px; height: 20px; flex: none; display: block; }
+        .sim-track input[type=range]::-webkit-slider-runnable-track { height: 22px; background: transparent; }
+        .sim-track input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; background: transparent; border: none; }
+        .sim-track input[type=range]::-moz-range-track { height: 22px; background: transparent; }
+        .sim-track input[type=range]::-moz-range-thumb { width: 22px; height: 22px; background: transparent; border: none; }
+        .sim-spark { width: 40px; height: 22px; flex: none; display: block; }
         /* カテゴリは折り返さず横スクロール。行の高さを一定に保つ */
         .sim-pills { display: flex; gap: 3px; flex: 1; min-width: 40px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
         .sim-pills::-webkit-scrollbar { display: none; }
@@ -764,6 +785,36 @@
         }
         .sim-right.lowq .sim-pnum { color: var(--ink-dim); }
         .sim-pband { font-family: var(--font-mono); font-size: 12px; color: var(--ink-faint); padding-bottom: 4px; }
+        /* What-if の主役は絶対値ではなく「基準からどれだけ動いたか」。
+           絶対値の下に必ず差分を出す(0 のときは基準行と同じであることを示す)。 */
+        .sim-delta {
+            text-align: center; font-family: var(--font-mono); font-size: 12px;
+            color: var(--ink-faint); margin-top: 3px; min-height: 15px;
+        }
+        .sim-delta b { color: var(--cyan); font-weight: 600; }
+        .sim-right.lowq .sim-delta b { color: var(--ink-dim); }
+        /* 凡例: title に頼るとタッチ環境で情報が完全に消えるため、記号の意味を
+           いつでも開ける場所に置く(既定は閉じたまま。画面の情報量は増やさない) */
+        .sim-legend-btn {
+            background: transparent; border: 1px solid var(--hairline); border-radius: 5px;
+            color: var(--ink-faint); cursor: pointer; width: 24px; height: 22px;
+            font-size: 11px; line-height: 1; font-family: var(--font-mono); transition: 0.15s;
+        }
+        .sim-legend-btn:hover, .sim-legend-btn.on { color: var(--cyan); border-color: rgba(63,196,236,0.45); }
+        .sim-legend {
+            display: none; flex: none; padding: 8px 16px; gap: 6px 20px;
+            border-top: 1px solid var(--hairline); background: rgba(63,196,236,0.03);
+            flex-wrap: wrap; font-size: 10.5px; color: var(--ink-dim); line-height: 1.5;
+        }
+        .sim-legend.open { display: flex; }
+        .sim-legend div { display: flex; align-items: center; gap: 6px; }
+        .sim-legend .mk {
+            font-family: var(--font-mono); color: var(--cyan); flex: none;
+            min-width: 15px; text-align: center;
+        }
+        .sim-legend .mk.warn { color: var(--gold); }
+        .sim-legend .mk.bad { color: var(--bad); }
+        .sim-legend .mk.good { color: var(--good); }
         #simHistCanvas { display: block; width: 100%; margin-top: 4px; }
         .sim-statusrow { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.04); }
         #simRingCanvas { flex: none; display: block; }
@@ -997,8 +1048,10 @@
         <div class="sim-header">
             <span class="sim-title">SIMULATE</span>
             <span class="sim-subtitle" id="simSubtitle"></span>
+            <button id="simLegendBtn" class="sim-legend-btn" data-i18n-title="sim.legendTitle" title="記号の意味">?</button>
             <button id="simCloseBtn" class="sim-close-btn">✕</button>
         </div>
+        <div class="sim-legend" id="simLegend"></div>
 <!-- ③ SIMULATE（What-ifスライダー）。Web版のみ表示され、exe版では
      上の predictResultSection（CSV一括予測のプレビュー）が使われる。
      説明文は画面に出さず title 属性に退避する方針（見れば分かる形で表現）。
@@ -1026,6 +1079,7 @@
                 <span class="sim-pnum" id="simPredVal">—</span>
                 <span class="sim-pband" id="simPredBand"></span>
             </div>
+            <div class="sim-delta" id="simDelta"></div>
             <canvas id="simHistCanvas"></canvas>
             <div class="sim-statusrow">
                 <canvas id="simRingCanvas" width="0" height="0"></canvas>
@@ -1732,6 +1786,21 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             // ③ SIMULATE(What-ifスライダー・Web版のみ)。sim.tip*/sim.*Title は画面には
             // 出さず title 属性にだけ入る文言(「見れば分かる」表示にするため、説明は
             // ホバー時にだけ現れる)。画面に出るのは列名・数値・FIXED n だけ。
+            'sim.legendTitle': '記号の意味',
+            'sim.deltaNone': '基準行のまま',
+            'sim.deltaNoneTitle': 'まだどの変数も動かしていません',
+            'sim.deltaFrom': '（基準 {{base}} / {{n}}変数を変更）',
+            'sim.deltaTitle': '基準行の予測 {{base}} からの差。{{n}} 個の変数を動かしています。列名をクリックするとその変数だけ元に戻せます',
+            'sim.lgThumb': 'つまみ＝現在値',
+            'sim.lgExtrap': 'ひし形＝学習データの外側',
+            'sim.lgClip': '角＝これ以上動かしても予測は変わらない',
+            'sim.lgGhost': '中空の丸＝相関する変数から見た自然な値',
+            'sim.lgActual': '緑の丸＝基準行の実測値',
+            'sim.lgChanged': '左の縦線＝動かした変数（列名クリックで戻す）',
+            'sim.lgDensity': '山＝学習データの多さ',
+            'sim.lgSpark': '折れ線＝その変数だけ動かしたときの変化',
+            'sim.lgRing': 'リング＝似た実データの件数',
+            'sim.lgBand': '帯＝予測の誤差範囲(±RMSE)',
             'sim.zoneReady': '▶ 推論をひらく',
             'sim.subtitle': '変数を動かして {{target}} の予測を確かめる',
             'sim.footNote': '大量データの一括予測はデスクトップ版（exe）をご利用ください',
@@ -2001,6 +2070,21 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         en: {
             'common.listSep': ', ',
 
+            'sim.legendTitle': 'What the symbols mean',
+            'sim.deltaNone': 'Same as the reference row',
+            'sim.deltaNoneTitle': 'No variable has been moved yet',
+            'sim.deltaFrom': '(from {{base}} / {{n}} changed)',
+            'sim.deltaTitle': 'Difference from the reference prediction {{base}}. {{n}} variable(s) moved. Click a column name to revert just that one',
+            'sim.lgThumb': 'Handle = current value',
+            'sim.lgExtrap': 'Diamond = outside the training data',
+            'sim.lgClip': 'Flat top = moving further changes nothing',
+            'sim.lgGhost': 'Hollow circle = value implied by a correlated variable',
+            'sim.lgActual': 'Green circle = actual value of the reference row',
+            'sim.lgChanged': 'Left bar = moved variable (click the name to revert)',
+            'sim.lgDensity': 'Hill = where the training data is dense',
+            'sim.lgSpark': 'Line = effect of moving that variable alone',
+            'sim.lgRing': 'Ring = number of similar real rows',
+            'sim.lgBand': 'Band = prediction error range (±RMSE)',
             'sim.zoneReady': '▶ OPEN SIMULATOR',
             'sim.subtitle': 'Move the sliders to explore predictions for {{target}}',
             'sim.footNote': 'For batch prediction on large files, use the desktop app (exe)',
@@ -4007,6 +4091,14 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
     const SIM_ROW_TIPS_SEP = '\n';
 
     const simEl = (id) => document.getElementById(id);
+    // 列名は空白・引用符・記号を含みうるため、属性セレクタ(CSS.escape依存)ではなく
+    // 生成済みの行を走査して引く。セレクタのエスケープ事故と環境差をまとめて避ける。
+    function simRowEl(col) {
+        for (const r of document.querySelectorAll('.sim-row')) {
+            if (r.dataset.col === col) return r;
+        }
+        return null;
+    }
 
     // 末尾の 0 を落として桁を詰める（6.80 → 6.8）。画面の視覚ノイズを減らすため、
     // 既存の fmtPreviewNum とは別に SIMULATE 専用の整形を使う。
@@ -4117,6 +4209,8 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         // 既定で「全変数」にスライダーを用意する。変数が多い場合は可変列グリッドで
         // 横に折り返されるため縦は伸びにくく、絞り込みは ▴ ボタンで後から選べる。
         SIM.visible = simSpecs().map(s => s.col);
+        // 差分表示の基準になる「触る前の予測」を、この時点で1度だけ確定させる
+        SIM.basePred = simPredict(SIM.state);
         simRenderAll();
     }
 
@@ -4139,6 +4233,40 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             return NaN;
         }
     }
+
+    // ── 基準行との差分 ────────────────────────────────────────────────────────
+    // What-if で本当に知りたいのは絶対値ではなく「基準からどれだけ動いたか」。
+    // 基準行の値・予測を保持して、変更した変数と予測の差分を常に出せるようにする。
+    function simSeedValueOf(col) {
+        const sr = SIM.seeds.find(s => s.label === SIM.seedLabel);
+        const s = SIM.specBy[col];
+        if (!s) return undefined;
+        const raw = sr && sr.values ? sr.values[col] : undefined;
+        if (s.kind === 'numeric') {
+            const n = Number(raw);
+            return Number.isFinite(n) ? n : s.median;
+        }
+        const known = raw != null && (s.levels || []).some(l => l.value === String(raw));
+        return known ? String(raw) : s.mode;
+    }
+    function simIsChanged(col) {
+        const s = SIM.specBy[col];
+        if (!s) return false;
+        const base = simSeedValueOf(col), cur = SIM.state[col];
+        if (s.kind !== 'numeric') return String(base) !== String(cur);
+        // 丸め表示上は同じでも内部で微差が残ることがあるので、スライダー刻みで比較する
+        const eps = Math.max(Math.abs(s.step || 0) * 0.5, 1e-9);
+        return Math.abs(Number(base) - Number(cur)) > eps;
+    }
+    function simResetOne(col) {
+        const v = simSeedValueOf(col);
+        if (v === undefined) return;
+        const row = simRowEl(col);
+        const rng = row && row.querySelector('input[type=range]');
+        if (rng) rng.value = v;
+        simSetVal(col, v, false);
+    }
+    function simResetAll() { simApplySeed(SIM.seedLabel); }
 
     // 相関相手から導かれる「あるべき値」。文章で注意するのではなく、
     // トラック上にゴーストとして描いてズレを見せる。
@@ -4167,6 +4295,11 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             imp.style.height = Math.max(3, Math.round((s.importance_pct || 0) / SIM.maxImp * 14)) + 'px';
             const nm = document.createElement('span');
             nm.className = 'sim-name'; nm.textContent = col;
+            // 動かした変数は列名クリックでその1本だけ基準値に戻せる（全体リセットは ↺）
+            nm.addEventListener('click', () => {
+                if (!row.classList.contains('changed')) return;
+                simResetOne(col);
+            });
             row.appendChild(imp); row.appendChild(nm);
 
             if (s.kind === 'numeric') {
@@ -4194,7 +4327,30 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                 }
                 row.appendChild(pills);
             }
-            const val = document.createElement('span'); val.className = 'sim-val';
+            // 数値列は表示専用ではなく直接入力できるようにする（狙った値をピンポイントで
+            // 置けないと実務では使い物にならない）。カテゴリはピルがあるので読み取り専用。
+            let val;
+            if (s.kind === 'numeric') {
+                val = document.createElement('input');
+                val.className = 'sim-val'; val.type = 'text'; val.inputMode = 'decimal';
+                val.setAttribute('aria-label', col);
+                const commit = () => {
+                    const n = Number(String(val.value).replace(/[,\s]/g, ''));
+                    if (!Number.isFinite(n)) { simRefreshSliders(); return; }
+                    const [lo, hi] = simRange(s);
+                    const cl = Math.min(Math.max(n, lo), hi);
+                    const inp = row.querySelector('input[type=range]');
+                    if (inp) inp.value = cl;
+                    simSetVal(col, cl, false);
+                };
+                val.addEventListener('change', commit);
+                val.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commit(); val.blur(); }
+                });
+                val.addEventListener('focus', () => val.select());
+            } else {
+                val = document.createElement('span'); val.className = 'sim-val';
+            }
             const sp = document.createElement('canvas'); sp.className = 'sim-spark';
             const x = document.createElement('button');
             x.className = 'sim-x'; x.textContent = '×'; x.title = t('sim.demoteTitle');
@@ -4266,15 +4422,19 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             ctx.beginPath(); ctx.arc(gx, base - 5, 2.8, 0, Math.PI * 2); ctx.stroke();
         }
 
-        // つまみ: 通常は丸、飽和したら角（壁に当たった形）
+        // つまみは色だけでなく「形」でも状態を表す（色覚特性に依存させない）。
+        //   通常=丸 / 外挿=ひし形 / 飽和=角（壁に当たって潰れた形）
         const tx = X(Math.min(Math.max(v, lo), hi));
         ctx.shadowColor = `rgba(${acc},0.55)`; ctx.shadowBlur = 6; ctx.fillStyle = `rgb(${acc})`;
+        ctx.beginPath(); ctx.moveTo(tx, base); ctx.lineTo(tx - 4, base - 7);
+        ctx.lineTo(tx + 4, base - 7); ctx.closePath(); ctx.fill();
         if (stop) {
-            ctx.fillRect(tx - 3, base - 9, 6, 9);
+            ctx.fillRect(tx - 3.5, base - 12, 7, 5);
+        } else if (warn) {
+            ctx.beginPath(); ctx.moveTo(tx, base - 13); ctx.lineTo(tx + 3.8, base - 9.5);
+            ctx.lineTo(tx, base - 6); ctx.lineTo(tx - 3.8, base - 9.5); ctx.closePath(); ctx.fill();
         } else {
-            ctx.beginPath(); ctx.moveTo(tx, base); ctx.lineTo(tx - 4, base - 7);
-            ctx.lineTo(tx + 4, base - 7); ctx.closePath(); ctx.fill();
-            ctx.beginPath(); ctx.arc(tx, base - 9, 3.2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(tx, base - 9.5, 3.4, 0, Math.PI * 2); ctx.fill();
         }
         ctx.shadowBlur = 0;
     }
@@ -4289,7 +4449,8 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                 if (other && SIM.state[other] !== undefined && SIM.visible.includes(other)) {
                     const s2 = SIM.specBy[other], [lo, hi] = simRange(s2);
                     SIM.state[other] = Math.min(hi, Math.max(lo, f(v)));
-                    const el = document.querySelector('.sim-row[data-col="' + CSS.escape(other) + '"] input[type=range]');
+                    const orow = simRowEl(other);
+                    const el = orow && orow.querySelector('input[type=range]');
                     if (el) el.value = SIM.state[other];
                 }
             }
@@ -4305,8 +4466,15 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             if (!s) continue;
             const v = SIM.state[col];
             const val = row.querySelector('.sim-val');
+            row.classList.toggle('changed', simIsChanged(col));
             if (s.kind === 'numeric') {
-                val.textContent = simFmt(v);
+                // 入力中の欄は上書きしない（打鍵の途中で値が飛ぶのを防ぐ）
+                if (document.activeElement !== val) val.value = simFmt(v);
+                const rng = row.querySelector('input[type=range]');
+                if (rng) {
+                    if (document.activeElement !== rng) rng.value = v;
+                    rng.setAttribute('aria-valuetext', simFmt(v));
+                }
                 const warn = simIsExtrap(s, v), stop = simAtClip(s, v), gh = simGhostFor(col);
                 row.classList.toggle('warn', warn);
                 // 説明文は画面に出さず、ここ（ツールチップ）に退避する
@@ -4319,7 +4487,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                 simDrawTrack(row);
             } else {
                 // 選択中のピルが光っているので右端に値を再掲しない（二重表示の削減）
-                val.textContent = '';
+                if (val.tagName === 'INPUT') val.value = ''; else val.textContent = '';
                 row.querySelectorAll('.sim-pill').forEach(p => p.classList.toggle('on', p.dataset.v === v));
                 row.title = t('sim.tipValueCat', { col: col, v: v, imp: s.importance_pct });
             }
@@ -4385,6 +4553,21 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         simEl('simPredVal').textContent = simFmt(p);
         simEl('simPredBand').textContent = rmse != null ? '±' + simFmt(rmse) : '';
         simEl('simTargetTag').textContent = 'PREDICTED ' + String(SIM.target || '').toUpperCase();
+
+        // 基準からの差分と、いま何本動かしているか
+        const nChanged = simSpecs().filter(s => simIsChanged(s.col)).length;
+        const dEl = simEl('simDelta');
+        if (nChanged === 0 || !Number.isFinite(SIM.basePred) || !Number.isFinite(p)) {
+            dEl.textContent = nChanged === 0 ? t('sim.deltaNone') : '';
+            dEl.title = t('sim.deltaNoneTitle');
+        } else {
+            const d = p - SIM.basePred;
+            const sign = d > 0 ? '+' : (d < 0 ? '−' : '±');
+            dEl.innerHTML = '<b>' + sign + simFmt(Math.abs(d)) + '</b> '
+                          + esc(t('sim.deltaFrom', { base: simFmt(SIM.basePred), n: nChanged }));
+            dEl.title = t('sim.deltaTitle', { base: simFmt(SIM.basePred), n: nChanged });
+        }
+
         const seed = SIM.seeds.find(s => s.label === SIM.seedLabel);
         const ys = simYSorted();
         const below = ys.filter(v => v <= p).length;
@@ -4442,6 +4625,14 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         if (seed && isFinite(seed.y) && seed.y >= lo && seed.y <= hi) {
             ctx.strokeStyle = 'rgba(47,214,142,0.75)'; ctx.lineWidth = 1.4;
             ctx.beginPath(); ctx.arc(X(seed.y), base, 3.4, 0, Math.PI * 2); ctx.stroke();
+        }
+
+        // 触る前の予測をゴーストの縦線で残す。現在値との距離がそのまま「動かした効果」になる。
+        if (Number.isFinite(SIM.basePred) && SIM.basePred >= lo && SIM.basePred <= hi
+            && Math.abs(SIM.basePred - p) > 1e-12) {
+            ctx.setLineDash([2, 3]); ctx.strokeStyle = 'rgba(160,190,220,0.45)'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(X(SIM.basePred), top - 2); ctx.lineTo(X(SIM.basePred), base); ctx.stroke();
+            ctx.setLineDash([]);
         }
 
         if (!Number.isFinite(p)) return;
@@ -4607,7 +4798,29 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         simRenderSliders();
         simRenderChips();
         simRenderPrediction();
+        simRenderLegend();
         simEl('simFoot').textContent = t('sim.footNote');
+    }
+
+    // 記号の凡例。title はタッチ環境では出ないため、意味を確認できる場所を1つ用意する。
+    // 既定は閉じたままで、画面の常時情報量は増やさない。
+    function simRenderLegend() {
+        const host = simEl('simLegend');
+        const items = [
+            ['', '▲', 'sim.lgThumb'], ['warn', '◆', 'sim.lgExtrap'], ['bad', '■', 'sim.lgClip'],
+            ['', '○', 'sim.lgGhost'], ['good', '○', 'sim.lgActual'], ['warn', '▌', 'sim.lgChanged'],
+            ['', '▁▃▅', 'sim.lgDensity'], ['', '╱', 'sim.lgSpark'], ['', '◍', 'sim.lgRing'],
+            ['', '▓', 'sim.lgBand'],
+        ];
+        host.innerHTML = '';
+        for (const [cls, mk, key] of items) {
+            const d = document.createElement('div');
+            const m = document.createElement('span');
+            m.className = 'mk ' + cls; m.textContent = mk;
+            d.appendChild(m);
+            d.appendChild(document.createTextNode(t(key)));
+            host.appendChild(d);
+        }
     }
 
     // ── 全画面オーバーレイの開閉 ──────────────────────────────────────────────
@@ -4629,7 +4842,13 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         if (e.target === document.getElementById('simulateOverlay')) simClose();
     });
 
-    simEl('simResetBtn').addEventListener('click', () => simApplySeed(SIM.seedLabel));
+    simEl('simResetBtn').addEventListener('click', simResetAll);
+    simEl('simLegendBtn').addEventListener('click', () => {
+        const lg = simEl('simLegend');
+        const open = lg.classList.toggle('open');
+        simEl('simLegendBtn').classList.toggle('on', open);
+        if (open) requestAnimationFrame(() => { simRefreshSliders(); simRenderPrediction(); });
+    });
     simEl('simExpandBtn').addEventListener('click', () => {
         const all = SIM.visible.length >= simSpecs().length;
         SIM.visible = (all ? simSpecs().slice(0, SIM_DEFAULT_SLIDERS) : simSpecs()).map(s => s.col);
