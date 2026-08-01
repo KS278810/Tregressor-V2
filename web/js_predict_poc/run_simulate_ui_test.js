@@ -1,0 +1,222 @@
+// run_simulate_ui_test.js — ③ SIMULATE（What-ifスライダー・Web版）の統合テスト。
+//
+// 生成物 web/index.html を jsdom に載せ、本物の .treg フィクスチャと
+// train_bridge.py が返す形の result JSON を流して以下を検証する:
+//   ・build_frontend.mjs が埋め込んだ推論エンジンが predict-core.js と完全一致すること
+//     （＝複製ズレが起きていないこと。ここが崩れると SIMULATE と CSV 予測が食い違う）
+//   ・スライダー表示値が predictRow の計算値と一致すること
+//   ・外挿 / x_clip 飽和 / 低精度時の抑制表示 / 変数が多い場合の展開・折りたたみ
+//   ・.treg や slider_spec が無いときに安全に無効化されること
+//
+// frontend/index.html を編集したら先に `node build_frontend.mjs` を実行すること
+// （このテストは生成物を読むため、再生成を忘れると落ちる＝運用ルール1の見張りにもなる）。
+//
+// 実行: cd web/js_predict_poc && node run_simulate_ui_test.js
+const {JSDOM}=require('jsdom');const fs=require('fs');const path=require('path');
+// 通常はこのファイルからの相対でリポジトリルートを求める。
+// TREG_ROOT を指定すると別の場所を見る(node_modules が遅い環境で、
+// ローカルディスクへ退避して実行する場合などに使う)。
+const ROOT=process.env.TREG_ROOT ? path.resolve(process.env.TREG_ROOT)
+                                 : path.resolve(__dirname,'..','..');
+const html=fs.readFileSync(path.join(ROOT,'web/index.html'),'utf8');
+const errs=[];const FAIL=[];
+const chk=(c,m)=>{console.log((c?'  OK   ':'  FAIL ')+m);if(!c)FAIL.push(m);};
+
+const dom=new JSDOM(html,{runScripts:'outside-only',pretendToBeVisual:true,url:'http://localhost/'});
+const w=dom.window;
+const noop=()=>{};const ctx2d=new Proxy({},{get:(t,k)=>{
+  if(k==='createLinearGradient')return()=>({addColorStop:noop});
+  if(k==='measureText')return()=>({width:10});
+  return typeof k==='string'?noop:undefined;},set:()=>true});
+w.HTMLCanvasElement.prototype.getContext=()=>ctx2d;
+// jsdom のバージョンによっては TextDecoder/TextEncoder が window に無い。
+// ブラウザには必ずあるものなので、テスト環境側の欠落として補う。
+if(!w.TextDecoder) w.TextDecoder=require('util').TextDecoder;
+if(!w.TextEncoder) w.TextEncoder=require('util').TextEncoder;
+Object.defineProperty(w.Element.prototype,'clientWidth',{get(){return 300;}});
+w.addEventListener('error',e=>errs.push('window.error: '+e.message));
+const code=html.match(/<script>([\s\S]*)<\/script>/)[1];
+try{w.eval(code+'\n;window.__H__={Platform:Platform,applyTrainingResult:applyTrainingResult,showTrainedTab:showTrainedTab,SIM:SIM};');}catch(e){errs.push('THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,6).join('\n'));}
+
+console.log('[0] 埋め込みエンジン');
+chk(errs.length===0,'スクリプトが例外なく実行される'); if(errs.length){console.log(errs.join('\n'));process.exit(1);}
+chk(typeof w.TregPredictCore==='object','window.TregPredictCore が公開されている');
+const core=require('./predict-core.js');
+const treg=fs.readFileSync(path.join(ROOT,'web/js_predict_poc/sample_lgbm_model.treg'));
+const bytes=new Uint8Array(treg);
+const buf=bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);
+const m1=core.loadTreg(buf),m2=w.TregPredictCore.loadTreg(buf);
+const feats=m1.feat_cols;
+let maxDiff=0;
+for(let i=0;i<50;i++){const r={},raw={};
+  feats.forEach((c,j)=>{const v=(i*7+j*13)%100/3;r[c]=v;raw[c]=String(v);});
+  maxDiff=Math.max(maxDiff,Math.abs(core.predictRow(m1,r,raw)-w.TregPredictCore.predictRow(m2,r,raw)));}
+chk(maxDiff===0,`埋め込み後も元の predict-core.js と完全一致 (最大差 ${maxDiff})`);
+
+// ── ダミーの学習結果（Python が返す形） ─────────────────────────────────────
+const N=400;let sd=42;const rnd=()=>((sd=(sd*1103515245+12345)&0x7fffffff)/0x7fffffff);
+const rows=[];for(let i=0;i<N;i++){const r={};feats.forEach((c,j)=>{r[c]=10+j*0.5+8*(rnd()-0.5);});rows.push(r);}
+const P=rows.map(r=>{const raw={};for(const k in r)raw[k]=String(r[k]);return core.predictRow(m1,r,raw);});
+const pctl=(a,q)=>{const s=[...a].sort((x,y)=>x-y);return s[Math.round((s.length-1)*q)];};
+const sliderSpec=feats.map(c=>{
+  const v=rows.map(r=>r[c]).sort((a,b)=>a-b),mn=v[0],mx=v[v.length-1],HB=28,hist=new Array(HB).fill(0);
+  v.forEach(x=>{let b=Math.floor((x-mn)/(mx-mn)*HB);if(b>=HB)b=HB-1;hist[b]++;});
+  return {col:c,kind:'numeric',importance_pct:+(100/(feats.length+1)).toFixed(2),
+    median:pctl(v,.5),p1:pctl(v,.01),p99:pctl(v,.99),min:mn,max:mx,step:(mx-mn)/300,
+    hist,hist_lo:mn,hist_hi:mx,x_clip_lo:mn,x_clip_hi:mx,is_integer:false};});
+sliderSpec.push({col:'grade',kind:'categorical',importance_pct:0.5,mode:'A',
+  levels:[{value:'A',count:250},{value:'B',count:150}],truncated:false});
+const lo=Math.min(...P),hi=Math.max(...P),nb=20,bw=(hi-lo)/nb,counts=new Array(nb).fill(0);
+P.forEach(v=>{let b=Math.floor((v-lo)/bw);if(b>=nb)b=nb-1;counts[b]++;});
+const mkSeed=(label,i)=>({label,y:P[i],
+  values:Object.fromEntries(sliderSpec.map(s=>[s.col,s.kind==='numeric'?String(rows[i][s.col]):'A']))});
+const nMean=feats.map(c=>rows.reduce((a,r)=>a+r[c],0)/N);
+const nStd=feats.map((c,j)=>Math.sqrt(rows.reduce((a,r)=>a+(r[c]-nMean[j])**2,0)/N)||1);
+const RESULT={r2:0.71,rmse:6.8,mae:5.0,target:'yield',best_model:'LightGBM',model_type:'lgbm',
+  feature_importance:feats.slice(0,10).map((c,i)=>({name:c,pct:10-i*0.5})),candidate_models:[],
+  eval_on:'val',train_rows:N,val_rows:80,preset:'quick',data_warning:'',data_warning_parts:[],
+  r2_interpretation:'good',r2_reference_only:false,export_available:true,
+  deployed_model:'LightGBM',deploy_substituted:false,cat_columns:[],cat_dropped_columns:[],
+  scatter:{true:P.slice(0,50),pred:P.slice(0,50)},y_range:[lo,hi],
+  slider_spec:sliderSpec,
+  y_hist:{bin_edges:Array.from({length:nb+1},(_,i)=>lo+bw*i),counts,n:N,
+          p10:pctl(P,.1),p50:pctl(P,.5),p90:pctl(P,.9)},
+  seed_rows:[mkSeed('low',3),mkSeed('median',10),mkSeed('high',20),mkSeed('random',33)],
+  neighbor_ref:{cols:feats,mean:nMean,std:nStd,weight:feats.map(()=>1),
+    rows:rows.slice(0,300).map(r=>feats.map((c,j)=>(r[c]-nMean[j])/nStd[j])),radius:3.5,k:10},
+  corr_pairs:[{a:feats[0],b:feats[1],r:0.85,sAB:1,iAB:0.5,sBA:1,iBA:-0.5,sdA:1.2,sdB:1.2}]};
+
+w.__TREG__=new w.Uint8Array(bytes);   // window realm 側で確保（実アプリと同じ状況にする）
+console.log('\n[1] 学習完了 → SIMULATE 起動');
+const H=w.__H__;
+H.Platform.getTregBytes=()=>w.__TREG__;
+try{ H.applyTrainingResult(RESULT); }
+catch(e){ errs.push('applyTrainingResult THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,5).join('\n')); }
+if(errs.length){console.log(errs.join('\n'));process.exit(1);}
+const d=w.document,q=s=>d.querySelectorAll(s).length,el=id=>d.getElementById(id);
+chk(el('tabPredict').style.display==='','SIMULATEタブが学習完了と同時に出る（CSV不要）');
+chk(el('tabPredict').textContent==='SIMULATE','タブ見出しが SIMULATE になる');
+chk(d.getElementById('step3Label').textContent==='SIMULATE','③の見出しが SIMULATE になる');
+H.showTrainedTab('predict');
+chk(el('simulateSection').style.display==='flex','SIMULATEセクションが表示される');
+chk(el('predictResultSection').style.display==='none','CSVプレビューは非表示（排他）');
+chk(q('.sim-row')===12,`既定12本のスライダー (実測 ${q('.sim-row')})`);
+chk(q('#simChips .sim-chip')===9,`残りは固定チップ (実測 ${q('#simChips .sim-chip')})`);
+chk(el('simTCount').textContent==='12 / 21',`本数表示 ${el('simTCount').textContent}`);
+
+console.log('\n[2] 予測値が推論エンジンと一致するか（最重要）');
+const pv=el('simPredVal').textContent;
+const seedMed=RESULT.seed_rows.find(s=>s.label==='median');
+const row={},raw={};
+sliderSpec.forEach(s=>{const v=seedMed.values[s.col];raw[s.col]=String(v);row[s.col]=Number(v);});
+const expect=core.predictRow(m1,row,raw);
+chk(Math.abs(Number(pv)-Number(expect.toFixed(1)))<0.06,
+  `基準行(MID)の表示 ${pv} が predictRow の ${expect.toFixed(4)} と一致`);
+chk(el('simPredBand').textContent==='±6.8',`誤差帯 ${el('simPredBand').textContent}`);
+
+console.log('\n[3] スライダー操作');
+// 表示値は「変わったか」ではなく「エンジンの計算値と一致するか」で検証する
+const stateOf=(over)=>{const row={},raw={};
+  sliderSpec.forEach(s=>{let v=(over&&over[s.col]!==undefined)?over[s.col]:seedMed.values[s.col];
+    raw[s.col]=String(v);row[s.col]=Number(v);});return {row,raw};};
+const r0=d.querySelector('.sim-row input[type=range]');
+const col0=d.querySelector('.sim-row').dataset.col;
+const before=el('simPredVal').textContent;
+r0.value=r0.max; r0.dispatchEvent(new w.Event('input',{bubbles:true}));
+r0.dispatchEvent(new w.Event('change',{bubbles:true}));
+{const st=stateOf({[col0]:r0.max});const ex=core.predictRow(m1,st.row,st.raw);
+ chk(Math.abs(Number(el('simPredVal').textContent)-Number(ex.toFixed(1)))<0.06,
+   `${col0} を最大へ: 表示 ${el('simPredVal').textContent} == エンジン ${ex.toFixed(4)}`);}
+chk(d.querySelector('.sim-row').classList.contains('warn'),'外挿するとamberになる');
+const tip=d.querySelector('.sim-row').title;
+const has=(ja,en)=>tip.includes(ja)||tip.includes(en);
+chk(has('学習データの外側','outside the training data'),'外挿の説明はtitleに退避されている');
+chk(has('飽和','saturate'),'飽和の説明もtitleにある');
+const flags=[...d.querySelectorAll('.sim-flag')].map(f=>f.className.replace('sim-flag ','')+':'+f.textContent);
+chk(flags.some(f=>f.startsWith('on:')),'外挿フラグが出る');
+chk(flags.some(f=>f.startsWith('stop:')),'飽和フラグが出る');
+const at=el('simPredVal').textContent;
+r0.value=String(Number(r0.max)); r0.dispatchEvent(new w.Event('change',{bubbles:true}));
+chk(el('simPredVal').textContent===at,'x_clip境界の外では予測が変化しない');
+
+console.log('\n[4] 変数が多い場合の操作');
+el('simExpandBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(q('.sim-row')===21,`全展開で全21列 (実測 ${q('.sim-row')})`);
+chk(el('simChipRow').style.display==='none','全展開すると固定行が消える');
+el('simExpandBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(q('.sim-row')===12,'折りたたむと既定12本に戻る');
+const names=()=>[...d.querySelectorAll('.sim-name')].map(e=>e.textContent);
+d.querySelector('#simChips .sim-chip').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(q('.sim-row')===13,'チップから昇格できる');
+d.querySelector('.sim-x').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(q('.sim-row')===12,'×で降格できる');
+
+console.log('\n[5] カテゴリ・基準行・連動・保存');
+const catRow=[...d.querySelectorAll('.sim-row')].find(r=>r.dataset.col==='grade');
+chk(!catRow,'重要度の低いカテゴリ列は既定では固定側');
+el('simExpandBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+const catRow2=[...d.querySelectorAll('.sim-row')].find(r=>r.dataset.col==='grade');
+chk(!!catRow2&&catRow2.querySelectorAll('.sim-pill').length===2,'カテゴリはピル表示');
+chk(catRow2.querySelector('.sim-pill.on').dataset.v==='A','初期値が選択状態');
+const pB=[...catRow2.querySelectorAll('.sim-pill')].find(p=>p.dataset.v==='B');
+pB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(catRow2.querySelector('.sim-pill.on').dataset.v==='B','ピルで切り替わる');
+chk(catRow2.querySelector('.sim-val').textContent==='','選択中の値は右端に再掲しない');
+const seedBtns=[...d.querySelectorAll('#simSeedSeg button')];
+chk(seedBtns.length===4,'基準行セグメントが4つ');
+seedBtns.find(b=>b.dataset.label==='high').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+{const sh=RESULT.seed_rows.find(x=>x.label==='high');
+ const row={},raw={};sliderSpec.forEach(s=>{const v=sh.values[s.col];raw[s.col]=String(v);row[s.col]=Number(v);});
+ const ex=core.predictRow(m1,row,raw);
+ chk(Math.abs(Number(el('simPredVal').textContent)-Number(ex.toFixed(1)))<0.06,
+   `基準行HIGHの表示 ${el('simPredVal').textContent} == エンジン ${ex.toFixed(4)}`);}
+chk(q('.sim-row')===12,'基準行の切替でスライダー本数が既定に戻る');
+el('simLinkBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(el('simLinkBtn').classList.contains('on'),'連動モードON');
+let saved=null; H.Platform.downloadFile=(b,n,m)=>{w.__SAVED__={n:n,m:m,len:b.length};};
+el('simSaveBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+saved=w.__SAVED__;
+chk(!!saved&&saved.n==='scenario.csv'&&saved.len>0,`CSV保存 (${saved&&saved.n}, ${saved&&saved.len} bytes)`);
+
+console.log('\n[6] 低精度時の抑制表示');
+const R2=JSON.parse(JSON.stringify(RESULT)); R2.r2=0.28;
+H.applyTrainingResult(R2); H.showTrainedTab('predict');
+chk(el('simRight').classList.contains('lowq'),'R²0.28で彩度を落とす');
+chk(!el('simPredVal').title.includes('上位')&&!el('simPredVal').title.includes('Top '),
+  '低精度時はパーセンタイルを出さない');
+chk(el('simPredVal').title.includes('信頼性は低い')||el('simPredVal').title.includes('unreliable'),
+  '低精度の注意文はtitleに入る');
+
+console.log('\n[7] 使えない場合のフォールバック');
+H.Platform.getTregBytes=()=>null; H.applyTrainingResult(RESULT);
+chk(el('tabPredict').style.display==='none','.treg が無ければ SIMULATE タブを出さない');
+H.Platform.getTregBytes=()=>w.__TREG__; const R3=JSON.parse(JSON.stringify(RESULT)); R3.slider_spec=[]; H.applyTrainingResult(R3);
+chk(el('tabPredict').style.display==='none','slider_spec が空でも安全に無効化');
+H.applyTrainingResult(RESULT); H.showTrainedTab('predict');
+chk(el('tabPredict').style.display===''&&q('.sim-row')===12,'正常なresultで復帰する');
+
+console.log('\n[7b] 日英切替');
+{const H2=w.__H__;const before=el('simFoot').textContent;
+ const btn=[...d.querySelectorAll('.lang-toggle-btn')].find(b=>b.dataset.lang==='en');
+ if(btn){btn.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+   chk(/desktop/i.test(el('simFoot').textContent),
+     '英語に切り替わる: '+el('simFoot').textContent);
+   const jb=[...d.querySelectorAll('.lang-toggle-btn')].find(b=>b.dataset.lang==='ja');
+   jb.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+   chk(el('simFoot').textContent.includes('デスクトップ版'),'日本語に戻る: '+el('simFoot').textContent);
+   chk(q('.sim-row')===12,'言語切替後もスライダーが維持される');}}
+
+console.log('\n[8] 画面に出る文字量');
+const shown=el('simulateSection').textContent.replace(/\s+/g,' ').trim();
+console.log('       '+JSON.stringify(shown.slice(0,150))+'...');
+console.log('       文字数 '+shown.length+' / title保持要素 '+q('#simulateSection [title]'));
+chk(q('#simulateSection [title]')>=15,'説明はtitleに退避されている');
+
+console.log('');
+if(errs.length){console.log('ERRORS:\n'+errs.join('\n'));process.exit(1);}
+if(FAIL.length){console.log(`NG: ${FAIL.length} 件失敗`);FAIL.forEach(m=>console.log('  - '+m));process.exit(1);}
+console.log('すべて成功');
+
+// jsdom の rAF ループが残るとプロセスが終了しないため、明示的に閉じて終了する
+try { dom.window.close(); } catch (_) {}
+process.exit(0);
