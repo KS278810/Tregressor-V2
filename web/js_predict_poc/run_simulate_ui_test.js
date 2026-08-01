@@ -121,17 +121,21 @@ chk([...d.querySelectorAll('.sim-row')].every(r=>r.querySelector('input[type=ran
  const rg=catRow&&catRow.querySelector('input[type=range]');
  chk(!!rg&&Number(rg.min)===0&&Number(rg.max)===1&&Number(rg.step)===1,
    `カテゴリは水準番号のスライダー (${rg&&rg.min}〜${rg&&rg.max})`);}
-chk(/\.sim-sliders \{ align-items: center;/.test(html)||/align-items: center/.test(html.slice(html.indexOf('.sim-sliders {'),html.indexOf('.sim-sliders {')+400)),
-  'スライダーは中央寄せ');
+{const blk=html.slice(html.indexOf('.sim-sliders {'),html.indexOf('.sim-sliders {')+400);
+ chk(/align-items: center/.test(html.slice(html.lastIndexOf('.sim-sliders {'),html.lastIndexOf('.sim-sliders {')+200)),
+   'スライダーは左右中央寄せ');
+ chk(/justify-content: center/.test(blk),'スライダーは上下中央寄せ');}
 chk(!d.getElementById('simDelta')&&!d.getElementById('simRingCanvas')&&!d.getElementById('simFlags'),
   '応答側はグラフと応答値だけ（差分・リング・フラグは無い）');
 chk(/\.sim-sliders \{ display: flex; flex-direction: column;/.test(html),'スライダーは縦一列');
 {// 全画面ではなく元ツールの外形に収まる大きさか（#simulatePanel の指定を見る）
  const blk=html.slice(html.indexOf('#simulatePanel {'), html.indexOf('#simulatePanel {')+400);
- const mw=blk.match(/max-width: (\d+)px/), mh=blk.match(/max-height: (\d+)px/);
- chk(/calc\(100vw - \d+px\)/.test(blk)&&/calc\(100vh - \d+px\)/.test(blk),
-   'パネルは画面いっぱいに広がる');
- chk(!!mw&&!!mh,`上限あり (${mw&&mw[1]}x${mh&&mh[1]}px)`);}
+ const mw=blk.match(/width: calc\(100vw - (\d+)px\)/), mh=blk.match(/height: calc\(100vh - (\d+)px\)/);
+ // 元ツール本体は body の padding(22px 22px 14px)の内側。同じ枠に収まっているか。
+ const bodyPad=html.match(/body \{[^}]*padding: (\d+)px (\d+)px (\d+)px/s);
+ const want=bodyPad?Number(bodyPad[2])*2:44, wantH=bodyPad?Number(bodyPad[1])+Number(bodyPad[3]):36;
+ chk(!!mw&&Number(mw[1])===want&&!!mh&&Number(mh[1])===wantH,
+   `パネルが元ツールと同じ枠 (100vw-${mw&&mw[1]} x 100vh-${mh&&mh[1]})`);}
 
 console.log('\n[2] 予測値が推論エンジンと一致するか（最重要）');
 const pv=el('simPredVal').textContent;
@@ -157,6 +161,10 @@ r0.dispatchEvent(new w.Event('change',{bubbles:true}));
  chk(Math.abs(Number(el('simPredVal').textContent)-Number(ex.toFixed(1)))<0.06,
    `${col0} を上限へ: 表示 ${el('simPredVal').textContent} == エンジン ${ex.toFixed(4)}`);}
 chk(d.querySelector('.sim-row').classList.contains('changed'),'動かした変数に印が付く');
+chk(!d.querySelector('.sim-row.warn'),'上下限まで動かしてもオレンジにはならない');
+{const sp0b=sliderSpec.find(x=>x.col===col0);
+ chk(Math.abs(Number(r0.min)-sp0b.min)<1e-9&&Math.abs(Number(r0.max)-sp0b.max)<1e-9,
+   '可動域は常に変数の上下限');}
 d.querySelector('.sim-row .sim-name').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(q('.sim-row.changed')===0,'列名クリックでその変数だけ元に戻る');
 
@@ -302,6 +310,12 @@ function finish(){
 console.log('\n[10] ワークフロー側の表示');
 chk(!d.getElementById('deployHint'),'④のヒント表示は無い');
 chk(!/no network/i.test(html)&&!/ネットワーク不要/.test(html),'NO NETWORK 表示は無い');
+// ロボのgifは3〜4MBある。切り替えのたびに取り直すと枠が空になる（ロボが消える）
+chk(!/\.gif\?t=|gif\}\?t=\$\{Date/.test(html),'ロボのgifにキャッシュバスターを付けていない');
+chk(/_preloadRobotGifs/.test(html),'ロボのgifを起動時にプリロードしている');
+{const imgs=d.querySelectorAll('#charBox img');
+ chk(imgs.length>=3,`gifを<img>として保持している (${imgs.length}枚)`);
+ chk([...imgs].every(i=>!/\?t=/.test(i.getAttribute('src')||'')),'srcにクエリが付いていない');}
 
 console.log('\n[8] 画面に出る文字量');
 const shown=el('simulateSection').textContent.replace(/\s+/g,' ').trim();

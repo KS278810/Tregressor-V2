@@ -627,10 +627,11 @@
         #simulateOverlay {
             position: fixed; inset: 0; z-index: 60;
             background: rgba(4, 6, 12, 0.82); backdrop-filter: blur(3px);
-            display: flex; align-items: center; justify-content: center; padding: 20px;
+            display: flex; align-items: center; justify-content: center; padding: 22px 22px 14px;
         }
         #simulatePanel {
-            width: calc(100vw - 40px); height: calc(100vh - 40px); max-width: 1680px; max-height: 1000px;
+            /* 元ツールの画面(body の padding 22px/22px/14px の内側)と同じ枠に収める */
+            width: calc(100vw - 44px); height: calc(100vh - 36px);
             background: #080d18; border: 1px solid rgba(63,196,236,0.22);
             border-radius: 10px; box-shadow: 0 24px 70px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4);
             display: flex; flex-direction: column; overflow: hidden;
@@ -658,7 +659,7 @@
         .sim-left { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         /* スライダーは縦一列に並べる。多い場合はここだけがスクロールする。 */
         .sim-sliders { display: flex; flex-direction: column; flex: 1; min-height: 0;
-                       overflow-y: auto; padding-right: 6px; }
+                       overflow-y: auto; padding-right: 6px; justify-content: center; }
         .sim-sliders::-webkit-scrollbar { width: 6px; }
         .sim-sliders::-webkit-scrollbar-thumb { background: rgba(160,190,220,0.2); border-radius: 3px; }
         .sim-toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; }
@@ -771,7 +772,8 @@
         /* 右ペイン: 左をスクロールしても予測が視界から外れないよう sticky */
         .sim-right {
             padding: 2px 2px 10px 14px; border-left: 1px solid var(--hairline);
-            display: flex; flex-direction: column; justify-content: center; transition: filter 0.25s;
+            display: flex; flex-direction: column; justify-content: center;
+            min-height: 0; overflow-y: auto; transition: filter 0.25s;
         }
         .sim-right.lowq { filter: saturate(0.35); }
         .sim-ptag {
@@ -2859,11 +2861,49 @@
     // `?t=${Date.now()}`付きの新しい<img>を作り直しており、同じgifへ何度も遷移する
     // 局面(例: ログの度に「学習中...」を連呼)でチラつき+無駄な再フェッチが発生していた。
     // gifが実際に変わった時だけ<img>を差し替え、キャッシュバスターもその時だけ付与する。
+    // ロボのgifは1本3〜4MBある。以前は切り替えのたびに `?t=${Date.now()}` 付きの
+    // 新しいURLで<img>を作り直していたため、毎回3.5MBを取り直すことになり、
+    // ダウンロードが終わるまで枠が空になる＝「TRAINを押すとロボが消える」現象に
+    // なっていた（回線とキャッシュ状況によっては数秒〜十数秒）。
+    // 対策: キャッシュバスターをやめ、gifごとに<img>を1つだけ作って保持し、
+    // 切り替えは表示/非表示だけで行う。さらに新しいgifの読み込みが終わるまでは
+    // 前のgifを出したままにして、どの瞬間も枠が空にならないようにする。
     let _lastRobotGif = null;
+    const _robotImgs = {};
     function _setRobotGif(gif) {
         if (gif === _lastRobotGif) return;
-        charBox.innerHTML = `<img src="${gif}?t=${Date.now()}">`;
+        let img = _robotImgs[gif];
+        if (!img) {
+            img = document.createElement('img');
+            img.alt = '';
+            img.style.display = 'none';
+            _robotImgs[gif] = img;
+            charBox.appendChild(img);
+            img.src = gif;                       // キャッシュバスターは付けない
+        }
+        const show = () => {
+            for (const k in _robotImgs) _robotImgs[k].style.display = (k === gif) ? '' : 'none';
+        };
+        if (img.complete && img.naturalWidth > 0) show();
+        else {
+            // 読み込みが終わるまで前のgifを出したままにする
+            img.addEventListener('load', () => { if (_lastRobotGif === gif) show(); }, { once: true });
+            img.addEventListener('error', () => { if (_lastRobotGif === gif) show(); }, { once: true });
+        }
         _lastRobotGif = gif;
+        _preloadRobotGifs();      // 残りのgifも裏で取得しておく
+    }
+    // 使う可能性のあるgifを先に取得しておき、切り替えた瞬間に枠が空にならないようにする
+    let _robotPreloaded = false;
+    function _preloadRobotGifs() {
+        if (_robotPreloaded) return;
+        _robotPreloaded = true;
+        for (const g of [gifOk, gifTraining, gifCompleted]) {
+            if (_robotImgs[g]) continue;
+            const im = document.createElement('img');
+            im.alt = ''; im.style.display = 'none';
+            _robotImgs[g] = im; charBox.appendChild(im); im.src = g;
+        }
     }
 
     function setRobot(gif, text, glowColor, showSampleBtn) {
@@ -3580,7 +3620,9 @@
     const simSmooth3 = (a) => a.map((v, i) => (a[Math.max(0, i - 1)] + v + a[Math.min(a.length - 1, i + 1)]) / 3);
     // スライダーは学習データの上下限の内側だけで動かす（外側へは出せない）
     const simRange = (s) => [s.min, s.max];
-    const simIsExtrap = (s, v) => (s.p1 != null && v < s.p1) || (s.p99 != null && v > s.p99);
+    // スライダーの可動域は常に変数の上下限そのもの。その内側で色を変えても
+    // 「動かせるのに警告される」だけで意味がないため、外挿の色分けは行わない。
+    const simIsExtrap = () => false;
     const simAtClip = (s, v) => s.x_clip_lo != null && (v <= s.x_clip_lo || v >= s.x_clip_hi);
     const simSpecs = () => SIM.spec;
     // カテゴリはスライダー上で「水準の番号」として扱う（連続的に動かせるようにするため）
