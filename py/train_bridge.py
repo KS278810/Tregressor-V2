@@ -1213,7 +1213,7 @@ def _try_linear(df_train, df_val, target_col, model_dir, y_transform='none', y_p
             feat_list = sorted(
                 [{"name": feat_cols[i], "pct": round(float(coefs[i] / total * 100), 1)}
                  for i in range(len(feat_cols))],
-                key=lambda x: x["pct"], reverse=True)[:10]
+                key=lambda x: x["pct"], reverse=True)
 
             med_dict = {c: float(medians_full[c]) if not np.isnan(float(medians_full[c])) else 0.0
                         for c in feat_cols}
@@ -1281,7 +1281,7 @@ def _try_linear(df_train, df_val, target_col, model_dir, y_transform='none', y_p
             feat_list = sorted(
                 [{"name": str(feat_names[i]), "pct": round(float(coefs[i] / total * 100), 1)}
                  for i in range(len(feat_names))],
-                key=lambda x: x["pct"], reverse=True)[:10]
+                key=lambda x: x["pct"], reverse=True)
 
             med_dict = {c: float(med_top[c]) if not np.isnan(float(med_top[c])) else 0.0
                         for c in top_feats}
@@ -1331,7 +1331,7 @@ def _try_linear(df_train, df_val, target_col, model_dir, y_transform='none', y_p
             feat_list = sorted(
                 [{"name": str(feat_names[i]), "pct": round(float(coefs[i] / total * 100), 1)}
                  for i in range(len(feat_names))],
-                key=lambda x: x["pct"], reverse=True)[:10]
+                key=lambda x: x["pct"], reverse=True)
 
             med_dict = {c: float(medians[c]) if not np.isnan(float(medians[c])) else 0.0
                         for c in top_feats}
@@ -1370,7 +1370,7 @@ def _try_linear(df_train, df_val, target_col, model_dir, y_transform='none', y_p
         feat_list = sorted(
             [{"name": feat_cols[i], "pct": round(float(coefs[i] / total * 100), 1)}
              for i in range(len(feat_cols))],
-            key=lambda x: x["pct"], reverse=True)[:10]
+            key=lambda x: x["pct"], reverse=True)
 
         med_dict = {c: float(medians[c]) if not np.isnan(float(medians[c])) else 0.0
                     for c in feat_cols}
@@ -1553,7 +1553,7 @@ def _try_lgbm_steps(df_train, df_val, target_col, model_dir, use_grid=False, use
             feat_list = sorted(
                 [{"name": feat_cols[i], "pct": round(float(imps[i] / total * 100), 1)}
                  for i in range(len(feat_cols))],
-                key=lambda x: x["pct"], reverse=True)[:10]
+                key=lambda x: x["pct"], reverse=True)
             info = {"eval_kind": "oof", "used_cols": feat_cols, "medians": med_dict, "exportable": True,
                     "train_r2": round(train_r2, 4),
                     "bag_n_folds": bag_n_folds if bag_n_folds >= 2 else None,
@@ -1598,7 +1598,7 @@ def _try_lgbm_steps(df_train, df_val, target_col, model_dir, use_grid=False, use
         feat_list = sorted(
             [{"name": feat_cols[i], "pct": round(float(imps[i] / total * 100), 1)}
              for i in range(len(feat_cols))],
-            key=lambda x: x["pct"], reverse=True)[:10]
+            key=lambda x: x["pct"], reverse=True)
 
         model.save_model(os.path.join(model_dir, "lgbm_model.txt"))
         med_dict = {c: (float(medians[c]) if not np.isnan(float(medians[c])) else 0.0)
@@ -1672,7 +1672,7 @@ def _gp_feature_importance(gp, ls_opt, feat_cols, n_features):
     return sorted(
         [{"name": feat_cols[i], "pct": round(float(importance[i]) * 100, 1)}
          for i in range(n_features)],
-        key=lambda x: x["pct"], reverse=True)[:10]
+        key=lambda x: x["pct"], reverse=True)
 
 
 def _try_gp_steps(df_train, df_val, target_col, model_dir, use_grid=False, use_oof=False,
@@ -1869,7 +1869,7 @@ def _mlp_feature_importance(pipeline, eval_df, feat_cols, target_col, y_transfor
         [{"name": feat_cols[i],
           "pct": round(float(imps[i]) / pos_total * 100, 1) if imps[i] > 0 else 0.0}
          for i in range(len(feat_cols))],
-        key=lambda x: x["pct"], reverse=True)[:10]
+        key=lambda x: x["pct"], reverse=True)
 
 
 def _try_mlp_steps(df_train, df_val, target_col, model_dir, use_grid=False, use_oof=False,
@@ -2138,7 +2138,7 @@ def _try_sktree(kind, df_train, target_col, model_dir,
         feat_list = sorted(
             [{"name": feat_cols[i], "pct": round(float(imps[i] / total * 100), 1)}
              for i in range(len(feat_cols))],
-            key=lambda x: x["pct"], reverse=True)[:10]
+            key=lambda x: x["pct"], reverse=True)
 
         # LGBM-RF/XT はテキストモデル形式がLightGBMネイティブと同一のため .treg 書き出し可能
         # (_load_export_source が 'lgbm' にエイリアスして _parse_lgbm_to_treg_bytes を再利用)
@@ -2230,7 +2230,7 @@ def _fit_blend_oof(candidates, y_full):
     total_imp = sum(combined_imp.values())
     feat_list = sorted(
         [{"name": k, "pct": round(v / total_imp * 100, 1)} for k, v in combined_imp.items()],
-        key=lambda x: x["pct"], reverse=True)[:10] if total_imp > 0 else []
+        key=lambda x: x["pct"], reverse=True) if total_imp > 0 else []
 
     return blend_r2, names, weights, blend_oof, feat_list
 
@@ -2744,6 +2744,316 @@ def _export_treg_lgbm_bag(model_dir, target_col, feat_cols, medians, n_folds,
         return False
 
 
+# ═══════════ ③ SIMULATE(What-if スライダー)用の UI データ ═══════════
+# 設計: docs/interactive-predict-design.md
+#
+# ここで作るのは「学習結果 JSON に足すフィールド」だけで、.treg バイナリ形式には
+# 一切触れない。したがって CLAUDE.md ルール3(4点セット同時変更)/ルール7(3実装
+# パリティ)は発動しない。フロント側は既存の predict-core.js(検証済み)に
+# 1行ずつ渡して予測するだけで、推論ロジックの複製は増えない。
+
+SIM_MAX_LEVELS     = 30    # カテゴリ列のピル上限(超えたら頻度上位のみ + truncated=True)
+SIM_TRACK_BINS     = 28    # スライダートラックの密度カーブ用ビン数
+SIM_MAX_YHIST_BINS = 40
+SIM_MIN_YHIST_BINS = 10
+SIM_NEIGHBOR_ROWS  = 300   # 近傍判定に載せる学習行サンプルの上限
+SIM_NEIGHBOR_K     = 10    # 「k番目に近い行までの距離」の k
+SIM_NEIGHBOR_PROBE = 120   # 半径推定に使う行数(全ペアを計算しないための上限)
+SIM_CORR_MIN       = 0.7
+SIM_MAX_CORR_PAIRS = 20
+
+
+def _sim_round_sig1(v):
+    """スライダー step 用に有効数字1桁へ丸める。0や非有限は安全な既定値に落とす。"""
+    v = float(v)
+    if not np.isfinite(v) or v <= 0:
+        return 1.0
+    e = math.floor(math.log10(v))
+    return float(round(v / (10 ** e)) * (10 ** e)) or float(10 ** e)
+
+
+def _sim_aggregate_importance(feat_list_full, raw_cols, cat_onehot_specs,
+                              cat_datetime_specs, numkey_col_name,
+                              numkey_source_cols, derived_recipe):
+    """engineered な特徴量重要度を「生CSV列」へ集約する。
+
+    feature_importance の name は one-hot(`col=value`)・target encoding・
+    datetime_parts・派生(`a*b` / `a^2` / `sign(a)`)・poly(`a b` / `a^2`)が混在しており、
+    そのままではスライダー(=生列)の並び順にも近傍距離の重みにも使えない。
+    由来をたどって生列へ配分し、合計100%に正規化して返す。
+    集約は「上位10件に切る前の全量」に対して行う(切ってから集約すると寄与が欠ける)。
+    """
+    raw_set = set(raw_cols)
+    src_of = {}
+    for s in (cat_onehot_specs or []):
+        src_of[s["feature_name"]] = [s["source_col"]]
+    for s in (cat_datetime_specs or []):
+        src_of[s["feature_name"]] = [s["source_col"]]
+    for r in (derived_recipe or []):
+        src_of[r["name"]] = list(r.get("cols") or [])
+    if numkey_col_name:
+        src_of[numkey_col_name] = list(numkey_source_cols or [])
+
+    def resolve(name, depth=0):
+        if depth > 4 or not name:
+            return []
+        # 生列そのもの(target encoding は列名を変えずに数値化されるためここで一致する)
+        if name in raw_set:
+            return [name]
+        if name in src_of:
+            out = []
+            for c in src_of[name]:
+                out.extend(resolve(c, depth + 1))
+            return out
+        # poly / 派生の二乗表記
+        if name.endswith("^2"):
+            return resolve(name[:-2], depth + 1)
+        # poly の交互作用は空白区切り。列名自体に空白を含む場合は上の raw_set 判定で
+        # 先に拾えているため、ここへ来るのは分解して良いケースだけ。
+        if " " in name:
+            parts = [resolve(p, depth + 1) for p in name.split(" ") if p]
+            if parts and all(parts):
+                out = []
+                for p in parts:
+                    out.extend(p)
+                return out
+        return []
+
+    acc = {}
+    for item in (feat_list_full or []):
+        srcs = resolve(str(item.get("name", "")))
+        if not srcs:
+            continue
+        pct = float(item.get("pct") or 0.0)
+        if pct <= 0:
+            continue
+        share = pct / len(srcs)
+        for c in srcs:
+            acc[c] = acc.get(c, 0.0) + share
+    total = sum(acc.values())
+    if total <= 0:
+        return {}
+    return {c: v / total * 100.0 for c, v in acc.items()}
+
+
+def _sim_build_slider_spec(df_raw, used_raw_cols, raw_imp, x_clip_bounds):
+    """生CSV列1本 = スライダー1本の仕様を作る(重要度降順)。"""
+    spec = []
+    x_clip_bounds = x_clip_bounds or {}
+    for col in used_raw_cols:
+        if col not in df_raw.columns:
+            continue
+        s = df_raw[col]
+        imp = round(float(raw_imp.get(col, 0.0)), 2)
+        is_num = (pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s))
+        if is_num:
+            v = pd.to_numeric(s, errors='coerce').values.astype(float)
+            v = v[np.isfinite(v)]
+            if v.size == 0:
+                continue
+            mn, mx = float(v.min()), float(v.max())
+            if not (mx > mn):
+                # 定数列は本来ここへ来ないが、来ても壊れないよう最小幅を与える
+                mx = mn + max(abs(mn) * 1e-6, 1e-6)
+            p1, p50, p99 = (float(x) for x in np.percentile(v, [1, 50, 99]))
+            hist, _ = np.histogram(v, bins=SIM_TRACK_BINS, range=(mn, mx))
+            is_int = bool(np.all(np.mod(v, 1.0) == 0.0))
+            step = 1.0 if is_int else _sim_round_sig1((mx - mn) / 300.0)
+            clip = x_clip_bounds.get(col)
+            spec.append({
+                "col": col, "kind": "numeric", "importance_pct": imp,
+                "median": round(p50, 6), "p1": round(p1, 6), "p99": round(p99, 6),
+                "min": round(mn, 6), "max": round(mx, 6), "step": step,
+                "hist": [int(h) for h in hist],
+                "hist_lo": round(mn, 6), "hist_hi": round(mx, 6),
+                # .treg の x_clip は「生列と1:1で対応する特徴量」の場合だけ載せる。
+                # 派生・エンコード経由の境界を生列の目盛りとして見せるのは誤りなので出さない。
+                "x_clip_lo": round(float(clip[0]), 6) if clip else None,
+                "x_clip_hi": round(float(clip[1]), 6) if clip else None,
+                "is_integer": is_int,
+            })
+        else:
+            txt = s.where(s.notna(), CAT_NAN_SENTINEL).astype(str)
+            vc = txt.value_counts()
+            if vc.empty:
+                continue
+            levels = [{"value": str(k), "count": int(n)} for k, n in vc.items()]
+            spec.append({
+                "col": col, "kind": "categorical", "importance_pct": imp,
+                "mode": levels[0]["value"],
+                "levels": levels[:SIM_MAX_LEVELS],
+                "truncated": bool(len(levels) > SIM_MAX_LEVELS),
+            })
+    spec.sort(key=lambda d: d["importance_pct"], reverse=True)
+    return spec
+
+
+def _sim_build_y_hist(y_all):
+    """ターゲットの分布。scatter.true は250点サブサンプル+評価行のみのため使えない。"""
+    y = np.asarray(y_all, dtype=float)
+    y = y[np.isfinite(y)]
+    if y.size == 0:
+        return None
+    lo, hi = float(y.min()), float(y.max())
+    if not (hi > lo):
+        hi = lo + max(abs(lo) * 1e-6, 1e-6)
+    q1, q3 = (float(x) for x in np.percentile(y, [25, 75]))
+    bw = 2.0 * (q3 - q1) / (y.size ** (1.0 / 3.0)) if y.size > 0 else 0.0   # Freedman–Diaconis
+    if bw > 0:
+        nb = int(min(SIM_MAX_YHIST_BINS, max(SIM_MIN_YHIST_BINS, math.ceil((hi - lo) / bw))))
+    else:
+        nb = 20
+    counts, edges = np.histogram(y, bins=nb, range=(lo, hi))
+    p10, p50, p90 = (float(x) for x in np.percentile(y, [10, 50, 90]))
+    return {"bin_edges": [round(float(e), 6) for e in edges],
+            "counts": [int(c) for c in counts], "n": int(y.size),
+            "p10": round(p10, 6), "p50": round(p50, 6), "p90": round(p90, 6)}
+
+
+def _sim_build_seed_rows(df_raw, target_col, spec_cols):
+    """スライダーの出発点にする「実在する行」。全列中央値の合成行は、相関のある
+    データでは実在しない組み合わせになりうるため使わない。"""
+    if target_col not in df_raw.columns or len(df_raw) == 0:
+        return []
+    y = pd.to_numeric(df_raw[target_col], errors='coerce').values.astype(float)
+    ok = np.where(np.isfinite(y))[0]
+    if ok.size == 0:
+        return []
+    order = ok[np.argsort(y[ok], kind='stable')]
+
+    def at(q):
+        return int(order[int(round((order.size - 1) * q))])
+
+    rng = np.random.RandomState(42)
+    picks = [("low", at(0.10)), ("median", at(0.50)), ("high", at(0.90)),
+             ("random", int(order[rng.randint(order.size)]))]
+    out = []
+    for label, i in picks:
+        row = df_raw.iloc[i]
+        vals = {}
+        for c in spec_cols:
+            if c not in df_raw.columns:
+                continue
+            v = row[c]
+            # predictRow の rawRow は「CSVの生文字列」を受けるため文字列で渡す
+            vals[c] = CAT_NAN_SENTINEL if pd.isna(v) else str(v)
+        out.append({"label": label, "y": round(float(y[i]), 6), "values": vals})
+    return out
+
+
+def _sim_build_neighbor_ref(df_raw, numeric_cols, raw_imp):
+    """近傍件数ゲージ用の参照データ。
+
+    重要度による次元の重み付けが必須(モック実測): 素朴なユークリッド距離だと
+    数値列が数十本あるデータで「実在する学習行ですら近傍0件」になる(次元の呪い。
+    無関係な列のノイズが距離を支配する)。
+    半径は「各行からk番目に近い行までの重み付き距離」の中位数とする。この定義なら
+    実在行は概ねk件前後の近傍を持ち、非現実的な組み合わせは0件になり、かつ
+    次元数に依存しない。
+    """
+    cols = [c for c in numeric_cols if c in df_raw.columns]
+    if not cols or len(df_raw) < 2:
+        return None
+    X = df_raw[cols].apply(pd.to_numeric, errors='coerce').values.astype(float)
+    keep = np.isfinite(X).all(axis=1)
+    X = X[keep]
+    if X.shape[0] < 2:
+        return None
+    mean = X.mean(axis=0)
+    std = X.std(axis=0)
+    std[std < 1e-12] = 1.0
+    Z = (X - mean) / std
+    if Z.shape[0] > SIM_NEIGHBOR_ROWS:
+        step = int(math.ceil(Z.shape[0] / SIM_NEIGHBOR_ROWS))
+        Z = Z[::step]
+    w_raw = np.array([max(float(raw_imp.get(c, 0.0)), 0.01) for c in cols], dtype=float)
+    weight = w_raw / w_raw.sum() * len(cols)     # 平均1に正規化
+
+    probe = Z[:min(SIM_NEIGHBOR_PROBE, Z.shape[0])]
+    d2 = ((probe[:, None, :] - Z[None, :, :]) ** 2 * weight).sum(axis=2)
+    d = np.sqrt(np.maximum(d2, 0.0))
+    d.sort(axis=1)
+    kth = min(SIM_NEIGHBOR_K, d.shape[1] - 1)
+    radius = float(np.median(d[:, kth])) if kth >= 1 else float(np.median(d[:, -1]))
+    if not np.isfinite(radius) or radius <= 0:
+        radius = 1.0
+    return {"cols": cols,
+            "mean": [round(float(v), 6) for v in mean],
+            "std": [round(float(v), 6) for v in std],
+            "weight": [round(float(v), 4) for v in weight],
+            "rows": [[round(float(v), 4) for v in r] for r in Z],
+            "radius": round(radius, 4), "k": SIM_NEIGHBOR_K}
+
+
+def _sim_build_corr_pairs(df_raw, numeric_cols):
+    """強相関ペア。連動モードとゴースト表示(相関相手が示す「あるべき値」)に使う。"""
+    cols = [c for c in numeric_cols if c in df_raw.columns]
+    if len(cols) < 2:
+        return []
+    X = df_raw[cols].apply(pd.to_numeric, errors='coerce').values.astype(float)
+    keep = np.isfinite(X).all(axis=1)
+    X = X[keep]
+    if X.shape[0] < 3:
+        return []
+    mean = X.mean(axis=0)
+    Xc = X - mean
+    var = (Xc ** 2).mean(axis=0)
+    sd = np.sqrt(np.maximum(var, 0.0))
+    out = []
+    for i in range(len(cols)):
+        if sd[i] < 1e-12:
+            continue
+        for j in range(i + 1, len(cols)):
+            if sd[j] < 1e-12:
+                continue
+            cov = float((Xc[:, i] * Xc[:, j]).mean())
+            r = cov / (sd[i] * sd[j])
+            if not np.isfinite(r) or abs(r) < SIM_CORR_MIN:
+                continue
+            s_ab = cov / max(var[i], 1e-12)          # b ≈ s_ab * a + i_ab
+            i_ab = float(mean[j] - s_ab * mean[i])
+            s_ba = cov / max(var[j], 1e-12)          # a ≈ s_ba * b + i_ba
+            i_ba = float(mean[i] - s_ba * mean[j])
+            sd_b = float(np.sqrt(np.mean((X[:, j] - (s_ab * X[:, i] + i_ab)) ** 2)))
+            sd_a = float(np.sqrt(np.mean((X[:, i] - (s_ba * X[:, j] + i_ba)) ** 2)))
+            out.append({"a": cols[i], "b": cols[j], "r": round(float(r), 3),
+                        "sAB": round(float(s_ab), 6), "iAB": round(i_ab, 6),
+                        "sBA": round(float(s_ba), 6), "iBA": round(i_ba, 6),
+                        "sdA": round(sd_a, 6), "sdB": round(sd_b, 6)})
+    out.sort(key=lambda d: abs(d["r"]), reverse=True)
+    return out[:SIM_MAX_CORR_PAIRS]
+
+
+def _sim_used_raw_columns(df_raw, target_col, feat_cols_all, cat_onehot_specs,
+                          cat_target_cols, cat_datetime_specs, cat_dropped_cols,
+                          numkey_col_name, numkey_source_cols):
+    """モデルが実際に使っている生CSV列を洗い出す。
+    除外: ターゲット / 高カーディナリティで捨てた列 / 定数・重複で落ちた列 /
+          合成キーのような内部生成列。"""
+    feat_set = set(feat_cols_all or [])
+    used = set()
+    for c in feat_set:
+        if c in df_raw.columns:
+            used.add(c)                                  # 数値そのまま / target encoding 済み
+    for s in (cat_onehot_specs or []):
+        if s["feature_name"] in feat_set:
+            used.add(s["source_col"])
+    for s in (cat_datetime_specs or []):
+        if s["feature_name"] in feat_set:
+            used.add(s["source_col"])
+    for c in (cat_target_cols or []):
+        if c == numkey_col_name:
+            for sc in (numkey_source_cols or []):
+                used.add(sc)
+        elif c in df_raw.columns:
+            used.add(c)
+    used.discard(target_col)
+    for c in (cat_dropped_cols or []):
+        used.discard(c)
+    used.discard(numkey_col_name)
+    return [c for c in df_raw.columns if c in used]       # CSVの列順を保つ
+
+
 # ─── main ──────────────────────────────────────────────────────────────────────
 
 async def _run_main():
@@ -2790,6 +3100,13 @@ async def _run_main():
         n_before_instant_sample = len(df)
         df = df.sample(n=INSTANT_MAX_TRAIN_ROWS, random_state=INSTANT_SAMPLE_SEED).reset_index(drop=True)
         print(f"[Python] 瞬速モード: 学習行数を {n_before_instant_sample} → {INSTANT_MAX_TRAIN_ROWS} にサブサンプル", flush=True)
+
+    # ③ SIMULATE(What-ifスライダー)用に、カテゴリエンコード前の「生のまま」の
+    # データフレームを保持しておく。スライダーは engineered feature ではなく
+    # 生CSV列に対して並べるため、one-hot/target-encoding/datetime分解を適用する前の
+    # 値分布・カテゴリ水準が必要になる(設計: docs/interactive-predict-design.md §3)。
+    # ターゲット解決・instantサブサンプルの後なので、以降の df と行集合は一致する。
+    df_ui_raw = df.copy()
 
     df, cat_onehot_specs, cat_target_cols, cat_dropped_cols, cat_datetime_specs = _prepare_categoricals(df, target_column)
     if cat_onehot_specs or cat_target_cols or cat_datetime_specs:
@@ -3260,6 +3577,33 @@ async def _run_main():
         data_warning = (data_warning + " " + cw) if data_warning else cw
         data_warning_parts.append({"key": "cat_cols_dropped", "params": {"cols": cat_dropped_cols}})
 
+    # ── ③ SIMULATE 用データ（設計: docs/interactive-predict-design.md §3） ──────
+    #    ここで失敗しても学習結果そのものは無傷なので、例外は握りつぶして
+    #    「SIMULATEタブが出ないだけ」に留める(学習が落ちる方が損失が大きい)。
+    sim_slider_spec, sim_y_hist, sim_seed_rows = [], None, []
+    sim_neighbor_ref, sim_corr_pairs = None, []
+    try:
+        sim_used_cols = _sim_used_raw_columns(
+            df_ui_raw, target_column, feat_cols_all, cat_onehot_specs, cat_target_cols,
+            cat_datetime_specs, cat_dropped_cols, numkey_col_name, numkey_source_cols)
+        sim_raw_imp = _sim_aggregate_importance(
+            feat_list, sim_used_cols, cat_onehot_specs, cat_datetime_specs,
+            numkey_col_name, numkey_source_cols, derived_recipe)
+        sim_slider_spec = _sim_build_slider_spec(
+            df_ui_raw, sim_used_cols, sim_raw_imp, x_clip_bounds)
+        sim_spec_cols = [d["col"] for d in sim_slider_spec]
+        sim_num_cols = [d["col"] for d in sim_slider_spec if d["kind"] == "numeric"]
+        sim_y_hist = _sim_build_y_hist(y_raw_all)
+        sim_seed_rows = _sim_build_seed_rows(df_ui_raw, target_column, sim_spec_cols)
+        sim_neighbor_ref = _sim_build_neighbor_ref(df_ui_raw, sim_num_cols, sim_raw_imp)
+        sim_corr_pairs = _sim_build_corr_pairs(df_ui_raw, sim_num_cols)
+        print(f"[Simulate] スライダー {len(sim_slider_spec)} 列 / "
+              f"相関ペア {len(sim_corr_pairs)} 件", flush=True)
+    except Exception as e:
+        print(f"[Simulate] UIデータの生成に失敗（SIMULATEは無効化）: {e}", flush=True)
+        sim_slider_spec, sim_y_hist, sim_seed_rows = [], None, []
+        sim_neighbor_ref, sim_corr_pairs = None, []
+
     result = {
         "r2":                 r2_report,
         "r2_raw":             r2_raw,
@@ -3267,7 +3611,14 @@ async def _run_main():
         "mae":                round(mae_val, 4) if mae_val is not None else None,
         "best_model":         best_name,
         "model_type":         model_type,
-        "feature_importance": feat_list,
+        # 表示は従来どおり上位10件（集約前の全量は SIMULATE の重要度集約にのみ使う）
+        "feature_importance": (feat_list or [])[:10],
+        # ③ SIMULATE（What-ifスライダー）用。Web版のみが使い、exe版は参照しない。
+        "slider_spec":        sim_slider_spec,
+        "y_hist":             sim_y_hist,
+        "seed_rows":          sim_seed_rows,
+        "neighbor_ref":       sim_neighbor_ref,
+        "corr_pairs":         sim_corr_pairs,
         "eval_on":            eval_on_str,
         "train_rows":         len(df_train),
         "val_rows":           eval_rows,
