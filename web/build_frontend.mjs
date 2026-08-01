@@ -24,13 +24,47 @@ const GENERATED_NOTICE =
   "     生成元: frontend/index.html (exe版と共通のフロントエンド)\n" +
   "     生成コマンド: cd web && node build_frontend.mjs -->\n";
 
+// ③ SIMULATE(What-ifスライダー)は Web版だけの機能で、学習直後に手元にある .treg を
+// JS推論エンジンに渡して1行予測をリアルタイムに回す。エンジンは既にパリティ検証済みの
+// js_predict_poc/predict-core.js があるため、**それを1行も変更せずそのまま埋め込む**
+// (predict_template.html のように内容を書き写すと5個目の複製になり、CLAUDE.mdルール7の
+//  管理対象が増えてしまう)。frontend/index.html 側にはプレースホルダだけを置き、
+// ここで機械的に差し込む＝「配布形態ごとに機械的に決まる差分」の範疇に収める。
+const PREDICT_CORE_PLACEHOLDER = "/* __PREDICT_CORE_INLINE__ */";
+
+function loadPredictCore() {
+  const p = path.join(WEB_DIR, "js_predict_poc", "predict-core.js");
+  if (!fs.existsSync(p)) {
+    throw new Error(`predict-core.js が見つかりません: ${p}`);
+  }
+  let src = fs.readFileSync(p, "utf-8");
+  // Node向けの CommonJS エクスポートだけをブラウザ用のグローバル公開に読み替える。
+  // (ロジック部分には一切触れない。差し替えるのはこの1行のみ)
+  const exportRe = /module\.exports\s*=\s*\{[^}]*\};?/;
+  if (!exportRe.test(src)) {
+    throw new Error("predict-core.js の module.exports が見つかりません（想定外の形式）");
+  }
+  src = src.replace(exportRe,
+    "window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };");
+  return "// ─── 埋め込み: web/js_predict_poc/predict-core.js（自動挿入・編集禁止） ───\n"
+       + "(function(){\n" + src + "\n})();";
+}
+
 function loadSource() {
   let html = fs.readFileSync(SRC, "utf-8");
   // exe版は Tauri の treg:// カスタムスキーム経由で reference/ 配下の画像を配信する。
   // Web版は静的ファイルとして assets/ 配下から配信するため、パスだけ置換する。
   const refCount = (html.match(/reference\//g) || []).length;
   html = html.replaceAll("reference/", "assets/");
-  return { html, refCount };
+
+  if (!html.includes(PREDICT_CORE_PLACEHOLDER)) {
+    throw new Error(
+      `${PREDICT_CORE_PLACEHOLDER} が frontend/index.html に見つかりません。` +
+      "SIMULATE の推論エンジン挿入位置が失われています。");
+  }
+  const core = loadPredictCore();
+  html = html.replace(PREDICT_CORE_PLACEHOLDER, () => core);
+  return { html, refCount, coreBytes: core.length };
 }
 
 function syncAssets() {
@@ -98,8 +132,9 @@ function buildOfflineVariant(html) {
 }
 
 function main() {
-  const { html, refCount } = loadSource();
+  const { html, refCount, coreBytes } = loadSource();
   console.log(`読込: ${SRC} (reference/ -> assets/ 置換 ${refCount}箇所)`);
+  console.log(`埋込: js_predict_poc/predict-core.js (${(coreBytes / 1024).toFixed(1)} KB) → SIMULATE 用推論エンジン`);
 
   const copied = syncAssets();
   if (copied.length) console.log(`アセット同期(常に上書き): ${copied.join(", ")}`);
