@@ -112,9 +112,17 @@ d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:
 chk(el('simulateOverlay').style.display==='flex','③クリックで全画面オーバーレイが開く');
 chk(el('simSubtitle').textContent.length>0,`サブタイトル: ${el('simSubtitle').textContent}`);
 chk(q('.sim-row')===21,`全21変数にスライダーが用意される (実測 ${q('.sim-row')})`);
-chk(q('#simChips .sim-chip')===0,'既定では固定チップは無い');
-chk(el('simChipRow').style.display==='none','固定行は出ない');
-chk(el('simTCount').textContent==='21 / 21',`本数表示 ${el('simTCount').textContent}`);
+chk(!d.getElementById('simChipRow'),'固定チップ行は無い（全変数が常にスライダー）');
+chk(!d.querySelector('.sim-row .sim-val'),'スライダー横の数値は出さない');
+chk(!d.querySelector('.sim-row .sim-spark'),'スライダー横の感度グラフは出さない');
+chk(!d.getElementById('simDelta')&&!d.getElementById('simRingCanvas')&&!d.getElementById('simFlags'),
+  '応答側はグラフと応答値だけ（差分・リング・フラグは無い）');
+chk(/\.sim-sliders \{ display: flex; flex-direction: column;/.test(html),'スライダーは縦一列');
+{// 全画面ではなく元ツールの外形に収まる大きさか（#simulatePanel の指定を見る）
+ const blk=html.slice(html.indexOf('#simulatePanel {'), html.indexOf('#simulatePanel {')+400);
+ const mw=blk.match(/width: min\((\d+)px/), mh=blk.match(/height: min\((\d+)px/);
+ chk(!!mw&&Number(mw[1])<=1200&&!!mh&&Number(mh[1])<=760,
+   `パネルは元ツールの外形内 (${mw&&mw[1]}x${mh&&mh[1]}px)`);}
 
 console.log('\n[2] 予測値が推論エンジンと一致するか（最重要）');
 const pv=el('simPredVal').textContent;
@@ -123,202 +131,83 @@ const row={},raw={};
 sliderSpec.forEach(s=>{const v=seedMed.values[s.col];raw[s.col]=String(v);row[s.col]=Number(v);});
 const expect=core.predictRow(m1,row,raw);
 chk(Math.abs(Number(pv)-Number(expect.toFixed(1)))<0.06,
-  `基準行(MID)の表示 ${pv} が predictRow の ${expect.toFixed(4)} と一致`);
-chk(el('simPredBand').textContent==='±6.8',`誤差帯 ${el('simPredBand').textContent}`);
+  `出発点の表示 ${pv} が predictRow の ${expect.toFixed(4)} と一致`);
 
-console.log('\n[3] スライダー操作');
-// 表示値は「変わったか」ではなく「エンジンの計算値と一致するか」で検証する
+console.log('\n[3] スライダーの可動域と操作');
 const stateOf=(over)=>{const row={},raw={};
   sliderSpec.forEach(s=>{let v=(over&&over[s.col]!==undefined)?over[s.col]:seedMed.values[s.col];
     raw[s.col]=String(v);row[s.col]=Number(v);});return {row,raw};};
 const r0=d.querySelector('.sim-row input[type=range]');
 const col0=d.querySelector('.sim-row').dataset.col;
-const before=el('simPredVal').textContent;
+const sp0=sliderSpec.find(x=>x.col===col0);
+chk(Math.abs(Number(r0.min)-sp0.min)<1e-9&&Math.abs(Number(r0.max)-sp0.max)<1e-9,
+  `可動域が学習データの上下限そのもの (${simFmtLike(sp0.min)}〜${simFmtLike(sp0.max)})`);
 r0.value=r0.max; r0.dispatchEvent(new w.Event('input',{bubbles:true}));
 r0.dispatchEvent(new w.Event('change',{bubbles:true}));
 {const st=stateOf({[col0]:r0.max});const ex=core.predictRow(m1,st.row,st.raw);
  chk(Math.abs(Number(el('simPredVal').textContent)-Number(ex.toFixed(1)))<0.06,
-   `${col0} を最大へ: 表示 ${el('simPredVal').textContent} == エンジン ${ex.toFixed(4)}`);}
-chk(d.querySelector('.sim-row').classList.contains('warn'),'外挿するとamberになる');
-const tip=d.querySelector('.sim-row').title;
-const has=(ja,en)=>tip.includes(ja)||tip.includes(en);
-chk(has('学習データの外側','outside the training data'),'外挿の説明はtitleに退避されている');
-chk(has('飽和','saturate'),'飽和の説明もtitleにある');
-const flags=[...d.querySelectorAll('.sim-flag')].map(f=>f.className.replace('sim-flag ','')+':'+f.textContent);
-chk(flags.some(f=>f.startsWith('on:')),'外挿フラグが出る');
-chk(flags.some(f=>f.startsWith('stop:')),'飽和フラグが出る');
-const at=el('simPredVal').textContent;
-r0.value=String(Number(r0.max)); r0.dispatchEvent(new w.Event('change',{bubbles:true}));
-chk(el('simPredVal').textContent===at,'x_clip境界の外では予測が変化しない');
+   `${col0} を上限へ: 表示 ${el('simPredVal').textContent} == エンジン ${ex.toFixed(4)}`);}
+chk(d.querySelector('.sim-row').classList.contains('changed'),'動かした変数に印が付く');
+d.querySelector('.sim-row .sim-name').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(q('.sim-row.changed')===0,'列名クリックでその変数だけ元に戻る');
 
-console.log('\n[4] 変数が多い場合の操作');
-el('simExpandBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(q('.sim-row')===12,`▴で重要度上位12変数に絞れる (実測 ${q('.sim-row')})`);
-chk(el('simChipRow').style.display==='','絞ると固定行が出る');
-el('simExpandBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(q('.sim-row')===21,'▾で全変数に戻る');
-el('simExpandBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-const names=()=>[...d.querySelectorAll('.sim-name')].map(e=>e.textContent);
-d.querySelector('#simChips .sim-chip').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(q('.sim-row')===13,'チップから昇格できる');
-d.querySelector('.sim-x').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(q('.sim-row')===12,'×で降格できる');
-el('simExpandBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+console.log('\n[4] Sobol走査による応答分布');
+chk(!!H.SIM.dist,'応答分布が作られている');
+chk(H.SIM.dist.n>=256,`Sobol点数 ${H.SIM.dist.n}`);
+chk(H.SIM.dist.hi>=H.SIM.dist.lo,`応答範囲 ${simFmtLike(H.SIM.dist.lo)}〜${simFmtLike(H.SIM.dist.hi)}`);
+chk(H.SIM.dist.counts.reduce((a,b)=>a+b,0)===H.SIM.dist.n,'ヒストグラムの合計が点数と一致');
+chk(!!H.SIM.dist.best&&Number.isFinite(H.SIM.dist.best.y),`最小応答の点がある (${simFmtLike(H.SIM.dist.best.y)})`);
+chk(Math.abs(H.SIM.dist.best.y-H.SIM.dist.lo)<1e-9,'最小応答の点が分布の下端と一致');
+{// 最小点の入力を実際にエンジンへ通すと、その応答が再現できる
+ const st={},rw={};
+ sliderSpec.forEach(s=>{const v=H.SIM.dist.best.state[s.col];rw[s.col]=String(v);st[s.col]=Number(v);});
+ const y=core.predictRow(m1,st,rw);
+ chk(Math.abs(y-H.SIM.dist.best.y)<1e-6,'最小点の入力から同じ応答が再現できる');}
+{// 分布はスライダー操作では作り直さない（走査は学習ごとに1度だけ）
+ const before=H.SIM.dist;
+ r0.value=r0.min; r0.dispatchEvent(new w.Event('change',{bubbles:true}));
+ chk(H.SIM.dist===before,'スライダーを動かしても分布は再計算しない');
+ d.getElementById('simResetBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));}
 
-console.log('\n[5] カテゴリ・基準行・連動・保存');
-const catRow2=[...d.querySelectorAll('.sim-row')].find(r=>r.dataset.col==='grade');
-chk(!!catRow2&&catRow2.querySelectorAll('.sim-pill').length===2,'カテゴリはピル表示');
-chk(catRow2.querySelector('.sim-pill.on').dataset.v==='A','初期値が選択状態');
-const pB=[...catRow2.querySelectorAll('.sim-pill')].find(p=>p.dataset.v==='B');
+console.log('\n[5] カテゴリ・連動・保存・凡例');
+const catRow=[...d.querySelectorAll('.sim-row')].find(r=>r.dataset.col==='grade');
+chk(!!catRow&&catRow.querySelectorAll('.sim-pill').length===2,'カテゴリはピル表示');
+const pB=[...catRow.querySelectorAll('.sim-pill')].find(p=>p.dataset.v==='B');
 pB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(catRow2.querySelector('.sim-pill.on').dataset.v==='B','ピルで切り替わる');
-chk(catRow2.querySelector('.sim-val').textContent==='','選択中の値は右端に再掲しない');
-chk(!d.getElementById('simSeedSeg'),'LOW/MID/HIGH/RANDの選択UIは無い（出発点は自動）');
-d.getElementById('simResetBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-{const sm=RESULT.seed_rows.find(x=>x.label==='median');
- const row={},raw={};sliderSpec.forEach(s=>{const v=sm.values[s.col];raw[s.col]=String(v);row[s.col]=Number(v);});
- const ex=core.predictRow(m1,row,raw);
- chk(Math.abs(Number(el('simPredVal').textContent)-Number(ex.toFixed(1)))<0.06,
-   `↺で中位の実データ行に戻る (表示 ${el('simPredVal').textContent} == エンジン ${ex.toFixed(4)})`);}
-chk(q('.sim-row')===21,'リセット後も全変数のスライダーが並ぶ');
+chk(catRow.querySelector('.sim-pill.on').dataset.v==='B','ピルで切り替わる');
 el('simLinkBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(el('simLinkBtn').classList.contains('on'),'連動モードON');
-let saved=null; H.Platform.downloadFile=(b,n,m)=>{w.__SAVED__={n:n,m:m,len:b.length};};
+H.Platform.downloadFile=(b,n,m)=>{w.__SAVED__={n:n,len:b.length};};
 el('simSaveBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-saved=w.__SAVED__;
-chk(!!saved&&saved.n==='scenario.csv'&&saved.len>0,`CSV保存 (${saved&&saved.n}, ${saved&&saved.len} bytes)`);
+chk(!!w.__SAVED__&&w.__SAVED__.n==='scenario.csv',`CSV保存 (${w.__SAVED__&&w.__SAVED__.len} bytes)`);
+chk(!el('simLegend').classList.contains('open'),'凡例は既定で閉じている');
+el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(el('simLegend').classList.contains('open')&&d.querySelectorAll('#simLegend div').length>=6,'?で凡例が開く');
+el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 
 console.log('\n[6] 低精度時の抑制表示');
-const R2=JSON.parse(JSON.stringify(RESULT)); R2.r2=0.28;
-H.applyTrainingResult(R2); d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(el('simRight').classList.contains('lowq'),'R²0.28で彩度を落とす');
-chk(!el('simPredVal').title.includes('上位')&&!el('simPredVal').title.includes('Top '),
-  '低精度時はパーセンタイルを出さない');
-chk(el('simPredVal').title.includes('信頼性は低い')||el('simPredVal').title.includes('unreliable'),
-  '低精度の注意文はtitleに入る');
+{const R2=JSON.parse(JSON.stringify(RESULT)); R2.r2=0.28;
+ H.applyTrainingResult(R2); d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ chk(el('simRight').classList.contains('lowq'),'R²0.28で彩度を落とす');}
 
 console.log('\n[7] 使えない場合のフォールバック');
 H.Platform.getTregBytes=()=>null; H.applyTrainingResult(RESULT);
-chk(!d.getElementById('predictZone').className.includes('sim-open-btn'),'.treg が無ければ③は従来のCSVドロップのまま');
-H.Platform.getTregBytes=()=>w.__TREG__; const R3=JSON.parse(JSON.stringify(RESULT)); R3.slider_spec=[]; H.applyTrainingResult(R3);
+chk(!d.getElementById('predictZone').className.includes('sim-open-btn'),'.treg が無ければ③は従来のCSVドロップ');
+H.Platform.getTregBytes=()=>w.__TREG__; const R3=JSON.parse(JSON.stringify(RESULT)); R3.slider_spec=[];
+H.applyTrainingResult(R3);
 chk(!d.getElementById('predictZone').className.includes('sim-open-btn'),'slider_spec が空でも安全に無効化');
 H.applyTrainingResult(RESULT); d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(el('simulateOverlay').style.display==='flex'&&q('.sim-row')===21,'正常なresultで復帰する');
-// 閉じる操作
 d.getElementById('simCloseBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(el('simulateOverlay').style.display==='none','✕で閉じる');
-d.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
 d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(el('simulateOverlay').style.display==='flex','再度③で開き直せる');
 d.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
 chk(el('simulateOverlay').style.display==='none','Escで閉じる');
 d.getElementById('predictZone').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 
-console.log('\n[7b] 日英切替');
-{const H2=w.__H__;const before=el('simFoot').textContent;
- const btn=[...d.querySelectorAll('.lang-toggle-btn')].find(b=>b.dataset.lang==='en');
- if(btn){btn.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-   chk(/desktop/i.test(el('simFoot').textContent),
-     '英語に切り替わる: '+el('simFoot').textContent);
-   const jb=[...d.querySelectorAll('.lang-toggle-btn')].find(b=>b.dataset.lang==='ja');
-   jb.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-   chk(el('simFoot').textContent.includes('デスクトップ版'),'日本語に戻る: '+el('simFoot').textContent);
-   chk(q('.sim-row')===21,'言語切替後もスライダーが維持される');}}
-
-
-console.log('\n[9] 基準からの差分・直接入力・変更マーク・凡例');
-// 開き直して基準行(MID)の状態に戻す
-d.getElementById('simResetBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(q('.sim-row.changed')===0,'触る前は変更マークが1つも無い');
-chk(el('simDelta').textContent.length>0&&!el('simDelta').textContent.includes('+'),
-  `差分表示は「基準行のまま」: ${el('simDelta').textContent}`);
-const base=Number(el('simPredVal').textContent);
-// 数値の直接入力
-const vin=d.querySelector('.sim-row input.sim-val');
-const tcol=vin.closest('.sim-row').dataset.col;
-const tspec=sliderSpec.find(x=>x.col===tcol);
-chk(!!vin,'数値列の値が直接入力できる欄になっている');
-vin.value=String(tspec.p99);
-vin.dispatchEvent(new w.Event('change',{bubbles:true}));
-{const st=stateOf({[tcol]:tspec.p99});const ex=core.predictRow(m1,st.row,st.raw);
- chk(Math.abs(Number(el('simPredVal').textContent)-Number(ex.toFixed(1)))<0.06,
-   `直接入力した値が予測に反映される (${tcol}=${simFmtLike(tspec.p99)})`);}
-chk(vin.closest('.sim-row').classList.contains('changed'),'動かした変数に変更マークが付く');
-chk(q('.sim-row.changed')===1,'変更マークは動かした1本だけ');
-{const dt=el('simDelta').textContent;
- const expD=Number(el('simPredVal').textContent)-base;
- const shown=dt.replace(/[^0-9.]/g,'');
- chk(dt.includes('+')||dt.includes('−')||Math.abs(expD)<0.05,`差分が表示される: ${dt}`);}
-// 範囲外の入力は clamp される
-const [rlo,rhi]=[Number(vin.closest('.sim-row').querySelector('input[type=range]').min),
-                 Number(vin.closest('.sim-row').querySelector('input[type=range]').max)];
-vin.value='999999';
-vin.dispatchEvent(new w.Event('change',{bubbles:true}));
-chk(Math.abs(Number(vin.value)-Number(simFmtLike(rhi)))<Math.max(0.2,Math.abs(rhi)*0.02),
-  `範囲外の入力は上限へ丸められる (${vin.value})`);
-vin.value='abc';
-vin.dispatchEvent(new w.Event('change',{bubbles:true}));
-chk(Number.isFinite(Number(vin.value)),'数値でない入力を入れても壊れない');
-// 列名クリックでその1本だけ戻る
-const chRow=d.querySelector('.sim-row.changed');
-chRow.querySelector('.sim-name').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(q('.sim-row.changed')===0,'列名クリックでその変数だけ基準値に戻る');
-chk(Math.abs(Number(el('simPredVal').textContent)-base)<0.06,'戻すと予測も基準に戻る');
-// 凡例
-chk(!el('simLegend').classList.contains('open'),'凡例は既定で閉じている');
-el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(el('simLegend').classList.contains('open'),'?ボタンで凡例が開く');
-chk(d.querySelectorAll('#simLegend div').length>=8,
-  `凡例に記号の意味が並ぶ (${d.querySelectorAll('#simLegend div').length}件)`);
-el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(!el('simLegend').classList.contains('open'),'もう一度押すと閉じる');
-// アクセシビリティ
-const rng2=d.querySelector('.sim-row input[type=range]');
-chk(!!rng2.getAttribute('aria-valuetext'),`range に aria-valuetext がある (${rng2.getAttribute('aria-valuetext')})`);
-chk(!!rng2.getAttribute('aria-label'),'range に aria-label がある');
-
-
 console.log('\n[10] ワークフロー側の表示');
 chk(!!d.getElementById('deployHint'),'④に「学習後に使えます」のヒントがある');
-{const html2=fs.readFileSync(path.join(ROOT,'web/index.html'),'utf8');
- chk(!/no network/i.test(html2)&&!/ネットワーク不要/.test(html2),
-   '起動時の「NO NETWORK / ネットワーク不要」表示を撤去した');}
-
-
-console.log('\n[11] レイアウトの幅（jsdomは自動レイアウトしないのでCSSの数値で検算）');
-// 1行は [重要度][列名][トラック][値][感度][×] の横並び。固定要素の合計が
-// グリッド列の最小幅を食い潰すとスライダー本体が潰れて「見えない」状態になる。
-{const css=html;
- const num=(re)=>{const m=css.match(re);return m?Number(m[1]):null;};
- const colMin = num(/minmax\((\d+)px, 1fr\)/);
- const nameW  = num(/\.sim-name \{[^}]*width: (\d+)px/s);
- const valW   = num(/\.sim-val \{[^}]*width: (\d+)px/s);
- const sparkW = num(/\.sim-spark \{ width: (\d+)px/);
- const impW   = num(/\.sim-imp \{ width: (\d+)px/);
- const xW     = num(/\.sim-x \{[^}]*width: (\d+)px/s);
- const gap    = num(/\.sim-row \{[^}]*gap: (\d+)px/s);
- const trackMin = num(/\.sim-track \{[^}]*min-width: (\d+)px/s);
- const rowPad = 8;   // padding: 0 2px 0 6px
- const fixed = impW + nameW + valW + sparkW + xW + gap * 5 + rowPad;
- const track = colMin - fixed;
- console.log(`       列最小 ${colMin}px / 固定 ${fixed}px (imp${impW}+name${nameW}+val${valW}+spark${sparkW}+x${xW}+gap${gap}x5+pad${rowPad})`);
- console.log(`       → スライダー本体に残る幅 ${track}px (min-width ${trackMin}px)`);
- chk(track >= trackMin, `スライダー本体が min-width(${trackMin}px) 以上を確保できる`);
- chk(track >= 120, `スライダーとして実用的な幅がある (${track}px >= 120px)`);
- // つまみは半径7.5px。端で切れないための余白(PAD)がトラック描画側にあること
- const pad = num(/const PAD = (\d+);/);
- chk(pad >= 8, `つまみが端で切れない余白がある (PAD=${pad}px)`);
- // Canvasの描画高さとCSSの高さが食い違うと、線が切れたり隙間が出る
- const trackH = num(/\.sim-track \{[^}]*height: (\d+)px/s);
- const jsTrackH = num(/const w = wrap\.clientWidth \|\| 0, h = (\d+)/);
- chk(trackH === jsTrackH, `トラックのCSS高さ(${trackH}px)とCanvas描画高さ(${jsTrackH}px)が一致`);
- const sparkH = num(/\.sim-spark \{ width: \d+px; height: (\d+)px/);
- const jsSparkW = num(/const w = (\d+), h = \d+;\s*\n\s*const pts = \[\]/);
- const jsSparkH = num(/const w = \d+, h = (\d+);\s*\n\s*const pts = \[\]/);
- chk(sparkW === jsSparkW && sparkH === jsSparkH,
-   `感度グラフのCSS(${sparkW}x${sparkH})とCanvas(${jsSparkW}x${jsSparkH})が一致`);
- const rowH = num(/\.sim-row \{[^}]*height: (\d+)px/s);
- chk(rowH >= trackH, `行の高さ(${rowH}px)がトラック(${trackH}px)を収められる`);}
+chk(!/no network/i.test(html)&&!/ネットワーク不要/.test(html),'NO NETWORK 表示は無い');
 
 console.log('\n[8] 画面に出る文字量');
 const shown=el('simulateSection').textContent.replace(/\s+/g,' ').trim();

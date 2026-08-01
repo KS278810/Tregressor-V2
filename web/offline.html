@@ -634,7 +634,7 @@
             display: flex; align-items: center; justify-content: center; padding: 22px;
         }
         #simulatePanel {
-            width: 100%; height: 100%; max-width: 1500px;
+            width: min(1120px, calc(100vw - 44px)); height: min(660px, calc(100vh - 60px));
             background: #080d18; border: 1px solid rgba(63,196,236,0.22);
             border-radius: 10px; box-shadow: 0 24px 70px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4);
             display: flex; flex-direction: column; overflow: hidden;
@@ -657,10 +657,14 @@
         .sim-close-btn:hover { color: var(--bad); border-color: rgba(239,92,92,0.5); }
         .sim-grid {
             display: grid; grid-template-columns: 1fr 360px;
-            align-items: start; flex: 1; min-height: 0; overflow-y: auto;
-            padding: 12px 16px 0 16px;
+            flex: 1; min-height: 0; padding: 10px 16px 0 16px; gap: 14px;
         }
-        .sim-left { padding: 2px 12px 8px 2px; min-width: 0; }
+        .sim-left { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        /* スライダーは縦一列に並べる。多い場合はここだけがスクロールする。 */
+        .sim-sliders { display: flex; flex-direction: column; flex: 1; min-height: 0;
+                       overflow-y: auto; padding-right: 6px; }
+        .sim-sliders::-webkit-scrollbar { width: 6px; }
+        .sim-sliders::-webkit-scrollbar-thumb { background: rgba(160,190,220,0.2); border-radius: 3px; }
         .sim-toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; }
         .sim-seedseg { display: flex; border: 1px solid var(--hairline); border-radius: 5px; overflow: hidden; }
         .sim-seedseg button {
@@ -683,12 +687,8 @@
             color: var(--ink-faint); letter-spacing: 0.08em;
         }
         /* 幅に応じて 1→2→3 列。列が増えるほど縦が縮み、変数が多くてもスクロールが消える */
-        /* 1行の固定要素(重要度3+列名72+値52+感度38+×11+隙間30=206px)に対して
-           スライダー本体が十分な幅を持てるよう、列の最小幅を余裕をもって取る。
-           狭いと auto-fill が列数を減らすだけで、トラックは潰れない。 */
-        .sim-sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); column-gap: 16px; }
         .sim-row {
-            display: flex; align-items: center; gap: 6px; height: 34px; min-width: 0;
+            display: flex; align-items: center; gap: 10px; height: 34px; min-width: 0;
             border-radius: 4px; padding: 0 2px 0 6px; transition: background 0.12s;
             position: relative;
         }
@@ -703,7 +703,7 @@
         .sim-row.changed .sim-name:hover { color: var(--gold); text-decoration: underline; }
         .sim-imp { width: 3px; border-radius: 2px; background: var(--cyan); opacity: 0.55; flex: none; }
         .sim-name {
-            width: 72px; flex: none; font-family: var(--font-mono); font-size: 10.5px;
+            width: 140px; flex: none; font-family: var(--font-mono); font-size: 11px;
             color: var(--ink-dim); white-space: nowrap; overflow: hidden;
             text-overflow: ellipsis; transition: color 0.15s;
         }
@@ -732,7 +732,7 @@
         }
         .sim-row:hover .sim-x { opacity: 1; }
         .sim-x:hover { color: var(--bad); }
-        .sim-track { position: relative; flex: 1; height: 26px; min-width: 110px; }
+        .sim-track { position: relative; flex: 1; height: 26px; min-width: 140px; }
         .sim-track canvas { position: absolute; inset: 0; width: 100%; height: 26px; display: block; pointer-events: none; }
         .sim-track input[type=range] {
             position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 26px;
@@ -742,9 +742,8 @@
         .sim-track input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; background: transparent; border: none; }
         .sim-track input[type=range]::-moz-range-track { height: 26px; background: transparent; }
         .sim-track input[type=range]::-moz-range-thumb { width: 26px; height: 26px; background: transparent; border: none; }
-        .sim-spark { width: 40px; height: 26px; flex: none; display: block; }
         /* カテゴリは折り返さず横スクロール。行の高さを一定に保つ */
-        .sim-pills { display: flex; gap: 3px; flex: 1; min-width: 90px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+        .sim-pills { display: flex; gap: 3px; flex: 1; min-width: 140px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
         .sim-pills::-webkit-scrollbar { display: none; }
         .sim-pill {
             padding: 1px 8px; border: 1px solid var(--hairline); border-radius: 9px;
@@ -773,8 +772,8 @@
         .sim-chipfilter:focus { border-color: var(--cyan); }
         /* 右ペイン: 左をスクロールしても予測が視界から外れないよう sticky */
         .sim-right {
-            padding: 2px 2px 10px 12px; border-left: 1px solid var(--hairline);
-            position: sticky; top: 0; align-self: start; transition: filter 0.25s;
+            padding: 2px 2px 10px 14px; border-left: 1px solid var(--hairline);
+            display: flex; flex-direction: column; justify-content: center; transition: filter 0.25s;
         }
         .sim-right.lowq { filter: saturate(0.35); }
         .sim-ptag {
@@ -1054,43 +1053,26 @@
         <div class="sim-header">
             <span class="sim-title">SIMULATE</span>
             <span class="sim-subtitle" id="simSubtitle"></span>
+            <button id="simSaveBtn" class="sim-legend-btn" data-i18n-title="sim.saveTitle" title="この1行をCSVで保存">↓</button>
             <button id="simLegendBtn" class="sim-legend-btn" data-i18n-title="sim.legendTitle" title="記号の意味">?</button>
             <button id="simCloseBtn" class="sim-close-btn">✕</button>
         </div>
         <div class="sim-legend" id="simLegend"></div>
-<!-- ③ SIMULATE（What-ifスライダー）。Web版のみ表示され、exe版では
-     上の predictResultSection（CSV一括予測のプレビュー）が使われる。
-     説明文は画面に出さず title 属性に退避する方針（見れば分かる形で表現）。
-     設計: docs/interactive-predict-design.md -->
+<!-- ③ SIMULATE（What-ifスライダー）。Web版のみ。左に変数のスライダーを縦一列、
+     右に応答の分布と予測値だけを置く。数値や補助グラフは画面に出さない。 -->
 <div id="simulateSection" style="display:flex;flex-direction:column;flex:1;min-height:0;">
     <div class="sim-grid">
         <div class="sim-left">
             <div class="sim-toolbar">
                 <button class="sim-iconbtn" id="simResetBtn" data-i18n-title="sim.resetTitle" title="最初の値に戻す">↺</button>
-                <button class="sim-iconbtn" id="simExpandBtn"></button>
                 <button class="sim-iconbtn" id="simLinkBtn" data-i18n-title="sim.linkTitle" title="相関する列を連動させる">⇄</button>
-                <span class="sim-tcount" id="simTCount"></span>
             </div>
             <div id="simSliders" class="sim-sliders"></div>
-            <div class="sim-chiprow" id="simChipRow">
-                <span class="sim-fixedlbl" id="simFixedLabel"></span>
-                <div class="sim-chipscroll" id="simChips"></div>
-                <input id="simChipFilter" class="sim-chipfilter" data-i18n-placeholder="sim.filterPlaceholder" placeholder="絞り込み">
-            </div>
         </div>
         <div class="sim-right" id="simRight">
             <div class="sim-ptag" id="simTargetTag">PREDICTED</div>
-            <div class="sim-pred">
-                <span class="sim-pnum" id="simPredVal">—</span>
-                <span class="sim-pband" id="simPredBand"></span>
-            </div>
-            <div class="sim-delta" id="simDelta"></div>
+            <div class="sim-pred"><span class="sim-pnum" id="simPredVal">—</span></div>
             <canvas id="simHistCanvas"></canvas>
-            <div class="sim-statusrow">
-                <canvas id="simRingCanvas" width="0" height="0"></canvas>
-                <div class="sim-flags" id="simFlags"></div>
-                <button class="sim-iconbtn" id="simSaveBtn" data-i18n-title="sim.saveTitle" title="この1行をCSVで保存">↓</button>
-            </div>
         </div>
     </div>
     <div class="sim-foot" id="simFoot"></div>
@@ -1791,6 +1773,9 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             // ③ SIMULATE(What-ifスライダー・Web版のみ)。sim.tip*/sim.*Title は画面には
             // 出さず title 属性にだけ入る文言(「見れば分かる」表示にするため、説明は
             // ホバー時にだけ現れる)。画面に出るのは列名・数値・FIXED n だけ。
+            'sim.tipBest': '走査した中で応答が最小だった点: {{v}}',
+            'sim.distTitle': '入力空間をSobol列で {{n}} 点走査したときの応答の分布',
+            'sim.lgBest': '緑の丸＝応答が最小だった点',
             'sim.legendTitle': '記号の意味',
             'sim.deltaNone': '基準行のまま',
             'sim.deltaNoneTitle': 'まだどの変数も動かしていません',
@@ -2075,6 +2060,9 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         en: {
             'common.listSep': ', ',
 
+            'sim.tipBest': 'Lowest response found while scanning: {{v}}',
+            'sim.distTitle': 'Response distribution over {{n}} Sobol points in the input space',
+            'sim.lgBest': 'Green circle = point with the lowest response',
             'sim.legendTitle': 'What the symbols mean',
             'sim.deltaNone': 'Same as the reference row',
             'sim.deltaNoneTitle': 'No variable has been moved yet',
@@ -4148,7 +4136,8 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         }
     }
     const simSmooth3 = (a) => a.map((v, i) => (a[Math.max(0, i - 1)] + v + a[Math.min(a.length - 1, i + 1)]) / 3);
-    const simRange = (s) => { const sp = (s.max - s.min) || 1; return [s.min - sp * 0.12, s.max + sp * 0.12]; };
+    // スライダーは学習データの上下限の内側だけで動かす（外側へは出せない）
+    const simRange = (s) => [s.min, s.max];
     const simIsExtrap = (s, v) => v < s.p1 || v > s.p99;
     const simAtClip = (s, v) => s.x_clip_lo != null && (v <= s.x_clip_lo || v >= s.x_clip_hi);
     const simSpecs = () => SIM.spec;
@@ -4194,6 +4183,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         SIM.linkMode = false;
         SIM.seedLabel = simPickSeedLabel();
         SIM.ready = true;
+        SIM.dist = null;
         simApplySeed(SIM.seedLabel);
         return true;
     }
@@ -4220,6 +4210,8 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         SIM.visible = simSpecs().map(s => s.col);
         // 差分表示の基準になる「触る前の予測」を、この時点で1度だけ確定させる
         SIM.basePred = simPredict(SIM.state);
+        // 入力空間の走査(Sobol)は学習ごとに1度だけ。スライダー操作では作り直さない。
+        if (!SIM.dist) simBuildResponseDist();
         simRenderAll();
     }
 
@@ -4241,6 +4233,126 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             console.warn('[SIMULATE] 予測に失敗:', e);
             return NaN;
         }
+    }
+
+    // ── Sobol 列（低食い違い列）による入力空間のサンプリング ────────────────────
+    // 応答の分布を「学習データのy」ではなく「入力空間を均等に走査したときの予測値」
+    // で描くための土台。単純な乱数より少ない点数で空間を埋められるため、
+    // 数百点でも分布の形と最小値が安定する。
+    //
+    // 方向数は原始多項式から生成し、初期値 m_k = 1 で初期化する（Sobol' の標準的な
+    // 構成のひとつ。外部データ表を持ち込まずに任意次元へ拡張できる）。
+    function simPrimitivePolys(n) {
+        // GF(2) 上の原始多項式を次数の低い順に n 個返す。[degree, 係数ビット列]
+        // 係数ビット列は x^deg と定数項1を除いた中間項（Sobol の慣例）。
+        const out = [[0, 0]];                       // 1次元目は特別扱い（多項式なし）
+        for (let deg = 1; out.length < n && deg <= 20; deg++) {
+            for (let a = 0; a < (1 << deg) && out.length < n; a++) {
+                // 多項式 x^deg + a_{deg-1}x^{deg-1} + ... + 1
+                const poly = (1 << deg) | (a << 1) | 1;
+                if (simIsPrimitive(poly, deg)) out.push([deg, a]);
+            }
+        }
+        return out;
+    }
+    function simPolyMulMod(x, y, poly, deg) {
+        let r = 0;
+        while (y) { if (y & 1) r ^= x; y >>= 1; x <<= 1; if (x & (1 << deg)) x ^= poly; }
+        return r;
+    }
+    function simIsPrimitive(poly, deg) {
+        if (deg === 0) return false;
+        if (!(poly & 1)) return false;                        // 定数項が無いと既約でない
+        const period = (1 << deg) - 1;
+        // x の位数がちょうど 2^deg - 1 なら原始的
+        let x = 2 % (1 << deg), e = 1;
+        if (deg === 1) return true;
+        // まず既約性（x^(2^deg) == x）を確認
+        let t = 2;
+        for (let i = 0; i < deg; i++) t = simPolyMulMod(t, t, poly, deg);
+        if (t !== 2) return false;
+        // 位数が period の真の約数にならないこと
+        for (let d = 1; d * d <= period; d++) {
+            if (period % d !== 0) continue;
+            for (const f of [d, period / d]) {
+                if (f === period) continue;
+                let acc = 1, base = 2, k = f;
+                while (k) { if (k & 1) acc = simPolyMulMod(acc, base, poly, deg);
+                            base = simPolyMulMod(base, base, poly, deg); k >>= 1; }
+                if (acc === 1) return false;
+            }
+        }
+        return true;
+    }
+    // dim 次元・n 点の Sobol 列を [0,1) で返す（先頭の 0 点は捨てる）
+    function simSobol(dim, n) {
+        const BITS = 30;
+        const polys = simPrimitivePolys(dim);
+        const V = [];                                    // V[j][k] : 方向数
+        for (let j = 0; j < dim; j++) {
+            const [deg, a] = polys[j] || [1, 0];
+            const v = new Array(BITS).fill(0);
+            if (j === 0) {
+                for (let k = 0; k < BITS; k++) v[k] = 1 << (BITS - 1 - k);
+            } else {
+                const m = new Array(BITS).fill(1);       // m_k = 1 で初期化
+                for (let k = deg; k < BITS; k++) {
+                    let val = m[k - deg] ^ (m[k - deg] << deg);
+                    for (let i = 1; i < deg; i++) {
+                        if ((a >> (deg - 1 - i)) & 1) val ^= (m[k - i] << i);
+                    }
+                    m[k] = val >>> 0;
+                }
+                for (let k = 0; k < BITS; k++) v[k] = (m[k] << (BITS - 1 - k)) >>> 0;
+            }
+            V.push(v);
+        }
+        const out = [], x = new Array(dim).fill(0);
+        for (let i = 1; i <= n; i++) {
+            let c = 0, t = i;
+            while (t & 1) { t >>= 1; c++; }              // 最下位の 0 ビット位置（gray code）
+            const p = new Array(dim);
+            for (let j = 0; j < dim; j++) {
+                x[j] = (x[j] ^ V[j][c]) >>> 0;
+                p[j] = x[j] / Math.pow(2, BITS);
+            }
+            out.push(p);
+        }
+        return out;
+    }
+
+    // 入力空間を Sobol 列で走査し、予測値の分布と「応答が最小の点」を求める。
+    // スライダーの操作とは独立なので、学習結果ごとに1度だけ計算する。
+    const SIM_SOBOL_N = 512;
+    function simBuildResponseDist() {
+        const specs = simSpecs();
+        if (!specs.length || !SIM.model) { SIM.dist = null; return; }
+        const pts = simSobol(specs.length, SIM_SOBOL_N);
+        const vals = new Array(pts.length);
+        let best = null;
+        for (let i = 0; i < pts.length; i++) {
+            const st = {};
+            for (let j = 0; j < specs.length; j++) {
+                const s = specs[j], u = pts[i][j];
+                if (s.kind === 'numeric') {
+                    st[s.col] = s.min + (s.max - s.min) * u;
+                } else {
+                    const lv = s.levels || [];
+                    st[s.col] = lv.length ? lv[Math.min(lv.length - 1, Math.floor(u * lv.length))].value : s.mode;
+                }
+            }
+            const y = simPredict(st);
+            vals[i] = y;
+            if (Number.isFinite(y) && (best === null || y < best.y)) best = { y: y, state: st };
+        }
+        const fin = vals.filter(Number.isFinite);
+        if (!fin.length) { SIM.dist = null; return; }
+        const lo = Math.min(...fin), hi0 = Math.max(...fin);
+        const hi = hi0 > lo ? hi0 : lo + Math.max(Math.abs(lo) * 1e-6, 1e-6);
+        const nb = Math.min(40, Math.max(12, Math.round(Math.sqrt(fin.length))));
+        const counts = new Array(nb).fill(0), bwid = (hi - lo) / nb;
+        for (const v of fin) { let b = Math.floor((v - lo) / bwid); if (b >= nb) b = nb - 1; if (b < 0) b = 0; counts[b]++; }
+        SIM.dist = { lo: lo, hi: hi, counts: counts, n: fin.length, best: best };
     }
 
     // ── 基準行との差分 ────────────────────────────────────────────────────────
@@ -4336,42 +4448,10 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                 }
                 row.appendChild(pills);
             }
-            // 数値列は表示専用ではなく直接入力できるようにする（狙った値をピンポイントで
-            // 置けないと実務では使い物にならない）。カテゴリはピルがあるので読み取り専用。
-            let val;
-            if (s.kind === 'numeric') {
-                val = document.createElement('input');
-                val.className = 'sim-val'; val.type = 'text'; val.inputMode = 'decimal';
-                val.setAttribute('aria-label', col);
-                const commit = () => {
-                    const n = Number(String(val.value).replace(/[,\s]/g, ''));
-                    if (!Number.isFinite(n)) { simRefreshSliders(); return; }
-                    const [lo, hi] = simRange(s);
-                    const cl = Math.min(Math.max(n, lo), hi);
-                    const inp = row.querySelector('input[type=range]');
-                    if (inp) inp.value = cl;
-                    simSetVal(col, cl, false);
-                };
-                val.addEventListener('change', commit);
-                val.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); commit(); val.blur(); }
-                });
-                val.addEventListener('focus', () => val.select());
-            } else {
-                val = document.createElement('span'); val.className = 'sim-val';
-            }
-            const sp = document.createElement('canvas'); sp.className = 'sim-spark';
-            const x = document.createElement('button');
-            x.className = 'sim-x'; x.textContent = '×'; x.title = t('sim.demoteTitle');
-            x.addEventListener('click', () => {
-                SIM.visible = SIM.visible.filter(c => c !== col);
-                simRenderAll();
-            });
-            row.appendChild(val); row.appendChild(sp); row.appendChild(x);
+            // 数値・感度グラフ・削除ボタンは置かない（スライダーだけに絞る）
             host.appendChild(row);
         }
         simRefreshSliders();
-        simScheduleSparks();
     }
 
     // トラックは「普通のスライダー」に見えることを最優先にする。
@@ -4421,7 +4501,9 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         [[s.x_clip_lo, -1], [s.x_clip_hi, 1]].forEach(([bv, dir]) => {
             if (bv == null) return;
             const bx = X(bv);
-            if (bx < PAD - 1 || bx > w - PAD + 1) return;
+            // スライダーの可動域は学習データの上下限そのものなので、通常この壁は
+            // 両端と一致する。端に重なる壁はただのノイズなので描かない。
+            if (bx <= PAD + 2 || bx >= w - PAD - 2) return;
             // 実際に当たっている側の壁だけ赤くする（両端を赤くすると、
             // 動かせない方向がどちらなのか分からなくなる）
             const hit = dir < 0 ? (v <= s.x_clip_lo) : (v >= s.x_clip_hi);
@@ -4482,7 +4564,6 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         }
         simRefreshSliders();
         simRenderPrediction();
-        if (!dragging) simScheduleSparks();
     }
 
     function simRefreshSliders() {
@@ -4490,70 +4571,27 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             const col = row.dataset.col, s = SIM.specBy[col];
             if (!s) continue;
             const v = SIM.state[col];
-            const val = row.querySelector('.sim-val');
             row.classList.toggle('changed', simIsChanged(col));
             if (s.kind === 'numeric') {
-                // 入力中の欄は上書きしない（打鍵の途中で値が飛ぶのを防ぐ）
-                if (document.activeElement !== val) val.value = simFmt(v);
                 const rng = row.querySelector('input[type=range]');
                 if (rng) {
                     if (document.activeElement !== rng) rng.value = v;
                     rng.setAttribute('aria-valuetext', simFmt(v));
                 }
-                const warn = simIsExtrap(s, v), stop = simAtClip(s, v), gh = simGhostFor(col);
+                const warn = simIsExtrap(s, v), gh = simGhostFor(col);
                 row.classList.toggle('warn', warn);
-                // 説明文は画面に出さず、ここ（ツールチップ）に退避する
+                // 数値は画面に出さず、ここ（ツールチップ）で確認できるようにする
                 const tips = [t('sim.tipValue', { col: col, v: simFmt(v), imp: s.importance_pct }),
                               t('sim.tipRange', { lo: simFmt(s.p1), hi: simFmt(s.p99) })];
                 if (warn) tips.push(t('sim.tipExtrap'));
-                if (stop) tips.push(t('sim.tipSaturated'));
                 if (gh)   tips.push(t('sim.tipCorr', { other: gh.other, r: gh.r, v: simFmt(gh.v) }));
                 row.title = tips.join(SIM_ROW_TIPS_SEP);
                 simDrawTrack(row);
             } else {
-                // 選択中のピルが光っているので右端に値を再掲しない（二重表示の削減）
-                if (val.tagName === 'INPUT') val.value = ''; else val.textContent = '';
                 row.querySelectorAll('.sim-pill').forEach(p => p.classList.toggle('on', p.dataset.v === v));
                 row.title = t('sim.tipValueCat', { col: col, v: v, imp: s.importance_pct });
             }
         }
-    }
-
-    function simRenderChips() {
-        const sp = simSpecs(), hidden = sp.filter(s => !SIM.visible.includes(s.col));
-        const filterEl = simEl('simChipFilter');
-        const q = (filterEl.value || '').toLowerCase();
-        simEl('simChipRow').style.display = hidden.length ? '' : 'none';
-        simEl('simFixedLabel').textContent = 'FIXED ' + hidden.length;
-        simEl('simFixedLabel').title = t('sim.fixedTitle');
-        filterEl.style.display = hidden.length > 12 ? '' : 'none';
-        const host = simEl('simChips'); host.innerHTML = '';
-        for (const s of hidden) {
-            if (q && !s.col.toLowerCase().includes(q)) continue;
-            const c = document.createElement('div');
-            c.className = 'sim-chip'; c.textContent = s.col;
-            c.title = t('sim.chipTitle', {
-                col: s.col, imp: s.importance_pct,
-                v: s.kind === 'numeric' ? simFmt(SIM.state[s.col]) : SIM.state[s.col] });
-            c.addEventListener('click', () => {
-                SIM.visible.push(s.col);
-                // 押した順ではなく重要度降順の位置に入れる（並びの意味を保つ）
-                SIM.visible.sort((a, b) => (SIM.specBy[b].importance_pct || 0) - (SIM.specBy[a].importance_pct || 0));
-                simRenderAll();
-            });
-            host.appendChild(c);
-        }
-        const total = sp.length, btn = simEl('simExpandBtn');
-        const all = SIM.visible.length >= total;
-        // 既定は全変数表示。▴ で重要度の上位だけに絞れる（変数が非常に多い時用）。
-        btn.textContent = all ? '▴ ' + SIM_DEFAULT_SLIDERS : '▾ ' + hidden.length;
-        btn.classList.toggle('on', !all);
-        btn.title = all ? t('sim.collapseTitle', { n: SIM_DEFAULT_SLIDERS })
-                        : t('sim.expandTitle', { n: hidden.length });
-        btn.style.display = total <= SIM_DEFAULT_SLIDERS ? 'none' : '';
-        simEl('simLinkBtn').style.display = SIM.corr.length ? '' : 'none';
-        simEl('simLinkBtn').classList.toggle('on', SIM.linkMode);
-        simEl('simTCount').textContent = SIM.visible.length + ' / ' + total;
     }
 
     // ── 予測パネル ────────────────────────────────────────────────────────────
@@ -4572,41 +4610,18 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
     function simRenderPrediction() {
         if (!SIM.ready) return;
         const p = simPredict(SIM.state);
-        const rmse = SIM.rmse;
         const low = SIM.refOnly || (SIM.r2 != null && SIM.r2 < 0.5);
         simEl('simRight').classList.toggle('lowq', low);
         simEl('simPredVal').textContent = simFmt(p);
-        simEl('simPredBand').textContent = rmse != null ? '±' + simFmt(rmse) : '';
         simEl('simTargetTag').textContent = 'PREDICTED ' + String(SIM.target || '').toUpperCase();
-
-        // 基準からの差分と、いま何本動かしているか
-        const nChanged = simSpecs().filter(s => simIsChanged(s.col)).length;
-        const dEl = simEl('simDelta');
-        if (nChanged === 0 || !Number.isFinite(SIM.basePred) || !Number.isFinite(p)) {
-            dEl.textContent = nChanged === 0 ? t('sim.deltaNone') : '';
-            dEl.title = t('sim.deltaNoneTitle');
-        } else {
-            const d = p - SIM.basePred;
-            const sign = d > 0 ? '+' : (d < 0 ? '−' : '±');
-            dEl.innerHTML = '<b>' + sign + simFmt(Math.abs(d)) + '</b> '
-                          + esc(t('sim.deltaFrom', { base: simFmt(SIM.basePred), n: nChanged }));
-            dEl.title = t('sim.deltaTitle', { base: simFmt(SIM.basePred), n: nChanged });
-        }
-
-        const seed = SIM.seeds.find(s => s.label === SIM.seedLabel);
-        const ys = simYSorted();
-        const below = ys.filter(v => v <= p).length;
-        const topPct = ys.length ? Math.max(1, Math.round((1 - below / ys.length) * 100)) : null;
+        const best = SIM.dist && SIM.dist.best;
         simEl('simPredVal').title = [
             t('sim.tipPred', { v: simFmt(p) }),
-            rmse != null ? t('sim.tipRmse', { v: simFmt(rmse) }) : t('sim.tipNoRmse'),
-            // 低精度時は順位を出さない（精度の低い予測に順位を付けると過信を招く）
-            (!low && topPct != null) ? t('sim.tipPercentile', { pct: topPct }) : '',
-            seed ? t('sim.tipSeedActual', { v: simFmt(seed.y) }) : '',
+            SIM.rmse != null ? t('sim.tipRmse', { v: simFmt(SIM.rmse) }) : t('sim.tipNoRmse'),
+            best ? t('sim.tipBest', { v: simFmt(best.y) }) : '',
             simR2Note(),
         ].filter(Boolean).join('\n');
-        simDrawHistogram(p, rmse, low, seed);
-        simRenderStatus();
+        simDrawHistogram(p, SIM.rmse, low);
     }
 
     function simR2Note() {
@@ -4617,21 +4632,20 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         return t('sim.noteLow');
     }
 
-    // ターゲット分布。棒ではなく密度カーブで描き、外枠・y軸・目盛りラベルは持たない。
-    // 予測は「点」ではなく ±RMSE の帯として描く（精度が低いほど帯が太くなり、
-    // 過信しにくい表示に自動的になる）。
-    function simDrawHistogram(p, rmse, low, seed) {
+    // 応答の分布。学習データのyではなく「入力空間をSobol列で走査したときの予測値」を
+    // 密度カーブで描く。現在の予測位置と、走査の中で応答が最小だった点を重ねる。
+    function simDrawHistogram(p, rmse, low) {
         const cv = simEl('simHistCanvas');
         const w = cv.parentElement.clientWidth || 0;
-        if (w <= 0) return;
-        const h = Math.max(90, Math.round(w * 0.46));
+        if (w <= 0 || !SIM.dist) return;
+        const h = Math.max(120, Math.round(w * 0.62));
         const ctx = simHdpi(cv, w, h);
-        const e = SIM.yHist.bin_edges, lo = e[0], hi = e[e.length - 1];
-        const pad = { l: 8, r: 8, t: 14, b: 17 };
+        const D = SIM.dist, lo = D.lo, hi = D.hi;
+        const pad = { l: 8, r: 8, t: 16, b: 18 };
         const pw = w - pad.l - pad.r, base = h - pad.b, top = pad.t;
         const X = (v) => pad.l + (v - lo) / ((hi - lo) || 1) * pw;
-        const cs = simSmooth3(SIM.yHist.counts), mx = Math.max(...cs, 1);
-        const bw = ((hi - lo) || 1) / SIM.yHist.counts.length;
+        const cs = simSmooth3(D.counts), mx = Math.max(...cs, 1);
+        const bw = ((hi - lo) || 1) / D.counts.length;
         const pts = cs.map((c, i) => ({ x: X(lo + bw * (i + 0.5)), y: base - (c / mx) * (base - top) }));
         pts.unshift({ x: X(lo), y: base }); pts.push({ x: X(hi), y: base });
         const acc = low ? '122,140,166' : '240,169,78';
@@ -4646,18 +4660,14 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         ctx.strokeStyle = 'rgba(160,190,220,0.14)'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(pad.l, base + 0.5); ctx.lineTo(pad.l + pw, base + 0.5); ctx.stroke();
 
-        // 基準行の実測値（緑の中空リング）。文章での対比の代わりに位置で見せる。
-        if (seed && isFinite(seed.y) && seed.y >= lo && seed.y <= hi) {
-            ctx.strokeStyle = 'rgba(47,214,142,0.75)'; ctx.lineWidth = 1.4;
-            ctx.beginPath(); ctx.arc(X(seed.y), base, 3.4, 0, Math.PI * 2); ctx.stroke();
-        }
-
-        // 触る前の予測をゴーストの縦線で残す。現在値との距離がそのまま「動かした効果」になる。
-        if (Number.isFinite(SIM.basePred) && SIM.basePred >= lo && SIM.basePred <= hi
-            && Math.abs(SIM.basePred - p) > 1e-12) {
-            ctx.setLineDash([2, 3]); ctx.strokeStyle = 'rgba(160,190,220,0.45)'; ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(X(SIM.basePred), top - 2); ctx.lineTo(X(SIM.basePred), base); ctx.stroke();
+        // 走査した中で応答が最小だった点（参照）
+        if (D.best && Number.isFinite(D.best.y)) {
+            const bx = X(Math.min(Math.max(D.best.y, lo), hi));
+            ctx.strokeStyle = 'rgba(47,214,142,0.85)'; ctx.lineWidth = 1.4;
+            ctx.setLineDash([2, 3]);
+            ctx.beginPath(); ctx.moveTo(bx, top - 4); ctx.lineTo(bx, base); ctx.stroke();
             ctx.setLineDash([]);
+            ctx.beginPath(); ctx.arc(bx, base, 4, 0, Math.PI * 2); ctx.stroke();
         }
 
         if (!Number.isFinite(p)) return;
@@ -4669,145 +4679,21 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             bg.addColorStop(1, `rgba(${acc},0.02)`);
             ctx.fillStyle = bg; ctx.fillRect(b0, top - 6, Math.max(2, b1 - b0), base - top + 6);
         }
-        ctx.strokeStyle = `rgba(${acc},0.9)`; ctx.lineWidth = 1.6;
+        ctx.strokeStyle = `rgba(${acc},0.9)`; ctx.lineWidth = 1.8;
         ctx.beginPath(); ctx.moveTo(X(cl), top - 6); ctx.lineTo(X(cl), base); ctx.stroke();
         ctx.fillStyle = `rgb(${acc})`; ctx.shadowColor = `rgba(${acc},0.7)`; ctx.shadowBlur = 8;
-        ctx.beginPath(); ctx.arc(X(cl), top - 6, 3.4, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
-        if (p < lo || p > hi) {
-            const dir = p < lo ? -1 : 1, ax = p < lo ? pad.l + 2 : pad.l + pw - 2;
-            ctx.beginPath(); ctx.moveTo(ax + dir * 5, base - 7);
-            ctx.lineTo(ax, base - 11); ctx.lineTo(ax, base - 3); ctx.closePath();
-            ctx.fillStyle = `rgba(${acc},0.9)`; ctx.fill();
-        }
+        ctx.beginPath(); ctx.arc(X(cl), top - 6, 4, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
 
-        // 軸ラベルは置かず、数値だけ3つ
         ctx.fillStyle = 'rgba(122,140,166,0.62)'; ctx.font = '9px system-ui, sans-serif';
         ctx.textBaseline = 'top';
         ctx.textAlign = 'left';  ctx.fillText(simFmt(lo), pad.l, base + 5);
         ctx.textAlign = 'right'; ctx.fillText(simFmt(hi), pad.l + pw, base + 5);
-        ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(122,140,166,0.38)';
-        ctx.fillText(simFmt(SIM.yHist.p50), X(SIM.yHist.p50), base + 5);
-        cv.title = t('sim.histTitle', { target: SIM.target, n: SIM.yHist.n });
+        cv.title = t('sim.distTitle', { n: D.n })
+                 + (D.best ? '\n' + t('sim.tipBest', { v: simFmt(D.best.y) }) : '');
     }
 
-    // 近傍リング + フラグ。件数は数字ひとつ、状態は色とリングの欠けで表す。
-    function simRenderStatus() {
-        const N = SIM.neighbor;
-        let n = null;
-        if (N && N.cols && N.cols.length && Array.isArray(N.rows) && N.rows.length) {
-            const z = N.cols.map((c, j) => {
-                const s = SIM.specBy[c];
-                const v = (SIM.state[c] !== undefined) ? SIM.state[c] : (s ? s.median : N.mean[j]);
-                return (v - N.mean[j]) / (N.std[j] || 1);
-            });
-            n = 0;
-            for (const r of N.rows) {
-                let acc = 0;
-                for (let k = 0; k < z.length; k++) { const d = r[k] - z[k]; acc += (N.weight[k] || 1) * d * d; }
-                if (Math.sqrt(acc) <= N.radius) n++;
-            }
-        }
-        const cv = simEl('simRingCanvas'), S = 32;
-        const ctx = simHdpi(cv, S, S), cx = S / 2, cy = S / 2, rad = 11;
-        ctx.strokeStyle = 'rgba(160,190,220,0.13)'; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
-        const K = (N && N.k) ? N.k : 10;
-        const frac = n == null ? 0 : Math.min(1, n / K);
-        const col = n == null ? '122,140,166' : n === 0 ? '239,92,92' : n < 3 ? '240,169,78' : '47,214,142';
-        if (frac > 0) {
-            ctx.strokeStyle = `rgb(${col})`; ctx.lineWidth = 3; ctx.lineCap = 'round';
-            ctx.shadowColor = `rgba(${col},0.5)`; ctx.shadowBlur = 6;
-            ctx.beginPath(); ctx.arc(cx, cy, rad, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2); ctx.stroke();
-            ctx.shadowBlur = 0;
-        }
-        ctx.fillStyle = `rgb(${col})`; ctx.font = '600 11px system-ui, sans-serif';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(n == null ? '—' : String(n), cx, cy + 0.5);
-        cv.title = n == null ? t('sim.ringUnavailable') : t('sim.ringTitle', { n: n });
-
-        const host = simEl('simFlags'); host.innerHTML = '';
-        const ex = [], st = [];
-        for (const s of simSpecs()) {
-            if (s.kind !== 'numeric') continue;
-            const v = SIM.state[s.col];
-            if (simIsExtrap(s, v)) ex.push(s.col);
-            if (simAtClip(s, v)) st.push(s.col);
-        }
-        const label = (arr) => arr.length === 1 ? arr[0] : arr[0] + ' +' + (arr.length - 1);
-        if (ex.length) host.appendChild(simMkFlag('on', label(ex), t('sim.flagExtrap') + '\n' + ex.join('\n')));
-        if (st.length) host.appendChild(simMkFlag('stop', label(st), t('sim.flagSaturated') + '\n' + st.join('\n')));
-    }
-    function simMkFlag(cls, text, tip) {
-        const d = document.createElement('span');
-        d.className = 'sim-flag ' + cls;
-        const i = document.createElement('i');
-        d.appendChild(i); d.appendChild(document.createTextNode(text));
-        d.title = tip;
-        return d;
-    }
-
-    // 感度スパークライン: その列だけを振ったときの予測カーブ。単調なのか山型なのか
-    // ほぼ平坦なのかが一目で分かるため、「1変数だけ動かす」ことの意味が伝わる。
-    // ドラッグ中は再計算せず、操作が終わってから rAF に分散して描く。
-    function simScheduleSparks() {
-        clearTimeout(SIM.sparkTimer);
-        SIM.sparkTimer = setTimeout(() => {
-            const rows = [...document.querySelectorAll('.sim-row')];
-            let i = 0;
-            const step = () => {
-                const end = Math.min(rows.length, i + 4);
-                for (; i < end; i++) simDrawSpark(rows[i]);
-                if (i < rows.length) requestAnimationFrame(step);
-            };
-            requestAnimationFrame(step);
-        }, 60);
-    }
-    function simDrawSpark(row) {
-        const col = row.dataset.col, s = SIM.specBy[col];
-        const cv = row.querySelector('.sim-spark');
-        if (!cv || !s) return;
-        const w = 40, h = 26;
-        const pts = [];
-        if (s.kind === 'numeric') {
-            const [lo, hi] = simRange(s);
-            for (let k = 0; k <= 20; k++) {
-                const v = lo + (hi - lo) * k / 20;
-                pts.push({ t: k / 20, y: simPredict(Object.assign({}, SIM.state, { [col]: v })) });
-            }
-        } else {
-            const lv = s.levels || [];
-            lv.forEach((l, k) => pts.push({
-                t: lv.length > 1 ? k / (lv.length - 1) : 0.5,
-                y: simPredict(Object.assign({}, SIM.state, { [col]: l.value })) }));
-        }
-        const ys = pts.map(p => p.y).filter(Number.isFinite);
-        if (!ys.length) return;
-        const ctx = simHdpi(cv, w, h);
-        let mn = Math.min(...ys), mx = Math.max(...ys);
-        const flat = (mx - mn) < (SIM.rmse != null ? SIM.rmse : 1) * 0.15;
-        if (mx - mn < 1e-9) { mn -= 1; mx += 1; }
-        const X = (tt) => 2 + tt * (w - 4), Y = (v) => h - 3 - ((v - mn) / (mx - mn)) * (h - 7);
-        ctx.beginPath(); simCurve(ctx, pts.map(p => ({ x: X(p.t), y: Y(p.y) })));
-        ctx.strokeStyle = flat ? 'rgba(122,140,166,0.25)' : 'rgba(63,196,236,0.6)';
-        ctx.lineWidth = 1.2; ctx.stroke();
-        let ct;
-        if (s.kind === 'numeric') { const [lo, hi] = simRange(s); ct = (SIM.state[col] - lo) / ((hi - lo) || 1); }
-        else {
-            const lv = s.levels || [], k = lv.findIndex(l => l.value === SIM.state[col]);
-            ct = lv.length > 1 ? Math.max(0, k) / (lv.length - 1) : 0.5;
-        }
-        const cur = simPredict(SIM.state);
-        if (Number.isFinite(cur)) {
-            ctx.fillStyle = flat ? 'rgba(122,140,166,0.45)' : '#f0a94e';
-            ctx.beginPath(); ctx.arc(X(ct), Y(cur), 2, 0, Math.PI * 2); ctx.fill();
-        }
-        cv.title = flat ? t('sim.sparkFlat', { col: col })
-                        : t('sim.sparkRange', { col: col, lo: simFmt(mn), hi: simFmt(mx) });
-    }
-
-    // 出発点は「yが中位の実データ行」に固定する。全列中央値の合成行は相関のある
-    // データでは実在しない組み合わせになりうるため、実データ1行を使う方針は維持しつつ、
-    // どれを起点にするかの選択はユーザーに見せない(意味が伝わらず操作の邪魔になるため)。
+    // 出発点は「目的変数が中位の実データ行」に固定する。全列中央値の合成行は相関のある
+    // データでは実在しない組み合わせになりうるため、実データ1行を使う方針は維持する。
     function simPickSeedLabel() {
         for (const want of ['median', 'high', 'low', 'random']) {
             if (SIM.seeds.some(s => s.label === want)) return want;
@@ -4818,7 +4704,6 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
     function simRenderAll() {
         if (!SIM.ready) return;
         simRenderSliders();
-        simRenderChips();
         simRenderPrediction();
         simRenderLegend();
         simEl('simFoot').textContent = t('sim.footNote');
@@ -4829,10 +4714,9 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
     function simRenderLegend() {
         const host = simEl('simLegend');
         const items = [
-            ['', '▲', 'sim.lgThumb'], ['warn', '◆', 'sim.lgExtrap'], ['bad', '■', 'sim.lgClip'],
-            ['', '○', 'sim.lgGhost'], ['good', '○', 'sim.lgActual'], ['warn', '▌', 'sim.lgChanged'],
-            ['', '▁▃▅', 'sim.lgDensity'], ['', '╱', 'sim.lgSpark'], ['', '◍', 'sim.lgRing'],
-            ['', '▓', 'sim.lgBand'],
+            ['', '●', 'sim.lgThumb'], ['warn', '◆', 'sim.lgExtrap'], ['bad', '■', 'sim.lgClip'],
+            ['', '○', 'sim.lgGhost'], ['warn', '▌', 'sim.lgChanged'], ['', '▁▃▅', 'sim.lgDensity'],
+            ['good', '○', 'sim.lgBest'], ['', '▓', 'sim.lgBand'],
         ];
         host.innerHTML = '';
         for (const [cls, mk, key] of items) {
@@ -4853,7 +4737,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         simEl('simSubtitle').textContent = t('sim.subtitle', { target: SIM.target });
         requestAnimationFrame(() => {
             simRenderAll();
-            requestAnimationFrame(() => { simRefreshSliders(); simRenderPrediction(); simScheduleSparks(); });
+            requestAnimationFrame(() => { simRefreshSliders(); simRenderPrediction(); });
         });
     }
     function simClose() {
@@ -4871,17 +4755,11 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         simEl('simLegendBtn').classList.toggle('on', open);
         if (open) requestAnimationFrame(() => { simRefreshSliders(); simRenderPrediction(); });
     });
-    simEl('simExpandBtn').addEventListener('click', () => {
-        const all = SIM.visible.length >= simSpecs().length;
-        SIM.visible = (all ? simSpecs().slice(0, SIM_DEFAULT_SLIDERS) : simSpecs()).map(s => s.col);
-        simRenderAll();
-    });
     simEl('simLinkBtn').addEventListener('click', () => {
         SIM.linkMode = !SIM.linkMode;
         simEl('simLinkBtn').classList.toggle('on', SIM.linkMode);
-        simRefreshSliders(); simScheduleSparks();
+        simRefreshSliders();
     });
-    simEl('simChipFilter').addEventListener('input', simRenderChips);
     simEl('simSaveBtn').addEventListener('click', () => {
         const cols = simSpecs().map(s => s.col);
         const esc = (v) => {
