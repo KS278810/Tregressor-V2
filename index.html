@@ -752,6 +752,8 @@
         }
         .sim-pill:hover { color: var(--ink-dim); border-color: rgba(63,196,236,0.3); }
         .sim-pill.on { background: rgba(63,196,236,0.13); border-color: rgba(63,196,236,0.55); color: var(--cyan); }
+        /* 最適点で選ばれていた水準（数値列のレール上の緑の印と同じ意味） */
+        .sim-pill.best { box-shadow: inset 0 -2px 0 rgba(47,214,142,0.9); }
         /* 固定列は1行に収めて横スクロール（縦を増やさない） */
         .sim-chiprow { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding-top: 7px; border-top: 1px solid rgba(255,255,255,0.04); }
         .sim-fixedlbl { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-faint); letter-spacing: 0.1em; flex: none; }
@@ -1062,6 +1064,7 @@
         <div class="sim-left">
             <div class="sim-toolbar">
                 <button class="sim-iconbtn" id="simResetBtn" data-i18n-title="sim.resetTitle" title="最初の値に戻す">↺</button>
+                <button class="sim-iconbtn" id="simBestBtn" data-i18n-title="sim.bestTitle" title="応答が最小だった点にスライダーを合わせる">★</button>
                 <button class="sim-iconbtn" id="simLinkBtn" data-i18n-title="sim.linkTitle" title="相関する列を連動させる">⇄</button>
             </div>
             <div id="simSliders" class="sim-sliders"></div>
@@ -1764,6 +1767,8 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             // ③ SIMULATE(What-ifスライダー・Web版のみ)。sim.tip*/sim.*Title は画面には
             // 出さず title 属性にだけ入る文言(「見れば分かる」表示にするため、説明は
             // ホバー時にだけ現れる)。画面に出るのは列名・数値・FIXED n だけ。
+            'sim.bestTitle': '応答が最小だった点にスライダーを合わせる',
+            'sim.lgBestVar': '緑の印＝最適点でのその変数の値',
             'sim.tipBest': '走査した中で応答が最小だった点: {{v}}',
             'sim.distTitle': '入力空間をSobol列で {{n}} 点走査したときの応答の分布',
             'sim.lgBest': '緑の丸＝応答が最小だった点',
@@ -1778,7 +1783,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             'sim.lgGhost': '中空の丸＝相関する変数から見た自然な値',
             'sim.lgActual': '緑の丸＝基準行の実測値',
             'sim.lgChanged': '左の縦線＝動かした変数（列名クリックで戻す）',
-            'sim.lgDensity': '山＝学習データの多さ',
+            'sim.lgDensity': '山＝応答が良い上位10%が集まる位置',
             'sim.lgSpark': '折れ線＝その変数だけ動かしたときの変化',
             'sim.lgRing': 'リング＝似た実データの件数',
             'sim.lgBand': '帯＝予測の誤差範囲(±RMSE)',
@@ -2051,6 +2056,8 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         en: {
             'common.listSep': ', ',
 
+            'sim.bestTitle': 'Move the sliders to the point with the lowest response',
+            'sim.lgBestVar': 'Green mark = value of that variable at the best point',
             'sim.tipBest': 'Lowest response found while scanning: {{v}}',
             'sim.distTitle': 'Response distribution over {{n}} Sobol points in the input space',
             'sim.lgBest': 'Green circle = point with the lowest response',
@@ -2065,7 +2072,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             'sim.lgGhost': 'Hollow circle = value implied by a correlated variable',
             'sim.lgActual': 'Green circle = actual value of the reference row',
             'sim.lgChanged': 'Left bar = moved variable (click the name to revert)',
-            'sim.lgDensity': 'Hill = where the training data is dense',
+            'sim.lgDensity': 'Hill = where the best 10% of responses cluster',
             'sim.lgSpark': 'Line = effect of moving that variable alone',
             'sim.lgRing': 'Ring = number of similar real rows',
             'sim.lgBand': 'Band = prediction error range (±RMSE)',
@@ -4233,8 +4240,11 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         // 係数ビット列は x^deg と定数項1を除いた中間項（Sobol の慣例）。
         const out = [[0, 0]];                       // 1次元目は特別扱い（多項式なし）
         for (let deg = 1; out.length < n && deg <= 20; deg++) {
-            for (let a = 0; a < (1 << deg) && out.length < n; a++) {
-                // 多項式 x^deg + a_{deg-1}x^{deg-1} + ... + 1
+            // 多項式は x^deg + a_1 x^(deg-1) + ... + a_(deg-1) x + 1。
+            // 最高次と定数項は常に1なので、動かせる中間係数は (deg-1) ビットしかない。
+            // ここを deg ビットで回すと同じ多項式を二重に拾い、
+            // 別の次元に同一の方向数＝同一の列を割り当ててしまう。
+            for (let a = 0; a < (1 << (deg - 1)) && out.length < n; a++) {
                 const poly = (1 << deg) | (a << 1) | 1;
                 if (simIsPrimitive(poly, deg)) out.push([deg, a]);
             }
@@ -4270,103 +4280,186 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         }
         return true;
     }
-    // dim 次元・n 点の Sobol 列を [0,1) で返す（先頭の 0 点は捨てる）
-    function simSobol(dim, n) {
+    // dim 次元・n 点の Sobol 列を1点ずつ cb に渡す（配列を作り置きしない）。
+    // 点数を増やしても記憶域が増えないので、大きな n でも安全に走査できる。
+    // 決定的な列なので、同じ (dim, n) で何度呼んでも同じ点が同じ順で出る。
+    function simSobolEach(dim, n, cb) {
         const BITS = 30;
         const polys = simPrimitivePolys(dim);
         const V = [];                                    // V[j][k] : 方向数
         for (let j = 0; j < dim; j++) {
             const [deg, a] = polys[j] || [1, 0];
-            const v = new Array(BITS).fill(0);
+            const v = new Int32Array(BITS);
             if (j === 0) {
                 for (let k = 0; k < BITS; k++) v[k] = 1 << (BITS - 1 - k);
             } else {
-                const m = new Array(BITS).fill(1);       // m_k = 1 で初期化
-                for (let k = deg; k < BITS; k++) {
-                    let val = m[k - deg] ^ (m[k - deg] << deg);
-                    for (let i = 1; i < deg; i++) {
-                        if ((a >> (deg - 1 - i)) & 1) val ^= (m[k - i] << i);
-                    }
-                    m[k] = val >>> 0;
+                // 初期値 m_k は「2^(k+1) 未満の奇数」なら何でも良い。全て1にすると
+                // 次元数が増えたときに方向数が似通い、次元どうしが強く相関する。
+                // 次元ごとに決まった疑似乱数で奇数を選び、再現性を保ったまま相関を断つ。
+                let seed = ((j + 1) * 2654435761) >>> 0;
+                for (let k = 0; k < deg; k++) {
+                    seed = (seed * 1664525 + 1013904223) >>> 0;
+                    const m = ((seed >>> 8) % (1 << k)) * 2 + 1;   // 2^(k+1) 未満の奇数
+                    v[k] = (m << (BITS - 1 - k)) | 0;
                 }
-                for (let k = 0; k < BITS; k++) v[k] = (m[k] << (BITS - 1 - k)) >>> 0;
+                // 漸化式は m ではなく V の形で回す。m の形だと (m << deg) が 32bit を
+                // 超えて壊れ、次数の大きい高次元で方向数が破綻する（次元どうしが
+                // ほぼ一次従属になるのを実測した）。
+                for (let k = deg; k < BITS; k++) {
+                    let val = v[k - deg] ^ (v[k - deg] >>> deg);
+                    for (let q = 1; q < deg; q++) {
+                        if ((a >>> (deg - 1 - q)) & 1) val ^= v[k - q];
+                    }
+                    v[k] = val | 0;
+                }
             }
             V.push(v);
         }
-        const out = [], x = new Array(dim).fill(0);
+        const SCALE = Math.pow(2, BITS);
+        // 次元ごとの digital shift（XOR）。各次元の層別＝1次元の一様性は保ったまま、
+        // 次元どうしの見かけの相関を断つ。値は決め打ちの疑似乱数なので毎回同じ列になる。
+        const SHIFT = new Int32Array(dim);
+        for (let j = 0, sd = 0x9e3779b9; j < dim; j++) {
+            sd = (sd * 1664525 + 1013904223) >>> 0;
+            SHIFT[j] = (sd >>> (32 - BITS));
+        }
+        const x = new Int32Array(dim), p = new Float64Array(dim);
         for (let i = 1; i <= n; i++) {
             let c = 0, t = i;
-            while (t & 1) { t >>= 1; c++; }              // 最下位の 0 ビット位置（gray code）
-            const p = new Array(dim);
+            while (t & 1) { t >>= 1; c++; }
             for (let j = 0; j < dim; j++) {
-                x[j] = (x[j] ^ V[j][c]) >>> 0;
-                p[j] = x[j] / Math.pow(2, BITS);
+                x[j] = (x[j] ^ V[j][c]);
+                p[j] = ((x[j] ^ SHIFT[j]) >>> 0) / SCALE;
             }
-            out.push(p);
+            if (cb(p, i - 1) === false) return;
         }
+    }
+    // 配列で欲しい場合の薄いラッパー（テスト・少点数用）。走査本体は simSobolEach。
+    function simSobol(dim, n) {
+        const out = [];
+        simSobolEach(dim, n, (p) => { out.push(Array.prototype.slice.call(p)); return true; });
         return out;
     }
 
-    // 入力空間を Sobol 列で走査し、予測値の分布と「応答が最小の点」を求める。
-    // スライダーの操作とは独立なので、学習結果ごとに1度だけ計算する。
     // 走査点数は変数の数で決める。
     //   ・Sobol 列は 2 のべき乗点で等分布性が最良になるため、常に 2^k にする
-    //   ・1変数あたり 128 点を目安にする(応答のヒストグラムの形が安定し、
-    //     1次元ごとの層別も十分細かくなる本数)
-    //   ・下限 512 / 上限 4096。変数が増えるほど空間は指数的に広がるので、
+    //   ・1変数あたり 512 点を目安にする
+    //   ・下限 2048 / 上限 32768。変数が増えるほど空間は指数的に広がるので、
     //     これは「最適化」ではなく「粗い走査」であることを前提とした上限
-    // 例: 1変数→512 / 5変数→1024 / 10変数→2048 / 20変数以上→4096
-    const SIM_SOBOL_PER_DIM = 128, SIM_SOBOL_MIN = 512, SIM_SOBOL_MAX = 4096;
-    const SIM_SOBOL_BUDGET_MS = 400;      // 走査にかけてよい時間の目安
+    // 例: 1変数→2048 / 5変数→4096 / 10変数→8192 / 20変数→16384 / 50変数→32768
+    const SIM_SOBOL_PER_DIM = 512, SIM_SOBOL_MIN = 2048, SIM_SOBOL_MAX = 32768;
+    const SIM_SOBOL_BUDGET_MS = 1500;     // 走査にかけてよい時間の目安（学習直後の1回だけ）
+    const SIM_TOP_FRAC = 0.10;            // 「応答が良い上位」の割合
+    const SIM_VAR_BINS = 28;              // スライダー上の分布のビン数
     function simSobolCount(d) {
         let n = SIM_SOBOL_MIN;
         while (n < SIM_SOBOL_PER_DIM * d && n < SIM_SOBOL_MAX) n *= 2;
         return n;
     }
+
+    // 入力空間を Sobol 列で走査し、
+    //   ・応答の分布（右のグラフ）
+    //   ・応答が最小だった点（＝最適点。各スライダーにも位置を出す）
+    //   ・応答が良い上位10%の点における各変数の分布（＝スライダー上の山）
+    // を求める。スライダー操作とは独立なので、学習ごとに1度だけ計算する。
+    //
+    // スライダー上の山を「学習データの分布」や「走査点そのものの分布」にしない理由:
+    // 走査点は設計上ほぼ一様なので描いても平らになるだけで情報がない。
+    // 良い応答を出した点だけに絞ると「その変数をどのあたりに置くと良いか」が見える。
     function simBuildResponseDist() {
         const specs = simSpecs();
         if (!specs.length || !SIM.model) { SIM.dist = null; return; }
-        let n = simSobolCount(specs.length);
-        const pts = simSobol(specs.length, n);
-        const vals = [];
-        let best = null;
-        const t0 = (performance && performance.now) ? performance.now() : Date.now();
-        for (let i = 0; i < pts.length; i++) {
-            // 重いモデル(木が多いblend等)で画面が固まらないよう、最初の64点で
-            // 所要時間を見積もり、予算を超えるなら点数を2のべき乗のまま減らす
-            if (i === 64) {
-                const el = ((performance && performance.now) ? performance.now() : Date.now()) - t0;
-                const projected = el / 64 * n;
-                if (projected > SIM_SOBOL_BUDGET_MS) {
-                    let m = n;
-                    while (m > 256 && el / 64 * m > SIM_SOBOL_BUDGET_MS) m /= 2;
-                    n = m;
-                    if (i >= n) break;
-                }
-            }
-            if (i >= n) break;
+        const d = specs.length;
+        let n = simSobolCount(d);
+
+        // 走査点 → 各変数の値（数値は min..max、カテゴリは水準番号）
+        const toState = (p) => {
             const st = {};
-            for (let j = 0; j < specs.length; j++) {
-                const s = specs[j], u = pts[i][j];
-                if (s.kind === 'numeric') {
-                    st[s.col] = s.min + (s.max - s.min) * u;
-                } else {
+            for (let j = 0; j < d; j++) {
+                const s = specs[j], u = p[j];
+                if (s.kind === 'numeric') st[s.col] = s.min + (s.max - s.min) * u;
+                else {
                     const lv = s.levels || [];
                     st[s.col] = lv.length ? lv[Math.min(lv.length - 1, Math.floor(u * lv.length))].value : s.mode;
                 }
             }
+            return st;
+        };
+
+        // ── 1周目: 応答を計算する（入力は保持しない＝点数を増やしても記憶域が増えない）
+        const now = () => (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const t0 = now();
+        let ys = new Float64Array(n), cnt = 0, best = null;
+        simSobolEach(d, n, (p, i) => {
+            // 重いモデルで画面が固まらないよう、最初の128点で所要時間を見積もり、
+            // 予算を超えるなら2のべき乗のまま点数を落とす
+            if (i === 128) {
+                const projected = (now() - t0) / 128 * n;
+                if (projected > SIM_SOBOL_BUDGET_MS) {
+                    let m = n;
+                    while (m > 512 && (now() - t0) / 128 * m > SIM_SOBOL_BUDGET_MS) m /= 2;
+                    n = m;
+                }
+            }
+            if (i >= n) return false;
+            const st = toState(p);
             const y = simPredict(st);
-            vals.push(y);
+            ys[cnt++] = y;
             if (Number.isFinite(y) && (best === null || y < best.y)) best = { y: y, state: st };
-        }
-        const fin = vals.filter(Number.isFinite);
+            return true;
+        });
+        ys = ys.subarray(0, cnt);
+        const fin = Array.prototype.filter.call(ys, Number.isFinite);
         if (!fin.length) { SIM.dist = null; return; }
+
+        // 応答のヒストグラム
         const lo = Math.min(...fin), hi0 = Math.max(...fin);
         const hi = hi0 > lo ? hi0 : lo + Math.max(Math.abs(lo) * 1e-6, 1e-6);
-        const nb = Math.min(40, Math.max(12, Math.round(Math.sqrt(fin.length))));
+        const nb = Math.min(40, Math.max(16, Math.round(Math.sqrt(fin.length))));
         const counts = new Array(nb).fill(0), bwid = (hi - lo) / nb;
         for (const v of fin) { let b = Math.floor((v - lo) / bwid); if (b >= nb) b = nb - 1; if (b < 0) b = 0; counts[b]++; }
-        SIM.dist = { lo: lo, hi: hi, counts: counts, n: fin.length, best: best };
+
+        // 応答が良い（小さい）上位 SIM_TOP_FRAC の閾値
+        const sorted = Array.prototype.slice.call(fin).sort((a, b) => a - b);
+        const k = Math.max(1, Math.round(sorted.length * SIM_TOP_FRAC));
+        const thr = sorted[k - 1];
+        // 同値が多いと(応答が一定のモデルなど)閾値との大小比較だけでは全点が
+        // 「上位」になってしまう。閾値と同じ値は先着で打ち切り、常に約10%だけ選ぶ。
+        let quotaTies = k;
+        for (const v of sorted) { if (v < thr) quotaTies--; else break; }
+
+        // ── 2周目: 同じ列をもう一度たどり、上位の点だけで各変数の分布を作る
+        //    （Sobol 列は決定的なので、入力を保存しなくても再現できる）
+        const varHist = {}, varLevels = {};
+        for (const s of specs) {
+            if (s.kind === 'numeric') varHist[s.col] = new Array(SIM_VAR_BINS).fill(0);
+            else varLevels[s.col] = {};
+        }
+        let topN = 0, idx = 0;
+        simSobolEach(d, n, (p) => {
+            const y = ys[idx++];
+            if (!Number.isFinite(y) || y > thr) return true;
+            if (y === thr) { if (quotaTies <= 0) return true; quotaTies--; }
+            topN++;
+            for (let j = 0; j < d; j++) {
+                const s = specs[j], u = p[j];
+                if (s.kind === 'numeric') {
+                    let b = Math.floor(u * SIM_VAR_BINS);
+                    if (b >= SIM_VAR_BINS) b = SIM_VAR_BINS - 1; if (b < 0) b = 0;
+                    varHist[s.col][b]++;
+                } else {
+                    const lv = s.levels || [];
+                    if (!lv.length) continue;
+                    const v = lv[Math.min(lv.length - 1, Math.floor(u * lv.length))].value;
+                    varLevels[s.col][v] = (varLevels[s.col][v] || 0) + 1;
+                }
+            }
+            return true;
+        });
+
+        SIM.dist = { lo: lo, hi: hi, counts: counts, n: fin.length, best: best,
+                     thr: thr, topN: topN, topFrac: SIM_TOP_FRAC,
+                     varHist: varHist, varLevels: varLevels };
     }
 
     // ── 基準行との差分 ────────────────────────────────────────────────────────
@@ -4488,13 +4581,16 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         const railY = h - 8;
         const dTop = 2, dBot = railY - 7;   // 密度カーブを描く帯（レールの上）
 
-        // ① 学習データの密度（背景・控えめ）。裾が薄くなる形が「データが無い」の合図。
-        const hs = simSmooth3(s.hist || []), mx = Math.max(...hs, 1);
-        const bw = ((s.hist_hi - s.hist_lo) || 1) / Math.max(1, (s.hist || []).length);
+        // ① 応答が良かった上位10%の点における、この変数の分布（背景・控えめ）。
+        //    山が高いところに置くほど良い応答が出やすい、という読み方になる。
+        //    走査点そのものは設計上ほぼ一様なので、描いても平らになるだけで意味がない。
+        const src = (SIM.dist && SIM.dist.varHist && SIM.dist.varHist[col]) || s.hist || [];
+        const hs = simSmooth3(src), mx = Math.max(...hs, 1);
+        const bw = ((s.max - s.min) || 1) / Math.max(1, src.length);
         if (hs.length) {
-            const pts = hs.map((c, i) => ({ x: X(s.hist_lo + bw * (i + 0.5)),
+            const pts = hs.map((c, i) => ({ x: X(s.min + bw * (i + 0.5)),
                                             y: dBot - (c / mx) * (dBot - dTop) }));
-            pts.unshift({ x: X(s.hist_lo), y: dBot }); pts.push({ x: X(s.hist_hi), y: dBot });
+            pts.unshift({ x: X(s.min), y: dBot }); pts.push({ x: X(s.max), y: dBot });
             ctx.beginPath(); simCurve(ctx, pts);
             ctx.lineTo(pts[pts.length - 1].x, dBot); ctx.lineTo(pts[0].x, dBot); ctx.closePath();
             ctx.fillStyle = 'rgba(63,196,236,0.10)'; ctx.fill();
@@ -4538,6 +4634,21 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                 ctx.moveTo(gx, railY); ctx.lineTo(tx, railY); ctx.stroke(); ctx.setLineDash([]);
             }
             ctx.beginPath(); ctx.arc(gx, railY, 3, 0, Math.PI * 2); ctx.stroke();
+        }
+
+        // ⑤ 走査の中で応答が最小だった点（最適点）における、この変数の値。
+        //    右のグラフの緑の印と同じ点を指しているので、両者の対応がとれる。
+        const bstate = SIM.dist && SIM.dist.best && SIM.dist.best.state;
+        if (bstate && bstate[col] !== undefined) {
+            const bvv = Number(bstate[col]);
+            if (Number.isFinite(bvv)) {
+                const bxx = X(Math.min(Math.max(bvv, lo), hi));
+                ctx.strokeStyle = 'rgba(47,214,142,0.85)'; ctx.lineWidth = 1.4;
+                ctx.beginPath(); ctx.moveTo(bxx, railY - 9); ctx.lineTo(bxx, railY + 9); ctx.stroke();
+                ctx.fillStyle = 'rgba(47,214,142,0.95)';
+                ctx.beginPath(); ctx.moveTo(bxx, railY - 9); ctx.lineTo(bxx - 3, railY - 13);
+                ctx.lineTo(bxx + 3, railY - 13); ctx.closePath(); ctx.fill();
+            }
         }
 
         // ⑤ つまみ。まず背景色で抜いてレールから浮かせ、その上に色を乗せる。
@@ -4602,7 +4713,12 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                 row.title = tips.join(SIM_ROW_TIPS_SEP);
                 simDrawTrack(row);
             } else {
-                row.querySelectorAll('.sim-pill').forEach(p => p.classList.toggle('on', p.dataset.v === v));
+                const bs = SIM.dist && SIM.dist.best && SIM.dist.best.state;
+                row.querySelectorAll('.sim-pill').forEach(p => {
+                    p.classList.toggle('on', p.dataset.v === v);
+                    // 最適点で選ばれていた水準に印（数値列の緑の印と同じ意味）
+                    p.classList.toggle('best', !!bs && String(bs[col]) === p.dataset.v);
+                });
                 row.title = t('sim.tipValueCat', { col: col, v: v, imp: s.importance_pct });
             }
         }
@@ -4730,7 +4846,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         const items = [
             ['', '●', 'sim.lgThumb'], ['warn', '◆', 'sim.lgExtrap'], ['bad', '■', 'sim.lgClip'],
             ['', '○', 'sim.lgGhost'], ['warn', '▌', 'sim.lgChanged'], ['', '▁▃▅', 'sim.lgDensity'],
-            ['good', '○', 'sim.lgBest'], ['', '▓', 'sim.lgBand'],
+            ['good', '○', 'sim.lgBest'], ['good', '▲', 'sim.lgBestVar'], ['', '▓', 'sim.lgBand'],
         ];
         host.innerHTML = '';
         for (const [cls, mk, key] of items) {
@@ -4763,6 +4879,17 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
     });
 
     simEl('simResetBtn').addEventListener('click', simResetAll);
+    // 各スライダーに出ている緑の印（最適点）へ一気に合わせる。
+    // 印の位置と応答値の対応を、実際に動かして確かめられるようにするため。
+    simEl('simBestBtn').addEventListener('click', () => {
+        const b = SIM.dist && SIM.dist.best;
+        if (!b || !b.state) return;
+        for (const sp of simSpecs()) {
+            if (b.state[sp.col] === undefined) continue;
+            SIM.state[sp.col] = b.state[sp.col];
+        }
+        simRenderSliders(); simRenderPrediction();
+    });
     simEl('simLegendBtn').addEventListener('click', () => {
         const lg = simEl('simLegend');
         const open = lg.classList.toggle('open');
