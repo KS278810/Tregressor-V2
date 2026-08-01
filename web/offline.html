@@ -626,9 +626,39 @@
            --ink-dim/--ink-faint/--hairline)だけを使い、他画面とのトーンを揃える。
            変数が多い場合に備え、スライダー1本=1行26pxに圧縮したうえで左ペインを
            可変列グリッドにし、右の予測パネルは sticky で常に視界に残す。 */
+        /* 全画面オーバーレイ。①〜④のワークフローの上に重ね、スライダーと分布を
+           同時に見られる縦横を確保する（タブ内では縦が足りず体験が成立しない）。 */
+        #simulateOverlay {
+            position: fixed; inset: 0; z-index: 60;
+            background: rgba(4, 6, 12, 0.82); backdrop-filter: blur(3px);
+            display: flex; align-items: center; justify-content: center; padding: 22px;
+        }
+        #simulatePanel {
+            width: 100%; height: 100%; max-width: 1500px;
+            background: #080d18; border: 1px solid rgba(63,196,236,0.22);
+            border-radius: 10px; box-shadow: 0 24px 70px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4);
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+        .sim-header {
+            flex: none; display: flex; align-items: baseline; gap: 12px;
+            padding: 11px 16px; border-bottom: 1px solid var(--hairline);
+            background: linear-gradient(90deg, rgba(63,196,236,0.09), transparent 60%);
+        }
+        .sim-title {
+            font-family: var(--font-display); font-size: 14px; letter-spacing: 0.2em;
+            color: var(--cyan); font-weight: 700;
+        }
+        .sim-subtitle { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-faint); }
+        .sim-close-btn {
+            margin-left: auto; background: transparent; border: 1px solid var(--hairline);
+            border-radius: 5px; color: var(--ink-dim); cursor: pointer;
+            width: 26px; height: 24px; font-size: 12px; line-height: 1; transition: 0.15s;
+        }
+        .sim-close-btn:hover { color: var(--bad); border-color: rgba(239,92,92,0.5); }
         .sim-grid {
-            display: grid; grid-template-columns: 1fr 320px;
+            display: grid; grid-template-columns: 1fr 360px;
             align-items: start; flex: 1; min-height: 0; overflow-y: auto;
+            padding: 12px 16px 0 16px;
         }
         .sim-left { padding: 2px 12px 8px 2px; min-width: 0; }
         .sim-toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; }
@@ -748,7 +778,11 @@
         .sim-flag.on { color: var(--gold); border-color: rgba(240,169,78,0.3); background: rgba(240,169,78,0.05); }
         .sim-flag.stop { color: var(--bad); border-color: rgba(239,92,92,0.3); background: rgba(239,92,92,0.05); }
         .sim-flag.stop i { border-radius: 1px; }
-        .sim-foot { flex: none; padding-top: 6px; font-size: 10px; color: var(--ink-faint); }
+        .sim-foot { flex: none; padding: 7px 16px; font-size: 10px; color: var(--ink-faint); border-top: 1px solid var(--hairline); }
+        /* ③ を「CSVを落とす場所」ではなく「推論をひらくボタン」として見せる（Web版） */
+        .drop-zone.sim-open-btn { cursor: pointer; }
+        .drop-zone.sim-open-btn .predict-sub-label { color: var(--cyan) !important; font-size: 13px; }
+        .drop-zone.sim-open-btn:hover { background: rgba(63,196,236,0.10); border-color: var(--cyan); }
         .sim-empty { padding: 24px 8px; text-align: center; color: var(--ink-faint); font-size: 11.5px; line-height: 1.7; }
         @media (max-width: 900px) {
             .sim-grid { grid-template-columns: 1fr; }
@@ -917,43 +951,6 @@
                             </table>
                         </div>
                     </div>
-                    <!-- ③ SIMULATE（What-ifスライダー）。Web版のみ表示され、exe版では
-                         上の predictResultSection（CSV一括予測のプレビュー）が使われる。
-                         説明文は画面に出さず title 属性に退避する方針（見れば分かる形で表現）。
-                         設計: docs/interactive-predict-design.md -->
-                    <div id="simulateSection" style="display:none;flex-direction:column;flex:1;height:0;min-height:0;">
-                        <div class="sim-grid">
-                            <div class="sim-left">
-                                <div class="sim-toolbar">
-                                    <div class="sim-seedseg" id="simSeedSeg"></div>
-                                    <button class="sim-iconbtn" id="simResetBtn" data-i18n-title="sim.resetTitle" title="基準行の値に戻す">↺</button>
-                                    <button class="sim-iconbtn" id="simExpandBtn"></button>
-                                    <button class="sim-iconbtn" id="simLinkBtn" data-i18n-title="sim.linkTitle" title="相関する列を連動させる">⇄</button>
-                                    <span class="sim-tcount" id="simTCount"></span>
-                                </div>
-                                <div id="simSliders" class="sim-sliders"></div>
-                                <div class="sim-chiprow" id="simChipRow">
-                                    <span class="sim-fixedlbl" id="simFixedLabel"></span>
-                                    <div class="sim-chipscroll" id="simChips"></div>
-                                    <input id="simChipFilter" class="sim-chipfilter" data-i18n-placeholder="sim.filterPlaceholder" placeholder="絞り込み">
-                                </div>
-                            </div>
-                            <div class="sim-right" id="simRight">
-                                <div class="sim-ptag" id="simTargetTag">PREDICTED</div>
-                                <div class="sim-pred">
-                                    <span class="sim-pnum" id="simPredVal">—</span>
-                                    <span class="sim-pband" id="simPredBand"></span>
-                                </div>
-                                <canvas id="simHistCanvas"></canvas>
-                                <div class="sim-statusrow">
-                                    <canvas id="simRingCanvas" width="0" height="0"></canvas>
-                                    <div class="sim-flags" id="simFlags"></div>
-                                    <button class="sim-iconbtn" id="simSaveBtn" data-i18n-title="sim.saveTitle" title="この1行をCSVで保存">↓</button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="sim-foot" id="simFoot"></div>
-                    </div>
                 </div>
             </div>
             <div id="detailPopup" class="detail-popup" style="display:none;">
@@ -989,6 +986,57 @@
     <div id="sbTimer" class="sb-timer" style="display:none;"></div>
     <div id="sbSavedPath" class="sb-saved-path" style="display:none;"></div>
     <div class="sb-credit" data-i18n="ui.footerCredit">© Kohei Shintani, Ph.D. · CC BY-NC 4.0</div>
+</div>
+
+<!-- ③ SIMULATE（What-ifスライダー・Web版のみ）。画面いっぱいのオーバーレイで開く。
+     タブ内に埋めると縦が足りず、スライダーと分布を同時に見るという体験が成立しないため、
+     ①〜④のワークフローからは独立した全画面ビューにしている。
+     設計: docs/interactive-predict-design.md -->
+<div id="simulateOverlay" style="display:none;">
+    <div id="simulatePanel">
+        <div class="sim-header">
+            <span class="sim-title">SIMULATE</span>
+            <span class="sim-subtitle" id="simSubtitle"></span>
+            <button id="simCloseBtn" class="sim-close-btn">✕</button>
+        </div>
+<!-- ③ SIMULATE（What-ifスライダー）。Web版のみ表示され、exe版では
+     上の predictResultSection（CSV一括予測のプレビュー）が使われる。
+     説明文は画面に出さず title 属性に退避する方針（見れば分かる形で表現）。
+     設計: docs/interactive-predict-design.md -->
+<div id="simulateSection" style="display:flex;flex-direction:column;flex:1;min-height:0;">
+    <div class="sim-grid">
+        <div class="sim-left">
+            <div class="sim-toolbar">
+                <div class="sim-seedseg" id="simSeedSeg"></div>
+                <button class="sim-iconbtn" id="simResetBtn" data-i18n-title="sim.resetTitle" title="基準行の値に戻す">↺</button>
+                <button class="sim-iconbtn" id="simExpandBtn"></button>
+                <button class="sim-iconbtn" id="simLinkBtn" data-i18n-title="sim.linkTitle" title="相関する列を連動させる">⇄</button>
+                <span class="sim-tcount" id="simTCount"></span>
+            </div>
+            <div id="simSliders" class="sim-sliders"></div>
+            <div class="sim-chiprow" id="simChipRow">
+                <span class="sim-fixedlbl" id="simFixedLabel"></span>
+                <div class="sim-chipscroll" id="simChips"></div>
+                <input id="simChipFilter" class="sim-chipfilter" data-i18n-placeholder="sim.filterPlaceholder" placeholder="絞り込み">
+            </div>
+        </div>
+        <div class="sim-right" id="simRight">
+            <div class="sim-ptag" id="simTargetTag">PREDICTED</div>
+            <div class="sim-pred">
+                <span class="sim-pnum" id="simPredVal">—</span>
+                <span class="sim-pband" id="simPredBand"></span>
+            </div>
+            <canvas id="simHistCanvas"></canvas>
+            <div class="sim-statusrow">
+                <canvas id="simRingCanvas" width="0" height="0"></canvas>
+                <div class="sim-flags" id="simFlags"></div>
+                <button class="sim-iconbtn" id="simSaveBtn" data-i18n-title="sim.saveTitle" title="この1行をCSVで保存">↓</button>
+            </div>
+        </div>
+    </div>
+    <div class="sim-foot" id="simFoot"></div>
+</div>
+    </div>
 </div>
 
 <!-- ─ 設定パネル ─ -->
@@ -1684,7 +1732,8 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             // ③ SIMULATE(What-ifスライダー・Web版のみ)。sim.tip*/sim.*Title は画面には
             // 出さず title 属性にだけ入る文言(「見れば分かる」表示にするため、説明は
             // ホバー時にだけ現れる)。画面に出るのは列名・数値・FIXED n だけ。
-            'sim.zoneReady': '変数を動かして予測を確かめる',
+            'sim.zoneReady': '▶ 推論をひらく',
+            'sim.subtitle': '変数を動かして {{target}} の予測を確かめる',
             'sim.footNote': '大量データの一括予測はデスクトップ版（exe）をご利用ください',
             'sim.resetTitle': '基準行の値に戻す',
             'sim.linkTitle': '相関する列を連動させる',
@@ -1952,7 +2001,8 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         en: {
             'common.listSep': ', ',
 
-            'sim.zoneReady': 'Move the sliders to explore predictions',
+            'sim.zoneReady': '▶ OPEN SIMULATOR',
+            'sim.subtitle': 'Move the sliders to explore predictions for {{target}}',
             'sim.footNote': 'For batch prediction on large files, use the desktop app (exe)',
             'sim.resetTitle': 'Reset to the reference row',
             'sim.linkTitle': 'Link correlated columns',
@@ -3206,6 +3256,10 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         if (e.key === 'Escape' && creditOverlay.style.display !== 'none') {
             creditOverlay.style.display = 'none';
         }
+        const simOv = document.getElementById('simulateOverlay');
+        if (e.key === 'Escape' && simOv && simOv.style.display !== 'none') {
+            simOv.style.display = 'none';
+        }
     });
     if (!IS_TAURI) {
         // Web版は WASM 単一スレッドで実行するため CPU並列数は意味を持たない → 無効化して明示する
@@ -3346,15 +3400,12 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         const tabP = document.getElementById('tabPredict');
         featureSec.style.display = (tab === 'feature') ? 'flex' : 'none';
         candidatesSec.style.display = (tab === 'candidates') ? 'flex' : 'none';
-        // 3枠目の中身は配布形態で切り替わる。exe版=CSV一括予測のプレビュー、
-        // Web版=SIMULATE(スライダー)。同じタブ位置に排他で入る。
-        const useSim = SIM.ready;
-        predictSec.style.display  = (tab === 'predict' && !useSim) ? 'flex' : 'none';
-        simulateSec.style.display = (tab === 'predict' && useSim) ? 'flex' : 'none';
+        // SIMULATE(Web版)はタブではなく全画面オーバーレイで開くため、ここでは
+        // exe版のCSV一括予測プレビューだけを扱う。
+        predictSec.style.display = (tab === 'predict') ? 'flex' : 'none';
         tabF.classList.toggle('active', tab === 'feature');
         tabC.classList.toggle('active', tab === 'candidates');
         tabP.classList.toggle('active', tab === 'predict');
-        if (tab === 'predict' && useSim) simOnShown();
     }
 
     // ── 学習結果を UI に適用 ──────────────────────────────────────────────────
@@ -3500,13 +3551,11 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         // ③ SIMULATE(Web版)は学習完了と同時に使える。exe版・エンジン未挿入・
         // UIデータ生成失敗のいずれかなら simInit が false を返し、従来どおり
         // 「予測CSVをドロップしてから予測結果タブが出る」挙動のままになる。
+        // SIMULATE はタブではなく③のボタンから全画面で開くため、
+        // 「予測結果」タブは従来どおりCSV一括予測(exe版)専用のまま隠しておく。
         const simOk = simInit(result);
-        const tabP = document.getElementById('tabPredict');
-        tabP.style.display = simOk ? '' : 'none';
-        // 同じタブ枠でも中身が違うので見出しも切り替える(SIMULATE / 予測結果)。
-        tabP.textContent = simOk ? 'SIMULATE' : t('ui.tabPredict');
-        tabP.removeAttribute('data-i18n');   // simOk時に静的i18nで上書きされないように
-        if (!simOk) tabP.setAttribute('data-i18n', 'ui.tabPredict');
+        document.getElementById('tabPredict').style.display = 'none';
+        simClose();
         showTrainedTab('feature');
         switchDashboard('trained');
         document.querySelector('.scan-line').style.animation = 'none';
@@ -3522,7 +3571,9 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             exportBtn.disabled = true; exportBtn.className = 'btn';
             deployNote.textContent = t('ui.deployBlockedNote'); deployNote.className = 'deploy-note'; deployNote.style.color = '#f87171';
         } else {
-            predictZone.className = 'drop-zone drop-predict-ready action-pulse';
+            // Web版の③は「CSVを落とす場所」ではなく「推論をひらくボタン」。
+            predictZone.className = 'drop-zone drop-predict-ready action-pulse'
+                                  + (simOk ? ' sim-open-btn' : '');
             setPredictSub(simOk ? t('sim.zoneReady') : t('ui.predictReadyHint'));
             // 学習完了直後は PREDICT のみパルス。DEPLOY は静的 ready 状態にとどめる
             exportBtn.disabled = !canDeploy(); exportBtn.className = canDeploy() ? 'btn btn-deploy-ready' : 'btn';
@@ -3918,9 +3969,9 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         if (isBusy ||
             predictZone.classList.contains('drop-zone-disabled') ||
             predictZone.classList.contains('drop-predict-blocked')) return;
-        // Web版: CSVを選ばせるのではなく SIMULATE を開く。
+        // Web版: CSVを選ばせるのではなく SIMULATE を全画面で開く。
         // 一括予測はデスクトップ版(exe)の役割とし、Web版は「触って確かめる」に振る。
-        if (SIM.ready) { showTrainedTab('predict'); return; }
+        if (SIM.ready) { simOpen(); return; }
         const fileRef = await Platform.openCsvDialog();
         if (!fileRef) return;
         handlePredictDrop(fileRef);
@@ -4549,11 +4600,24 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         simEl('simFoot').textContent = t('sim.footNote');
     }
 
-    // タブ表示直後は幅が確定していないため、表示側から明示的に呼んで再描画させる
-    function simOnShown() {
+    // ── 全画面オーバーレイの開閉 ──────────────────────────────────────────────
+    // 表示直後は幅が確定していないため、開いてから改めて描き直す。
+    function simOpen() {
         if (!SIM.ready) return;
-        requestAnimationFrame(() => { simRefreshSliders(); simRenderPrediction(); simScheduleSparks(); });
+        document.getElementById('simulateOverlay').style.display = 'flex';
+        simEl('simSubtitle').textContent = t('sim.subtitle', { target: SIM.target });
+        requestAnimationFrame(() => {
+            simRenderAll();
+            requestAnimationFrame(() => { simRefreshSliders(); simRenderPrediction(); simScheduleSparks(); });
+        });
     }
+    function simClose() {
+        document.getElementById('simulateOverlay').style.display = 'none';
+    }
+    document.getElementById('simCloseBtn').addEventListener('click', simClose);
+    document.getElementById('simulateOverlay').addEventListener('click', (e) => {
+        if (e.target === document.getElementById('simulateOverlay')) simClose();
+    });
 
     simEl('simResetBtn').addEventListener('click', () => simApplySeed(SIM.seedLabel));
     simEl('simExpandBtn').addEventListener('click', () => {
