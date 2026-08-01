@@ -284,6 +284,39 @@ chk(!!d.getElementById('deployHint'),'④に「学習後に使えます」のヒ
  chk(!/no network/i.test(html2)&&!/ネットワーク不要/.test(html2),
    '起動時の「NO NETWORK / ネットワーク不要」表示を撤去した');}
 
+
+console.log('\n[11] レイアウトの幅（jsdomは自動レイアウトしないのでCSSの数値で検算）');
+// 1行は [重要度][列名][トラック][値][感度][×] の横並び。固定要素の合計が
+// グリッド列の最小幅を食い潰すとスライダー本体が潰れて「見えない」状態になる。
+{const css=html;
+ const num=(re)=>{const m=css.match(re);return m?Number(m[1]):null;};
+ const colMin = num(/minmax\((\d+)px, 1fr\)/);
+ const nameW  = num(/\.sim-name \{[^}]*width: (\d+)px/s);
+ const valW   = num(/\.sim-val \{[^}]*width: (\d+)px/s);
+ const sparkW = num(/\.sim-spark \{ width: (\d+)px/);
+ const impW   = num(/\.sim-imp \{ width: (\d+)px/);
+ const xW     = num(/\.sim-x \{[^}]*width: (\d+)px/s);
+ const gap    = num(/\.sim-row \{[^}]*gap: (\d+)px/s);
+ const trackMin = num(/\.sim-track \{[^}]*min-width: (\d+)px/s);
+ const rowPad = 8;   // padding: 0 2px 0 6px
+ const fixed = impW + nameW + valW + sparkW + xW + gap * 5 + rowPad;
+ const track = colMin - fixed;
+ console.log(`       列最小 ${colMin}px / 固定 ${fixed}px (imp${impW}+name${nameW}+val${valW}+spark${sparkW}+x${xW}+gap${gap}x5+pad${rowPad})`);
+ console.log(`       → スライダー本体に残る幅 ${track}px (min-width ${trackMin}px)`);
+ chk(track >= trackMin, `スライダー本体が min-width(${trackMin}px) 以上を確保できる`);
+ chk(track >= 100, `スライダーとして実用的な幅がある (${track}px >= 100px)`);
+ // Canvasの描画高さとCSSの高さが食い違うと、線が切れたり隙間が出る
+ const trackH = num(/\.sim-track \{[^}]*height: (\d+)px/s);
+ const jsTrackH = num(/wrap\.clientWidth \|\| 0, h = (\d+)/);
+ chk(trackH === jsTrackH, `トラックのCSS高さ(${trackH}px)とCanvas描画高さ(${jsTrackH}px)が一致`);
+ const sparkH = num(/\.sim-spark \{ width: \d+px; height: (\d+)px/);
+ const jsSparkW = num(/const w = (\d+), h = \d+;\s*\n\s*const pts = \[\]/);
+ const jsSparkH = num(/const w = \d+, h = (\d+);\s*\n\s*const pts = \[\]/);
+ chk(sparkW === jsSparkW && sparkH === jsSparkH,
+   `感度グラフのCSS(${sparkW}x${sparkH})とCanvas(${jsSparkW}x${jsSparkH})が一致`);
+ const rowH = num(/\.sim-row \{[^}]*height: (\d+)px/s);
+ chk(rowH >= trackH, `行の高さ(${rowH}px)がトラック(${trackH}px)を収められる`);}
+
 console.log('\n[8] 画面に出る文字量');
 const shown=el('simulateSection').textContent.replace(/\s+/g,' ').trim();
 console.log('       '+JSON.stringify(shown.slice(0,150))+'...');
