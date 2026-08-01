@@ -36,7 +36,7 @@ if(!w.TextEncoder) w.TextEncoder=require('util').TextEncoder;
 Object.defineProperty(w.Element.prototype,'clientWidth',{get(){return 300;}});
 w.addEventListener('error',e=>errs.push('window.error: '+e.message));
 const code=html.match(/<script>([\s\S]*)<\/script>/)[1];
-try{w.eval(code+'\n;window.__H__={Platform:Platform,applyTrainingResult:applyTrainingResult,showTrainedTab:showTrainedTab,SIM:SIM,simSobolCount:simSobolCount,simSobol:simSobol};');}catch(e){errs.push('THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,6).join('\n'));}
+try{w.eval(code+'\n;window.__H__={Platform:Platform,applyTrainingResult:applyTrainingResult,showTrainedTab:showTrainedTab,SIM:SIM,simSobolCount:simSobolCount,simSobol:simSobol,simSobolEach:simSobolEach};');}catch(e){errs.push('THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,6).join('\n'));}
 
 console.log('[0] 埋め込みエンジン');
 chk(errs.length===0,'スクリプトが例外なく実行される'); if(errs.length){console.log(errs.join('\n'));process.exit(1);}
@@ -153,35 +153,73 @@ chk(q('.sim-row.changed')===0,'列名クリックでその変数だけ元に戻�
 
 console.log('\n[4] Sobol走査による応答分布');
 chk(!!H.SIM.dist,'応答分布が作られている');
-{const isPow2=x=>x>0&&(x&(x-1))===0;
- chk(isPow2(H.SIM.dist.n)&&H.SIM.dist.n>=256&&H.SIM.dist.n<=4096,
-   `Sobol点数は2のべき乗で範囲内 (${H.SIM.dist.n}点 / 変数${sliderSpec.length}個)`);
- // 点数が変数の数に応じて増える（1変数あたり128点の目安、512〜4096でクランプ）
+{const D=H.SIM.dist, isPow2=x=>x>0&&(x&(x-1))===0;
+ chk(isPow2(D.n)&&D.n>=512&&D.n<=32768,`走査点数は2のべき乗 (${D.n}点 / 変数${sliderSpec.length}個)`);
  const c=H.simSobolCount;
- chk(c(1)===512&&c(5)===1024&&c(10)===2048&&c(20)===4096&&c(100)===4096,
+ chk(c(1)===2048&&c(5)===4096&&c(10)===8192&&c(20)===16384&&c(100)===32768,
    `点数の決め方: 1→${c(1)} 5→${c(5)} 10→${c(10)} 20→${c(20)} 100→${c(100)}`);
  chk(c(3)<=c(10)&&c(10)<=c(30),'変数が増えるほど点数が増える(単調)');
- // Sobol列そのものの一様性（各次元を8分割した箱の偏り）
- const pts=H.simSobol(8,512); let worst=0;
+ chk(D.counts.reduce((a,b)=>a+b,0)===D.n,'ヒストグラムの合計が点数と一致');
+ chk(!!D.best&&Number.isFinite(D.best.y),`最小応答の点がある (${simFmtLike(D.best.y)})`);
+ chk(Math.abs(D.best.y-D.lo)<1e-9,'最小応答の点が分布の下端と一致');
+ // 最適点の入力をエンジンへ通すと、その応答が再現できる
+ {const st={},rw={};
+  sliderSpec.forEach(s=>{const v=D.best.state[s.col];rw[s.col]=String(v);st[s.col]=Number(v);});
+  chk(Math.abs(core.predictRow(m1,st,rw)-D.best.y)<1e-6,'最適点の入力から同じ応答が再現できる');}
+ // 最適点の各変数の値は可動域の内側にある（スライダー上の印が枠外に出ない）
+ chk(sliderSpec.filter(s=>s.kind==='numeric')
+      .every(s=>{const v=Number(D.best.state[s.col]);return v>=s.min-1e-9&&v<=s.max+1e-9;}),
+   '最適点の各変数の値が可動域の内側にある');
+ // 上位10%の分布（スライダー上の山）
+ chk(D.topFrac===0.10&&D.topN>0,`上位${D.topFrac*100}%: ${D.topN}点 (閾値 ${simFmtLike(D.thr)})`);
+ chk(Math.abs(D.topN-D.n*0.10)/D.n<0.02,'上位の点数が全体の約10%');
+ const numCols=sliderSpec.filter(s=>s.kind==='numeric').map(s=>s.col);
+ chk(numCols.every(c=>Array.isArray(D.varHist[c])&&D.varHist[c].length===28),
+   '数値列ごとに分布(28ビン)がある');
+ chk(numCols.every(c=>D.varHist[c].reduce((a,b)=>a+b,0)===D.topN),
+   '各変数の分布の合計が上位の点数と一致');
+ // 応答が動くモデルなら、上位に絞った分布は一様と異なる（=情報がある）。
+ // このフィクスチャは x_clip で応答が一定になるため、その場合は対象外にする。
+ if (D.hi - D.lo > 1e-9) {
+   const flat=numCols.filter(c=>{const h=D.varHist[c],mx=Math.max(...h),mn=Math.min(...h);
+     return (mx-mn)/Math.max(1,mx)<0.05;});
+   chk(flat.length<numCols.length,`上位に絞ると分布に偏りが出る (平坦な列 ${flat.length}/${numCols.length})`);
+ } else {
+   chk(true,'応答が一定のモデルのため、分布の偏りは検証対象外');
+ }
+ // 分布はスライダー操作では作り直さない
+ const before=D;
+ const r1=d.querySelector('.sim-row input[type=range]');
+ r1.value=r1.min; r1.dispatchEvent(new w.Event('change',{bubbles:true}));
+ chk(H.SIM.dist===before,'スライダーを動かしても走査はやり直さない');}
+
+console.log('\n[4b] Sobol列そのものの健全性');
+{const pts=H.simSobol(8,1024);
+ chk(pts.every(p=>p.every(v=>v>=0&&v<1)),'全点が[0,1)に収まる');
+ let worst=0;
  for(let j=0;j<8;j++){const b=new Array(8).fill(0);
    for(const p of pts)b[Math.min(7,Math.floor(p[j]*8))]++;
-   worst=Math.max(worst,Math.max(...b.map(x=>Math.abs(x-64)))/64);}
- chk(worst<0.10,`Sobol列が一様(8分割の最大偏り ${(worst*100).toFixed(1)}% < 10%)`);
- chk(pts.every(p=>p.every(v=>v>=0&&v<1)),'Sobol点が[0,1)に収まる');}
-chk(H.SIM.dist.hi>=H.SIM.dist.lo,`応答範囲 ${simFmtLike(H.SIM.dist.lo)}〜${simFmtLike(H.SIM.dist.hi)}`);
-chk(H.SIM.dist.counts.reduce((a,b)=>a+b,0)===H.SIM.dist.n,'ヒストグラムの合計が点数と一致');
-chk(!!H.SIM.dist.best&&Number.isFinite(H.SIM.dist.best.y),`最小応答の点がある (${simFmtLike(H.SIM.dist.best.y)})`);
-chk(Math.abs(H.SIM.dist.best.y-H.SIM.dist.lo)<1e-9,'最小応答の点が分布の下端と一致');
-{// 最小点の入力を実際にエンジンへ通すと、その応答が再現できる
- const st={},rw={};
- sliderSpec.forEach(s=>{const v=H.SIM.dist.best.state[s.col];rw[s.col]=String(v);st[s.col]=Number(v);});
- const y=core.predictRow(m1,st,rw);
- chk(Math.abs(y-H.SIM.dist.best.y)<1e-6,'最小点の入力から同じ応答が再現できる');}
-{// 分布はスライダー操作では作り直さない（走査は学習ごとに1度だけ）
- const before=H.SIM.dist;
- r0.value=r0.min; r0.dispatchEvent(new w.Event('change',{bubbles:true}));
- chk(H.SIM.dist===before,'スライダーを動かしても分布は再計算しない');
- d.getElementById('simResetBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));}
+   worst=Math.max(worst,Math.max(...b.map(x=>Math.abs(x-128)))/128);}
+ chk(worst<0.10,`1次元が一様(8分割の最大偏り ${(worst*100).toFixed(1)}%)`);
+ // 次元どうしが同一列になっていないか（原始多項式の列挙を誤ると起きる。実際に起きた）
+ let dup=0;
+ for(let i=0;i<8;i++)for(let j=i+1;j<8;j++){
+   let same=true;for(let k=0;k<pts.length&&same;k++) if(pts[k][i]!==pts[k][j]) same=false;
+   if(same)dup++;}
+ chk(dup===0,'次元どうしが同一の列になっていない');
+ // 実運用の点数での次元間相関（方向数がオーバーフローで壊れると跳ね上がる）
+ const dim=20,n=H.simSobolCount(dim);
+ const sx=new Float64Array(dim),sxx=new Float64Array(dim),cr=new Float64Array(dim*dim);
+ let cnt=0;
+ H.simSobolEach(dim,n,(p)=>{cnt++;
+   for(let i=0;i<dim;i++){sx[i]+=p[i];sxx[i]+=p[i]*p[i];
+     for(let j=i+1;j<dim;j++)cr[i*dim+j]+=p[i]*p[j];}
+   return true;});
+ let mx=0;
+ for(let i=0;i<dim;i++)for(let j=i+1;j<dim;j++){
+   const c=(cnt*cr[i*dim+j]-sx[i]*sx[j])/Math.sqrt((cnt*sxx[i]-sx[i]**2)*(cnt*sxx[j]-sx[j]**2));
+   mx=Math.max(mx,Math.abs(c));}
+ chk(mx<0.05,`${dim}変数${n}点での次元間相関が小さい (最大 ${mx.toFixed(4)} < 0.05)`);}
 
 console.log('\n[5] カテゴリ・連動・保存・凡例');
 const catRow=[...d.querySelectorAll('.sim-row')].find(r=>r.dataset.col==='grade');
@@ -189,6 +227,11 @@ chk(!!catRow&&catRow.querySelectorAll('.sim-pill').length===2,'カテゴリは�
 const pB=[...catRow.querySelectorAll('.sim-pill')].find(p=>p.dataset.v==='B');
 pB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(catRow.querySelector('.sim-pill.on').dataset.v==='B','ピルで切り替わる');
+{// ★で最適点へ移動すると、応答が走査中の最小値に一致する
+ d.getElementById('simBestBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ chk(Math.abs(Number(el('simPredVal').textContent)-Number(H.SIM.dist.best.y.toFixed(1)))<0.06,
+   `★で最適点へ: 表示 ${el('simPredVal').textContent} == 走査の最小 ${simFmtLike(H.SIM.dist.best.y)}`);
+ d.getElementById('simResetBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));}
 el('simLinkBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(el('simLinkBtn').classList.contains('on'),'連動モードON');
 H.Platform.downloadFile=(b,n,m)=>{w.__SAVED__={n:n,len:b.length};};
