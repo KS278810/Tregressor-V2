@@ -94,6 +94,14 @@ try{ H.applyTrainingResult(RESULT); }
 catch(e){ errs.push('applyTrainingResult THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,5).join('\n')); }
 if(errs.length){console.log(errs.join('\n'));process.exit(1);}
 const d=w.document,q=s=>d.querySelectorAll(s).length,el=id=>d.getElementById(id);
+// 画面表示と同じ丸めをテスト側でも使う
+function simFmtLike(v){const a=Math.abs(v);let x;
+  if(a>=1000)return String(Math.round(v));
+  if(a===0)return '0';
+  if(a>=10)x=v.toFixed(1); else if(a>=1)x=v.toFixed(2);
+  else if(a>=0.01)x=v.toFixed(3); else return v.toPrecision(2);
+  return x.replace(/\.?0+$/,'');}
+
 chk(d.getElementById('step3Label').textContent==='SIMULATE','③の見出しが SIMULATE になる');
 chk(el('predictSubLabel').textContent.includes('OPEN SIMULATOR')||el('predictSubLabel').textContent.includes('推論'),
   `③が推論ボタンになる: ${el('predictSubLabel').textContent}`);
@@ -217,6 +225,58 @@ console.log('\n[7b] 日英切替');
    jb.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
    chk(el('simFoot').textContent.includes('デスクトップ版'),'日本語に戻る: '+el('simFoot').textContent);
    chk(q('.sim-row')===21,'言語切替後もスライダーが維持される');}}
+
+
+console.log('\n[9] 基準からの差分・直接入力・変更マーク・凡例');
+// 開き直して基準行(MID)の状態に戻す
+d.getElementById('simResetBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(q('.sim-row.changed')===0,'触る前は変更マークが1つも無い');
+chk(el('simDelta').textContent.length>0&&!el('simDelta').textContent.includes('+'),
+  `差分表示は「基準行のまま」: ${el('simDelta').textContent}`);
+const base=Number(el('simPredVal').textContent);
+// 数値の直接入力
+const vin=d.querySelector('.sim-row input.sim-val');
+const tcol=vin.closest('.sim-row').dataset.col;
+const tspec=sliderSpec.find(x=>x.col===tcol);
+chk(!!vin,'数値列の値が直接入力できる欄になっている');
+vin.value=String(tspec.p99);
+vin.dispatchEvent(new w.Event('change',{bubbles:true}));
+{const st=stateOf({[tcol]:tspec.p99});const ex=core.predictRow(m1,st.row,st.raw);
+ chk(Math.abs(Number(el('simPredVal').textContent)-Number(ex.toFixed(1)))<0.06,
+   `直接入力した値が予測に反映される (${tcol}=${simFmtLike(tspec.p99)})`);}
+chk(vin.closest('.sim-row').classList.contains('changed'),'動かした変数に変更マークが付く');
+chk(q('.sim-row.changed')===1,'変更マークは動かした1本だけ');
+{const dt=el('simDelta').textContent;
+ const expD=Number(el('simPredVal').textContent)-base;
+ const shown=dt.replace(/[^0-9.]/g,'');
+ chk(dt.includes('+')||dt.includes('−')||Math.abs(expD)<0.05,`差分が表示される: ${dt}`);}
+// 範囲外の入力は clamp される
+const [rlo,rhi]=[Number(vin.closest('.sim-row').querySelector('input[type=range]').min),
+                 Number(vin.closest('.sim-row').querySelector('input[type=range]').max)];
+vin.value='999999';
+vin.dispatchEvent(new w.Event('change',{bubbles:true}));
+chk(Math.abs(Number(vin.value)-Number(simFmtLike(rhi)))<Math.max(0.2,Math.abs(rhi)*0.02),
+  `範囲外の入力は上限へ丸められる (${vin.value})`);
+vin.value='abc';
+vin.dispatchEvent(new w.Event('change',{bubbles:true}));
+chk(Number.isFinite(Number(vin.value)),'数値でない入力を入れても壊れない');
+// 列名クリックでその1本だけ戻る
+const chRow=d.querySelector('.sim-row.changed');
+chRow.querySelector('.sim-name').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(q('.sim-row.changed')===0,'列名クリックでその変数だけ基準値に戻る');
+chk(Math.abs(Number(el('simPredVal').textContent)-base)<0.06,'戻すと予測も基準に戻る');
+// 凡例
+chk(!el('simLegend').classList.contains('open'),'凡例は既定で閉じている');
+el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(el('simLegend').classList.contains('open'),'?ボタンで凡例が開く');
+chk(d.querySelectorAll('#simLegend div').length>=8,
+  `凡例に記号の意味が並ぶ (${d.querySelectorAll('#simLegend div').length}件)`);
+el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(!el('simLegend').classList.contains('open'),'もう一度押すと閉じる');
+// アクセシビリティ
+const rng2=d.querySelector('.sim-row input[type=range]');
+chk(!!rng2.getAttribute('aria-valuetext'),`range に aria-valuetext がある (${rng2.getAttribute('aria-valuetext')})`);
+chk(!!rng2.getAttribute('aria-label'),'range に aria-label がある');
 
 console.log('\n[8] 画面に出る文字量');
 const shown=el('simulateSection').textContent.replace(/\s+/g,' ').trim();
