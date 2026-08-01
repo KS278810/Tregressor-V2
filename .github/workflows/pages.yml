@@ -1,0 +1,87 @@
+# GitHub Pages への配信を GitHub Actions から行うワークフロー。
+#
+# 【なぜ手動の gh-pages ブランチ運用をやめたか】
+# 従来は web/ の中身を gh-pages ブランチへ手で積んで push していた。ブランチ方式の
+# Pages は「1時間あたり10ビルド」のソフトリミットがあり、短時間に何度も push すると
+# ビルドが走らなくなる。その場合でもブランチは更新されるため、
+# 「GitHub には新しいファイルがあるのに、サイトは古いまま」という状態が起き、
+# 原因が分かりにくい（実際にこれで何度も足を取られた）。
+#
+# この方式なら main に push するだけで配信され、失敗すれば Actions に赤で出る。
+#
+# 【切り替えに必要な設定（1回だけ）】
+#   リポジトリの Settings → Pages → Build and deployment → Source を
+#   「Deploy from a branch」から「GitHub Actions」に変更する。
+#
+# 配信内容は web/ から生成する。index.html は frontend/index.html から毎回作り直すので、
+# 生成物の再生成を忘れて古いまま配信される事故も起きない。
+name: Pages 配信
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時に走らせない（後から来た配信を優先し、途中のものは取り消す）
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v5
+
+      - name: Node をセットアップ
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: 生成物を作り直す（frontend/index.html が唯一のソース）
+        run: |
+          cd web
+          node build_frontend.mjs
+
+      - name: 配信するファイルだけを集める
+        run: |
+          set -eux
+          mkdir -p _site
+          # 実行に必要なものだけを入れる（開発用のテスト・ビルドスクリプト・
+          # オフライン版の巨大な同梱データは配信しない）
+          cp web/index.html            _site/
+          cp web/simulate_template.html _site/
+          cp web/predict_template.html _site/
+          cp web/treg-engine.js        _site/
+          cp web/treg-worker.js        _site/
+          cp web/treg-worker-client.js _site/
+          cp web/sample_data.csv       _site/
+          cp -r web/assets             _site/assets
+          cp -r web/py                 _site/py
+          cp -r web/vendor             _site/vendor
+          # Jekyll の処理を止める（_ で始まるファイルが消えるのを防ぐ）
+          touch _site/.nojekyll
+          # 配信物の素性が後から分かるようにしておく
+          printf 'commit: %s\ndeployed: %s\n' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > _site/.build-stamp
+          du -sh _site
+
+      - name: Pages 用に設定
+        uses: actions/configure-pages@v5
+
+      - name: 成果物をアップロード
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: 配信
+        id: deployment
+        uses: actions/deploy-pages@v4
