@@ -910,6 +910,9 @@
         <div class="step-hdr"><span class="step-num sn-4">4</span>DEPLOY</div>
         <div class="deploy-col">
             <button id="exportBtn" class="btn" disabled data-i18n="ui.exportBtn">モデルをDL</button>
+            <!-- ③と同じく、まだ押せない理由を空白ではなく文字で示す(③だけ説明があって
+                 ④が無言だと「壊れているのか押せないのか」が分からない) -->
+            <div id="deployHint" class="predict-sub-label" data-i18n="ui.predictSubLabelInitial">学習後に使えます</div>
             <div id="deployNote" class="deploy-note"></div>
         </div>
     </div>
@@ -1060,8 +1063,7 @@
     <div class="sim-grid">
         <div class="sim-left">
             <div class="sim-toolbar">
-                <div class="sim-seedseg" id="simSeedSeg"></div>
-                <button class="sim-iconbtn" id="simResetBtn" data-i18n-title="sim.resetTitle" title="基準行の値に戻す">↺</button>
+                <button class="sim-iconbtn" id="simResetBtn" data-i18n-title="sim.resetTitle" title="最初の値に戻す">↺</button>
                 <button class="sim-iconbtn" id="simExpandBtn"></button>
                 <button class="sim-iconbtn" id="simLinkBtn" data-i18n-title="sim.linkTitle" title="相関する列を連動させる">⇄</button>
                 <span class="sim-tcount" id="simTCount"></span>
@@ -1886,7 +1888,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             'startup.setupComplete': 'セットアップ完了！',
             'startup.extractError': 'エラー: {{detail}}',
             'startup.boot': 'エンジンを起動中…',
-            'startup.libs': '計算ライブラリを読込中…（同梱データのみ・ネットワーク不要）',
+            'startup.libs': '計算ライブラリを読込中…',
             'startup.extract': 'モデルコードを展開中…',
             'startup.ready': '準備完了',
 
@@ -2170,7 +2172,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             'startup.setupComplete': 'Setup complete!',
             'startup.extractError': 'Error: {{detail}}',
             'startup.boot': 'Starting engine…',
-            'startup.libs': 'Loading libraries… (bundled data only, no network)',
+            'startup.libs': 'Loading libraries…',
             'startup.extract': 'Unpacking model code…',
             'startup.ready': 'Ready',
 
@@ -2419,7 +2421,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         // SIMULATE の中身は動的生成のため data-i18n では追随できない。丸ごと描き直す。
         // (applyStaticI18n 側ではなくここに置くのは、SIM の const 初期化より前に
         //  applyStaticI18n が走るため。setLang はユーザー操作時にしか呼ばれない)
-        if (SIM.ready) { simRenderSeedSeg(); simRenderAll(); }
+        if (SIM.ready) simRenderAll();
         const detailPopupEl = document.getElementById('detailPopup');
         if (detailPopupEl && detailPopupEl.style.display !== 'none' && typeof openDetailPopup === 'function') {
             openDetailPopup();
@@ -3002,6 +3004,11 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
     const predictFileName     = document.getElementById('predictFileName');
     const exportBtn           = document.getElementById('exportBtn');
     const deployNote          = document.getElementById('deployNote');
+    const deployHint          = document.getElementById('deployHint');
+    // ④のヒントは押せない間だけ出す(押せるようになったら消して視覚ノイズを残さない)
+    function syncDeployHint() {
+        if (deployHint) deployHint.style.display = exportBtn.disabled ? '' : 'none';
+    }
     const inputNote           = document.getElementById('inputNote');
     const trainNote           = document.getElementById('trainNote');
     const modelStrategySelect = document.getElementById('modelStrategySelect');
@@ -3352,6 +3359,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         if (el) el.textContent = IS_TAURI ? 'PREDICT' : 'SIMULATE';
     }
     _applyStep3Label();
+    syncDeployHint();
 
     // ── 言語切替(ヘッダー常時表示のトグル) ───────────────────────────────────
     applyStaticI18n();
@@ -3646,7 +3654,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             // R² < 0: 平均値以下の予測力 → PREDICT/DEPLOY をブロック
             predictZone.className = 'drop-zone drop-predict-blocked';
             setPredictSub(t('ui.r2Below0'));
-            exportBtn.disabled = true; exportBtn.className = 'btn';
+            exportBtn.disabled = true; syncDeployHint(); exportBtn.className = 'btn';
             deployNote.textContent = t('ui.deployBlockedNote'); deployNote.className = 'deploy-note'; deployNote.style.color = '#f87171';
         } else {
             // Web版の③は「CSVを落とす場所」ではなく「推論をひらくボタン」。
@@ -3654,14 +3662,14 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                                   + (simOk ? ' sim-open-btn' : '');
             setPredictSub(simOk ? t('sim.zoneReady') : t('ui.predictReadyHint'));
             // 学習完了直後は PREDICT のみパルス。DEPLOY は静的 ready 状態にとどめる
-            exportBtn.disabled = !canDeploy(); exportBtn.className = canDeploy() ? 'btn btn-deploy-ready' : 'btn';
+            exportBtn.disabled = !canDeploy(); syncDeployHint(); exportBtn.className = canDeploy() ? 'btn btn-deploy-ready' : 'btn';
             // 画面に表示中のモデル(best_model)と、実際に配布ファイルへ書き出されるモデルが
             // 異なる場合(blend/rf/xt等 .treg 非対応のため代替モデルを使う場合)に、
             // エクスポート前の時点で明示しておく(以前はコンソールログのみで気づけなかった)。
             if (!exportAvailable) {
                 // 配布可能なモデルが無いのに DEPLOY ボタンだけ有効なままだと、押下時に
                 // 汎用エラーになってしまう(低-6)ため、ここで確実に無効化に戻す。
-                exportBtn.disabled = true; exportBtn.className = 'btn';
+                exportBtn.disabled = true; syncDeployHint(); exportBtn.className = 'btn';
                 deployNote.textContent = t('ui.noExportableModel');
                 deployNote.className = 'deploy-note active';
                 deployNote.style.color = '#f87171';
@@ -3697,7 +3705,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         cancelBtn.style.display = 'none';
         predictZone.className = 'drop-zone drop-zone-disabled';
         setPredictSub(t('ui.predictSubLabelInitial'));
-        exportBtn.disabled = true; exportBtn.className = 'btn';
+        exportBtn.disabled = true; syncDeployHint(); exportBtn.className = 'btn';
         deployNote.textContent = ''; deployNote.className = 'deploy-note'; deployNote.style.color = '';
         inputNote.style.display = 'none'; inputNote.textContent = '';
         trainNote.style.display = 'none'; trainNote.textContent = '';
@@ -3814,7 +3822,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         predictZone.className = 'drop-zone drop-zone-disabled';
         setPredictSub(t('ui.predictSubLabelInitial'));
         predictFileName.innerText = '';
-        exportBtn.disabled = true; exportBtn.className = 'btn';
+        exportBtn.disabled = true; syncDeployHint(); exportBtn.className = 'btn';
         // 前回学習が export_available=false だった場合の「⚠配布可能なモデルがありません」等の
         // 警告が、新しいCSVをドロップした後も学習完了まで画面に残り続けるのを防ぐ(情報-N3)。
         deployNote.textContent = ''; deployNote.className = 'deploy-note'; deployNote.style.color = '';
@@ -3842,7 +3850,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         predictFileName.innerText = fileName.toUpperCase();
         predictZone.className = 'drop-zone drop-zone-disabled';
         setPredictSub('');
-        exportBtn.disabled = true; exportBtn.className = 'btn';
+        exportBtn.disabled = true; syncDeployHint(); exportBtn.className = 'btn';
         clearPredictError();
         clearStatusResetTimer();
         sbDot.className = 'sb-dot warn';
@@ -3864,7 +3872,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             switchDashboard('trained');
             predictZone.className = 'drop-zone drop-predict-retry action-pulse';
             setPredictSub(t('ui.predictRetryHint'));
-            if (canDeploy()) { exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready'; }
+            if (canDeploy()) { exportBtn.disabled = false; syncDeployHint(); exportBtn.className = 'btn btn-deploy-ready'; }
             setRobotError(t('robot.predictFailed'));
         }
         // Web版はPyodideの予測処理がメインスレッドを同期的に占有するため、直前のsetRobot()が
@@ -3968,7 +3976,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         // 「再学習」ボタンも(既存モデルがある場合の)「DEPLOY」ボタンも押せないまま
         // 固まっていた(再読み込みしないと復旧できない)。
         trainBtn.disabled = false; trainBtn.className = 'btn';
-        if (canDeploy()) { exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready'; }
+        if (canDeploy()) { exportBtn.disabled = false; syncDeployHint(); exportBtn.className = 'btn btn-deploy-ready'; }
         document.getElementById('errorMsg').innerText = translateBackendMessage(msg);
         switchDashboard('error');
         setRobotError(t('robot.trainErrorGeneric'));
@@ -3988,7 +3996,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         if (Platform.capabilities.cancelTrain) trainBtn.style.display = 'none';
         // retrainThoroughBtn等、handleTrainDropを経由せず直接ここへ来る経路(既存学習結果への
         // 再学習)でも、学習中は前回結果のDEPLOYボタンを必ず無効化する(低-N2)。
-        exportBtn.disabled = true; exportBtn.className = 'btn';
+        exportBtn.disabled = true; syncDeployHint(); exportBtn.className = 'btn';
         cancelBtn.style.display = Platform.capabilities.cancelTrain ? '' : 'none';
         switchDashboard('initial');
         const strategy = strategyOverride || modelStrategySelect.value;
@@ -4175,10 +4183,8 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         SIM.r2       = (typeof result.r2 === 'number' && isFinite(result.r2)) ? result.r2 : null;
         SIM.refOnly  = !!result.r2_reference_only;
         SIM.linkMode = false;
-        SIM.seedLabel = SIM.seeds.some(s => s.label === 'median') ? 'median'
-                      : (SIM.seeds[0] ? SIM.seeds[0].label : null);
+        SIM.seedLabel = simPickSeedLabel();
         SIM.ready = true;
-        simRenderSeedSeg();
         simApplySeed(SIM.seedLabel);
         return true;
     }
@@ -4774,17 +4780,14 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                         : t('sim.sparkRange', { col: col, lo: simFmt(mn), hi: simFmt(mx) });
     }
 
-    function simRenderSeedSeg() {
-        const seg = simEl('simSeedSeg'); seg.innerHTML = '';
-        for (const s of SIM.seeds) {
-            const b = document.createElement('button');
-            b.textContent = t('sim.seed.' + s.label);
-            b.dataset.label = s.label;
-            b.title = t('sim.seedTitle.' + s.label) + t('sim.seedActualSuffix', { target: SIM.target, v: simFmt(s.y) });
-            b.classList.toggle('on', s.label === SIM.seedLabel);
-            b.addEventListener('click', () => { simApplySeed(s.label); simRenderSeedSeg(); });
-            seg.appendChild(b);
+    // 出発点は「yが中位の実データ行」に固定する。全列中央値の合成行は相関のある
+    // データでは実在しない組み合わせになりうるため、実データ1行を使う方針は維持しつつ、
+    // どれを起点にするかの選択はユーザーに見せない(意味が伝わらず操作の邪魔になるため)。
+    function simPickSeedLabel() {
+        for (const want of ['median', 'high', 'low', 'random']) {
+            if (SIM.seeds.some(s => s.label === want)) return want;
         }
+        return SIM.seeds[0] ? SIM.seeds[0].label : null;
     }
 
     function simRenderAll() {
@@ -4934,7 +4937,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         switchDashboard('trained');
         document.getElementById('tabPredict').style.display = '';
         showTrainedTab('predict');
-        if (canDeploy()) { exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready action-pulse'; }
+        if (canDeploy()) { exportBtn.disabled = false; syncDeployHint(); exportBtn.className = 'btn btn-deploy-ready action-pulse'; }
         let doneMsg = result._predictedCsv
             ? t('robot.predictDoneWithDl', { rows: result.rows })
             : t('robot.predictDoneNoDl', { rows: result.rows });
@@ -4966,7 +4969,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                 if (status)   status.textContent   = t('startup.pythonExtracting');
                 trainBtn.disabled  = true;
                 predictZone.classList.add('drop-zone-disabled');
-                exportBtn.disabled = true;
+                exportBtn.disabled = true; syncDeployHint();
             },
             onExtractionProgress: (p) => {
                 const bar = document.getElementById('suProgressBar');
@@ -4997,7 +5000,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
 
     // ── ④ デプロイ / モデルのダウンロード ───────────────────────────────────
     exportBtn.addEventListener('click', async () => {
-        exportBtn.disabled = true; exportBtn.classList.remove('action-pulse'); exportBtn.className = 'btn';
+        exportBtn.disabled = true; syncDeployHint(); exportBtn.classList.remove('action-pulse'); exportBtn.className = 'btn';
         sbDot.className = 'sb-dot warn';
         sbLabel.className = 'sb-label active'; sbLabel.textContent = t('status.deploying');
         try {
@@ -5014,11 +5017,11 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             if (savedPath === null) {
                 // ユーザーがキャンセル（exe版の保存ダイアログのみ発生しうる）
                 setStatusReady();
-                if (canDeploy()) { exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready'; }
+                if (canDeploy()) { exportBtn.disabled = false; syncDeployHint(); exportBtn.className = 'btn btn-deploy-ready'; }
                 return;
             }
             setStatusDeployed(savedPath);
-            if (canDeploy()) { exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready'; }
+            if (canDeploy()) { exportBtn.disabled = false; syncDeployHint(); exportBtn.className = 'btn btn-deploy-ready'; }
             // 画面のモデル(best_model)と配布ファイルの中身(deployed_model)が異なる場合は
             // 「配布完了」だけでなく、常に何が書き出されたかをここでも明示する。
             const substituted = !!(lastResult && lastResult.deploy_substituted);
@@ -5063,7 +5066,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             const raw = (e && typeof e === 'object' && e.message) ? e.message : e;
             const detail = raw ? `\n(${translateBackendMessage(raw)})` : '';
             setRobotError(t('robot.deploySaveFailed', { detail }));
-            if (canDeploy()) { exportBtn.disabled = false; exportBtn.className = 'btn btn-deploy-ready'; }
+            if (canDeploy()) { exportBtn.disabled = false; syncDeployHint(); exportBtn.className = 'btn btn-deploy-ready'; }
         }
     });
 </script>
