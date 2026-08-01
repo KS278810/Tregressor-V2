@@ -36,7 +36,7 @@ if(!w.TextEncoder) w.TextEncoder=require('util').TextEncoder;
 Object.defineProperty(w.Element.prototype,'clientWidth',{get(){return 300;}});
 w.addEventListener('error',e=>errs.push('window.error: '+e.message));
 const code=html.match(/<script>([\s\S]*)<\/script>/)[1];
-try{w.eval(code+'\n;window.__H__={Platform:Platform,applyTrainingResult:applyTrainingResult,showTrainedTab:showTrainedTab,SIM:SIM,simSobolCount:simSobolCount,simSobol:simSobol,simSobolEach:simSobolEach,simAddModelFile:simAddModelFile};');}catch(e){errs.push('THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,6).join('\n'));}
+try{w.eval(code+'\n;window.__H__={Platform:Platform,applyTrainingResult:applyTrainingResult,showTrainedTab:showTrainedTab,SIM:SIM,simSobolCount:simSobolCount,simSobol:simSobol,simSobolEach:simSobolEach,simAddModelFile:simAddModelFile,simBuildCliScript:simBuildCliScript};');}catch(e){errs.push('THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,6).join('\n'));}
 
 console.log('[0] 埋め込みエンジン');
 chk(errs.length===0,'スクリプトが例外なく実行される'); if(errs.length){console.log(errs.join('\n'));process.exit(1);}
@@ -463,6 +463,40 @@ console.log('\n[11] レイアウトの幅（jsdomは自動レイアウトしな�
  chk(rowH >= trackH, `行の高さ(${rowH}px)がトラック(${trackH}px)を収められる`);
  const pad = num(/const PAD = (\d+);/);
  chk(pad >= 8, `つまみが端で切れない余白がある (PAD=${pad}px)`);}
+
+
+console.log('\n[13] コマンドラインで使うスクリプト');
+try{ {chk(!!d.getElementById('simCliBtn'),'CLIスクリプトの書き出しボタンがある');
+ chk(typeof w.TregPredictCoreSource==='string'&&w.TregPredictCoreSource.length>1000,
+   'エンジンのソースが文字列としても埋め込まれている');
+ const text=H.simBuildCliScript('model_test.cli.js');
+ const cliName='model_test.cli.js';
+ chk(typeof text==='string'&&text.length>10000,`CLIスクリプトを生成できる (${Math.round(text.length/1024)}KB)`);
+ // 実際に node で動かし、ブラウザと同じ値になるか確かめる
+ // 一時ディレクトリは実行場所の隣に作る（環境によっては /tmp に書けない）
+ const dir=fs.mkdtempSync(path.join(__dirname,'.treg-cli-'));
+ const js=path.join(dir,'m.cli.js'), inCsv=path.join(dir,'in.csv'), outCsv=path.join(dir,'out.csv');
+ fs.writeFileSync(js,text,'utf8');
+ // 出発点の行をそのままCSVにする（引用符やカンマを含む列名も試す）
+ const cols=sliderSpec.map(s=>s.col);
+ const vals=cols.map(c=>String(seedMed.values[c]));
+ fs.writeFileSync(inCsv,cols.join(',')+'\n'+vals.join(',')+'\n','utf8');
+ const {execFileSync}=require('child_process');
+ let ran=true,msg='';
+ try{ msg=execFileSync(process.execPath,[js,inCsv,outCsv],{encoding:'utf8'}); }
+ catch(e){ ran=false; msg=String(e.stderr||e.message).slice(0,200); }
+ chk(ran,`node で実行できる (${msg.trim().slice(0,60)})`);
+ if(ran){
+  const outRows=fs.readFileSync(outCsv,'utf8').trim().split('\n');
+  chk(outRows.length===2,`入力1行に対して出力1行 (${outRows.length-1}行)`);
+  const head=outRows[0].split(',');
+  chk(head[head.length-1].endsWith('_pred'),`予測列が付く (${head[head.length-1]})`);
+  const cells=outRows[1].split(',');
+  const cliVal=Number(cells[cells.length-1]);
+  chk(Math.abs(cliVal-expect)<1e-9,
+    `ブラウザと同じ予測値になる (CLI ${cliVal.toFixed(6)} / ブラウザ ${expect.toFixed(6)})`);
+ }
+ fs.rmSync(dir,{recursive:true,force:true});} }catch(e){ chk(false,'CLI検証で例外: '+e.message); }
 
 console.log('\n[8] 画面に出る文字量');
 const shown=el('simulateSection').textContent.replace(/\s+/g,' ').trim();

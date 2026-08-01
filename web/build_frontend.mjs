@@ -44,10 +44,13 @@ function loadPredictCore() {
   if (!exportRe.test(src)) {
     throw new Error("predict-core.js の module.exports が見つかりません（想定外の形式）");
   }
-  src = src.replace(exportRe,
+  const browser = src.replace(exportRe,
     "window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };");
+  // コマンドライン用スクリプトを書き出せるよう、同じソースを「文字列としても」持たせる。
+  // ロジックの複製ではなく同一ファイルの2通りの埋め込みなので、ズレようがない。
+  const asText = "window.TregPredictCoreSource = " + JSON.stringify(src) + ";";
   return "// ─── 埋め込み: web/js_predict_poc/predict-core.js（自動挿入・編集禁止） ───\n"
-       + "(function(){\n" + src + "\n})();";
+       + "(function(){\n" + browser + "\n})();\n" + asText;
 }
 
 function loadSource() {

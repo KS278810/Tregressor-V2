@@ -237,10 +237,12 @@
             width: 16px; height: 16px; border-radius: 50%; font-family: var(--font-display);
             font-size: 8px; font-weight: 800; flex-shrink: 0;
         }
-        .sn-1 { background: rgba(63,196,236,0.12);  color: var(--cyan); border: 1px solid rgba(63,196,236,0.25); }
-        .sn-2 { background: rgba(79,127,224,0.12);  color: var(--blue); border: 1px solid rgba(79,127,224,0.28); }
-        .sn-3 { background: rgba(47,214,142,0.12);  color: var(--good); border: 1px solid rgba(47,214,142,0.25); }
-        .sn-4 { background: rgba(240,169,78,0.12);  color: var(--gold); border: 1px solid rgba(240,169,78,0.28); }
+        /* ①〜④の番号バッジは色を分けない。4色あると画面の色数が増えて散らかって
+           見えるため、すべて①のシアンに統一する。 */
+        .sn-1, .sn-2, .sn-3, .sn-4 {
+            background: rgba(63,196,236,0.12); color: var(--cyan);
+            border: 1px solid rgba(63,196,236,0.25);
+        }
 
         /* 全インタラクティブ要素を同一高さに */
         .drop-zone, .wf-step .btn { height: 56px; }
@@ -1109,6 +1111,7 @@
             <span class="sim-title">SIMULATE</span>
             <button id="simAddBtn" class="sim-legend-btn" data-i18n-title="sim.addTitle" title="学習済みモデル(.treg / 書き出したHTML)を読み込む">+</button>
             <input id="simAddInput" type="file" accept=".treg,.html,.htm" multiple style="display:none">
+            <button id="simCliBtn" class="sim-legend-btn" data-i18n-title="sim.cliTitle" title="コマンドラインで一括推論するスクリプトを保存">&gt;_</button>
             <button id="simSaveBtn" class="sim-legend-btn" data-i18n-title="sim.saveTitle" title="この1行をCSVで保存">↓</button>
             <button id="simLegendBtn" class="sim-legend-btn" data-i18n-title="sim.legendTitle" title="記号の意味">?</button>
             <button id="simCloseBtn" class="sim-close-btn">✕</button>
@@ -1821,6 +1824,7 @@ function predictRow(model, row, rawRow) {
 window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
 
 })();
+window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイナリの JS 版推論エンジン. See README.md for details.\nconst MT_LINEAR = 0, MT_LGBM = 1, MT_GP = 2, MT_MLP = 3, MT_LINEAR_POLY = 4, MT_BLEND = 5;\nconst YT_NONE = 0, YT_LOG1P = 1, YT_YEO_JOHNSON = 2;\nconst DOP_MUL = 0, DOP_SQ = 1, DOP_SIGN = 2;\nconst CAT_ONEHOT = 0, CAT_TARGET = 1, CAT_DATETIME_PARTS = 2, CAT_COMPOSITE_TARGET = 3;\nconst DTPART_HOUR = 0, DTPART_DOW = 1, DTPART_MONTH = 2, DTPART_EPOCH_DAYS = 3;\n// train_bridge.NUMERIC_KEY_SEPと同一の区切り文字。\nconst NUMKEY_SEP = \"\\x1f\";\n// train_bridge._prepare_categoricals/_fit_target_encoders と同一のNaN代替文字列。\nconst CAT_NAN_SENTINEL = \"__NaN__\";\n\nclass Reader {\n    constructor(buf) {\n        this.dv = new DataView(buf);\n        this.pos = 0;\n        this.size = buf.byteLength;\n        this.fail = false;\n    }\n    ok() { return !this.fail && this.pos <= this.size; }\n    u8()  { return this._num(1, (o) => this.dv.getUint8(o)); }\n    i32() { return this._num(4, (o) => this.dv.getInt32(o, true)); }\n    u32() { return this._num(4, (o) => this.dv.getUint32(o, true)); }\n    f32() { return this._num(4, (o) => this.dv.getFloat32(o, true)); }\n    f64() { return this._num(8, (o) => this.dv.getFloat64(o, true)); }\n    _num(n, fn) {\n        if (this.fail || this.pos + n > this.size) { this.fail = true; return 0; }\n        const v = fn(this.pos);\n        this.pos += n;\n        return v;\n    }\n    str() {\n        const len = this._num(2, (o) => this.dv.getUint16(o, true));\n        if (this.fail || this.pos + len > this.size) { this.fail = true; return \"\"; }\n        const bytes = new Uint8Array(this.dv.buffer, this.dv.byteOffset + this.pos, len);\n        this.pos += len;\n        return new TextDecoder(\"utf-8\").decode(bytes);\n    }\n    floats(n) {\n        if (this.fail || n > 1e8 || this.pos + n * 4 > this.size) { this.fail = true; return new Float32Array(0); }\n        const out = new Float32Array(n);\n        for (let i = 0; i < n; i++) out[i] = this.dv.getFloat32(this.pos + i * 4, true);\n        this.pos += n * 4;\n        return out;\n    }\n    // blend(アンサンブル)の各メンバーは自己完結した入れ子 .treg ブロブとして埋め込まれて\n    // いるため、そのバイト範囲を独立した ArrayBuffer としてコピーし、loadTreg に\n    // 再帰的に渡せるようにする。\n    sliceBuffer(n) {\n        if (this.fail || n < 0 || this.pos + n > this.size) { this.fail = true; return new ArrayBuffer(0); }\n        const start = this.dv.byteOffset + this.pos;\n        const out = this.dv.buffer.slice(start, start + n);\n        this.pos += n;\n        return out;\n    }\n}\n\n// depth: blend入れ子の再帰段数。現行の writer(train_bridge._write_treg_stream)は\n// blendメンバーを常に「非blendの自己完結モデル」として書き出し、blendの入れ子\n// (blendの中にblend)は生成しない。depth>1を拒否しないと、細工された.tregで\n// 数万段の再帰によりスタックオーバーフローを起こせてしまう(中-M1)。\nfunction loadTreg(buf, depth = 0) {\n    if (depth > 1) throw new Error(\"blend nesting too deep (max 1 level)\");\n    const r = new Reader(buf);\n    if (r.size < 6) throw new Error(\"treg too small\");\n    const magic = new TextDecoder().decode(new Uint8Array(buf, 0, 4));\n    r.pos = 4;\n    if (magic !== \"TREG\") throw new Error(\"bad magic (not a .treg file)\");\n\n    const model = {\n        file_version: r.u8(),\n        type: r.u8(),\n        n_feat: r.u32(),\n        derived: [],\n        derived_idx: new Map(),\n        cat_encoders: [],\n        cat_idx: new Map(),\n        y_transform: YT_NONE, yeo_lambda: 1.0,\n        round_output: 0, smear: 1.0,\n        y_clip_lo: -3.4e38, y_clip_hi: 3.4e38,\n        x_clip_lo: [], x_clip_hi: [],\n        target_col: \"\", feat_cols: [], medians: new Map(),\n        linear: null, gp: null, mlp: null, lgbm: null,\n    };\n    const d = model.n_feat;\n    if (model.file_version > 7) throw new Error(\"unsupported (future) .treg version\");\n    // blend(アンサンブル)は自身の直接の特徴ベクトルを持たない(各メンバーが個別に持つ)ため\n    // n_feat=0 が正当な値になる。それ以外の型は従来通り 1 以上を要求する。\n    if (d > 100000 || (model.type !== MT_BLEND && d < 1)) throw new Error(\"bad n_feat\");\n\n    if (model.file_version >= 4) {\n        const nDerived = r.u32();\n        // 低-検査パリティフォロー: C++(predict_native_v2.cpp load_treg)は n_derived>100000\n        // を拒否するが、JS側はこの上限検査が無く、細工された.tregでnDerivedにu32最大値\n        // 近くの値を入れられるとループが極端に長時間ハングする恐れがあった。同じ上限に揃える。\n        if (r.fail || nDerived > 100000) throw new Error(\"bad n_derived count\");\n        for (let i = 0; i < nDerived; i++) {\n            const df = {\n                op: r.u8(), name: r.str(),\n                col_a: r.str(), a_lo: r.f32(), a_hi: r.f32(),\n                col_b: r.str(), b_lo: r.f32(), b_hi: r.f32(),\n            };\n            if (r.fail || df.op > 2) throw new Error(\"bad derived feature block\");\n            model.derived.push(df);\n            model.derived_idx.set(df.name, model.derived.length - 1);\n        }\n    }\n\n    // v5: カテゴリエンコーダ（精度レバー4/.treg v5。predict_native_v2.cpp load_treg と同一仕様）\n    if (model.file_version >= 5) {\n        const nCat = r.u32();\n        if (r.fail || nCat > 100000) throw new Error(\"bad cat_encoders count\");\n        for (let i = 0; i < nCat; i++) {\n            const method = r.u8();\n            const feature_name = r.str();\n            const source_col = r.str();\n            const c = { method, feature_name, source_col, class_value: \"\", target_map: new Map(), target_default: 0.0, part_id: 0 };\n            if (method === CAT_ONEHOT) {\n                c.class_value = r.str();\n            } else if (method === CAT_TARGET || method === CAT_COMPOSITE_TARGET) {\n                // 同一ペイロード形式(map+default)。composite_targetはsource_colの意味論\n                // だけが異なる(NUMKEY_SEPで連結した複数のCSV列名)。\n                const nMap = r.u32();\n                if (r.fail || nMap > 1000000) throw new Error(\"bad cat target map count\");\n                for (let k = 0; k < nMap; k++) {\n                    const key = r.str();\n                    const val = r.f32();\n                    if (r.fail) throw new Error(\"truncated cat target map\");\n                    c.target_map.set(key, val);\n                }\n                c.target_default = r.f32();\n            } else if (method === CAT_DATETIME_PARTS) {\n                c.part_id = r.u8();\n                if (r.fail || c.part_id > DTPART_EPOCH_DAYS) throw new Error(\"bad datetime part_id\");\n            } else {\n                throw new Error(\"bad cat encoder method\");\n            }\n            if (r.fail) throw new Error(\"truncated cat_encoders block\");\n            model.cat_encoders.push(c);\n            model.cat_idx.set(feature_name, model.cat_encoders.length - 1);\n        }\n    }\n\n    if (model.type === MT_LGBM) {\n        const nTrees = r.u32();\n        r.u32();\n        if (r.fail || nTrees > 100000) throw new Error(\"bad n_trees\");\n        const trees = [];\n        for (let t = 0; t < nTrees; t++) {\n            const n_leaves = r.u32();\n            if (r.fail || n_leaves < 1 || n_leaves > (1 << 20)) throw new Error(\"bad n_leaves\");\n            const ni = n_leaves - 1;\n            const split_feature = new Uint32Array(ni);\n            for (let i = 0; i < ni; i++) split_feature[i] = r.u32();\n            const threshold = new Float32Array(ni);\n            for (let i = 0; i < ni; i++) threshold[i] = r.f32();\n            const left_child = new Int32Array(ni);\n            for (let i = 0; i < ni; i++) left_child[i] = r.i32();\n            const right_child = new Int32Array(ni);\n            for (let i = 0; i < ni; i++) right_child[i] = r.i32();\n            const leaf_value = new Float32Array(n_leaves);\n            for (let i = 0; i < n_leaves; i++) leaf_value[i] = r.f32();\n            if (r.fail) throw new Error(\"truncated lgbm tree data\");\n            // 整合性検査(重大-1): split_feature は特徴量次元内、left/right_child は\n            // 「葉」(負値、-n_leaves以上)か「内部ノード」(0以上ni未満)のいずれかで\n            // なければならない(C++版 predict_native_v2.cpp load_treg と同一検査)。\n            for (let i = 0; i < ni; i++) {\n                if (split_feature[i] >= d) throw new Error(\"lgbm split_feature out of range\");\n                if (left_child[i] < -n_leaves || left_child[i] >= ni) throw new Error(\"lgbm left_child out of range\");\n                if (right_child[i] < -n_leaves || right_child[i] >= ni) throw new Error(\"lgbm right_child out of range\");\n            }\n            trees.push({ n_leaves, split_feature, threshold, left_child, right_child, leaf_value });\n        }\n        model.lgbm = { trees };\n    } else if (model.type === MT_LINEAR) {\n        model.linear = { mean: r.floats(d), scale: r.floats(d), coef: r.floats(d), intercept: r.f32() };\n    } else if (model.type === MT_GP) {\n        const mean = r.floats(d);\n        const scale = r.floats(d);\n        const ls = r.floats(d);\n        const sv = r.f32();\n        const y_mean = r.f32();\n        const y_std = r.f32();\n        const n_train = r.u32();\n        if (r.fail || n_train < 1 || n_train * d > 1e8) throw new Error(\"bad gp n_train\");\n        const X_train = r.floats(n_train * d);\n        const alpha = r.floats(n_train);\n        model.gp = { n_feat: d, mean, scale, ls, sv, y_mean, y_std, n_train, X_train, alpha };\n    } else if (model.type === MT_MLP) {\n        const mean = r.floats(d);\n        const scale = r.floats(d);\n        const n_layers = r.u32();\n        if (r.fail || n_layers < 1 || n_layers > 64) throw new Error(\"bad mlp n_layers\");\n        const layers = [];\n        for (let i = 0; i < n_layers; i++) {\n            const n_in = r.u32();\n            const n_out = r.u32();\n            const act = r.u8();\n            if (r.fail || n_in < 1 || n_out < 1 || n_in * n_out > 1e8) throw new Error(\"bad mlp layer dims\");\n            const W = r.floats(n_in * n_out);\n            const b = r.floats(n_out);\n            layers.push({ n_in, n_out, act, W, b });\n        }\n        // 整合性検査(重大-1): 層の次元チェーンが破綻していると predictMlp() の\n        // W[k*n_out+j] が範囲外読み出しになる(C++版と同一検査)。\n        if (layers.length === 0 || layers[0].n_in !== d) throw new Error(\"mlp layer[0].n_in != n_feat\");\n        for (let li = 1; li < layers.length; li++) {\n            if (layers[li].n_in !== layers[li - 1].n_out) throw new Error(\"mlp layer dim chain broken\");\n        }\n        model.mlp = { mean, scale, layers };\n    } else if (model.type === MT_LINEAR_POLY) {\n        // poly-Ridge: RobustScaler(center/scale) → 多項式項(単項 or 標準化後の値どうしの\n        // 積/二乗) → coef_ 内積 + intercept_。項の並びは train_bridge._light.PolynomialFeatures\n        // と同一([単項(i昇順)]+[i<=jの積])で、書き出し時と同じ順に (idx_a, idx_b) を読む\n        // (idx_b<0 は「単項(s[idx_a]そのまま)」を表す)。\n        const center = r.floats(d);\n        const scale = r.floats(d);\n        const nTerms = r.u32();\n        if (r.fail || nTerms > 1000000) throw new Error(\"bad linear_poly n_terms\");\n        const termA = new Int32Array(nTerms);\n        const termB = new Int32Array(nTerms);\n        for (let i = 0; i < nTerms; i++) {\n            const ta = r.i32();\n            const tb = r.i32();\n            // 低-検査パリティフォロー: C++(predict_native_v2.cpp load_treg)は\n            // term_a/term_b が [0,d) 範囲外だとpredict_linear_poly()のs[a]/s[b]が\n            // 配列外読み出しになるため拒否するが、JS側にはこの検査が無く、細工された\n            // .tregでNaN化(配列外→undefined演算)を起こせる恐れがあった。term_b<0は\n            // 「単項」を表す正当な値のため、それ以外の場合のみ [0,d) を要求する。\n            if (r.fail || ta < 0 || ta >= d || (tb >= 0 && tb >= d)) {\n                throw new Error(\"bad linear_poly term index\");\n            }\n            termA[i] = ta;\n            termB[i] = tb;\n        }\n        const coef = r.floats(nTerms);\n        const intercept = r.f32();\n        if (r.fail) throw new Error(\"truncated linear_poly payload\");\n        model.linearPoly = { center, scale, termA, termB, coef, intercept };\n    } else if (model.type === MT_BLEND) {\n        // 各メンバーは後処理なし(smear=1, y_clip=無制限, round無し)の自己完結した\n        // 入れ子 .treg ブロブ。loadTreg を再帰的に呼んでそれぞれ独立にパースする。\n        const nMembers = r.u32();\n        if (r.fail || nMembers > 1000) throw new Error(\"bad blend n_members\");\n        const members = [];\n        for (let i = 0; i < nMembers; i++) {\n            const weight = r.f32();\n            const blobLen = r.u32();\n            const blobBuf = r.sliceBuffer(blobLen);\n            if (r.fail) throw new Error(\"truncated blend member blob\");\n            members.push({ weight, model: loadTreg(blobBuf, depth + 1) });\n        }\n        if (members.length < 2) throw new Error(\"blend must have >=2 members\");\n        model.blend = { members };\n    } else {\n        throw new Error(`unknown model type ${model.type}`);\n    }\n    if (r.fail) throw new Error(\"truncated model payload\");\n\n    if (model.file_version >= 2) {\n        model.y_transform = r.u8();\n        if (model.y_transform === YT_YEO_JOHNSON) model.yeo_lambda = r.f32();\n    }\n    if (model.file_version >= 3) {\n        model.round_output = r.u8();\n        model.smear = r.f32();\n        model.y_clip_lo = r.f32();\n        model.y_clip_hi = r.f32();\n        const nClip = r.u32();\n        for (let i = 0; i < nClip; i++) {\n            model.x_clip_lo.push(r.f32());\n            model.x_clip_hi.push(r.f32());\n        }\n    }\n\n    model.target_col = r.str();\n    const nFc = r.u32();\n    if (r.fail || nFc > 100000) throw new Error(\"bad feat_cols count\");\n    for (let i = 0; i < nFc; i++) model.feat_cols.push(r.str());\n    // 整合性検査(重大-1): ヘッダのn_featとテールのn_fc(feat_cols実個数)が食い違う\n    // 破損ファイルを拒否する(C++版 predict_native_v2.cpp load_treg と同一検査)。\n    if (model.n_feat !== nFc) throw new Error(\"n_feat / feat_cols count mismatch\");\n    const nMed = r.u32();\n    if (r.fail || nMed > 100000) throw new Error(\"bad medians count\");\n    for (let i = 0; i < nMed; i++) {\n        const col = r.str();\n        if (r.fail || r.pos + 8 > r.size) throw new Error(\"truncated medians\");\n        model.medians.set(col, r.f64());\n    }\n    if (!r.ok()) throw new Error(\"treg trailing data corrupt\");\n    return model;\n}\n\n// rawRow: CSVの生文字列(colname→string)。カテゴリエンコーダのマッチングは文字列同士で\n// 行うため必要(数値化済みの row だけでは元のカテゴリ文字列が失われている)。呼び出し側\n// (run_matrix_test.js 等)が未対応でrawRowを渡さない場合、カテゴリ特徴を含まないモデルの\n// 予測には影響しない(cat_idxが空なので常にrow[name]経路にフォールバックする)。\nfunction rawStringAt(rawRow, col) {\n    if (!rawRow) return CAT_NAN_SENTINEL;\n    const v = rawRow[col];\n    return (v === undefined || v === null || v === \"\") ? CAT_NAN_SENTINEL : String(v);\n}\n\n// datetime_parts(真因④対策/.treg v6): train_bridge._parse_datetime_parts /\n// predict_native_v2.cpp parse_datetime_parts と一字一句同じ判定になるよう移植する\n// (検出率計算と抽出の両方で同じ関数を使う「唯一の真実の判定」を3実装で共有する設計。\n// 参照日テスト: scratchpad dt_unittest.js/dt_parse_test.js で全一致確認済み)。\nconst DT_DAYS_IN_MONTH = [31,29,31,30,31,30,31,31,30,31,30,31];\n\nfunction parseDatetimeParts(raw) {\n    const s = String(raw).trim();\n    if (s.length < 10) return null;\n    const isDigits = (pos, n) => { if (pos + n > s.length) return false; for (let i = 0; i < n; i++) if (s[pos+i] < '0' || s[pos+i] > '9') return false; return true; };\n    if (!isDigits(0, 4)) return null;\n    const y = parseInt(s.slice(0, 4), 10);\n    const sep = s[4];\n    if (sep !== '-' && sep !== '/') return null;\n    if (!isDigits(5, 2)) return null;\n    const mo = parseInt(s.slice(5, 7), 10);\n    if (s[7] !== sep) return null;\n    if (!isDigits(8, 2)) return null;\n    const d = parseInt(s.slice(8, 10), 10);\n    let hh = 0, mi = 0, pos = 10;\n    if (pos < s.length) {\n        if (s[pos] === ' ' || s[pos] === 'T') pos++;\n        if (!isDigits(pos, 2) || pos + 2 >= s.length || s[pos+2] !== ':') return null;\n        hh = parseInt(s.slice(pos, pos+2), 10); pos += 3;\n        if (!isDigits(pos, 2)) return null;\n        mi = parseInt(s.slice(pos, pos+2), 10); pos += 2;\n        if (pos < s.length) {\n            if (s[pos] !== ':' || !isDigits(pos+1, 2)) return null;\n            pos += 3;\n        }\n        if (pos !== s.length) return null;\n    }\n    if (mo < 1 || mo > 12 || d < 1 || d > 31 || hh > 23 || mi > 59) return null;\n    if (d > DT_DAYS_IN_MONTH[mo - 1]) return null;\n    let yy = y - (mo <= 2 ? 1 : 0);\n    const era = Math.floor((yy >= 0 ? yy : yy - 399) / 400);\n    const yoe = yy - era * 400;\n    const doy = Math.floor((153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5) + d - 1;\n    const doe = yoe * 365 + Math.floor(yoe/4) - Math.floor(yoe/100) + doy;\n    const epochDays = era * 146097 + doe - 719468;\n    const dow = ((epochDays % 7) + 10) % 7;\n    return { hour: hh, dow, month: mo, epoch_days: epochDays };\n}\n\n// 合成キー(真因②対策/.treg v7): predict_native_v2.cpp parse_numeric_field と同一仕様の\n// 厳密な数値パース(全体が数値表現であることを要求、末尾ゴミがあればNaN)。\nfunction parseNumericFieldStrict(raw) {\n    const t = String(raw).trim();\n    if (t === \"\") return NaN;\n    if (!/^[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?$/.test(t)) return NaN;\n    const v = Number(t);\n    return Number.isFinite(v) ? v : NaN;\n}\n\n// train_bridge._canon_numeric_key_part / predict_native_v2.cpp canon_numeric_key_part\n// と同一の正規化(整数相当の値のみサポート)。\nfunction canonNumericKeyPart(raw) {\n    const v = parseNumericFieldStrict(raw);\n    if (!Number.isFinite(v) || Math.abs(v) >= 1e15) return CAT_NAN_SENTINEL;\n    return String(Math.round(v));\n}\n\nfunction buildCompositeKey(sourceColJoined, rawRow) {\n    return sourceColJoined.split(NUMKEY_SEP)\n        .map((col) => canonNumericKeyPart(rawStringAt(rawRow, col)))\n        .join(NUMKEY_SEP);\n}\n\n// 名前解決: feat_cols/派生特徴の col_a・col_b がカテゴリエンコーダの生成列(one-hot\n// indicator名、またはtarget-encoding後の元列名)を指す場合はそちらを優先し、それ以外は\n// 通常の数値列として row から引く(C++版 resolve_named と同一仕様)。\nfunction resolveNamed(model, name, row, rawRow) {\n    const idx = model.cat_idx.get(name);\n    if (idx !== undefined) {\n        const c = model.cat_encoders[idx];\n        if (c.method === CAT_COMPOSITE_TARGET) {\n            const key = buildCompositeKey(c.source_col, rawRow);\n            return c.target_map.has(key) ? c.target_map.get(key) : c.target_default;\n        }\n        const raw = rawStringAt(rawRow, c.source_col);\n        if (c.method === CAT_ONEHOT) return raw === c.class_value ? 1.0 : 0.0;\n        if (c.method === CAT_TARGET) return c.target_map.has(raw) ? c.target_map.get(raw) : c.target_default;\n        // CAT_DATETIME_PARTS\n        const parts = parseDatetimeParts(raw);\n        if (!parts) return NaN;  // predictRow側の汎用中央値フォールバックに委ねる\n        switch (c.part_id) {\n            case DTPART_HOUR:       return parts.hour;\n            case DTPART_DOW:        return parts.dow;\n            case DTPART_MONTH:      return parts.month;\n            case DTPART_EPOCH_DAYS: return parts.epoch_days;\n            default:                return NaN;\n        }\n    }\n    const v = row[name];\n    if (v === undefined || v === null || Number.isNaN(v)) return NaN;\n    return v;\n}\n\nfunction clippedSource(model, row, rawRow, col, lo, hi) {\n    const v = resolveNamed(model, col, row, rawRow);\n    if (Number.isNaN(v)) return NaN;\n    return Math.min(Math.max(v, lo), hi);\n}\n\nfunction computeDerived(model, df, row, rawRow) {\n    const a = clippedSource(model, row, rawRow, df.col_a, df.a_lo, df.a_hi);\n    if (Number.isNaN(a)) return NaN;\n    let v;\n    if (df.op === DOP_MUL) {\n        const b = clippedSource(model, row, rawRow, df.col_b, df.b_lo, df.b_hi);\n        if (Number.isNaN(b)) return NaN;\n        v = a * b;\n    } else if (df.op === DOP_SQ) {\n        v = a * a;\n    } else if (df.op === DOP_SIGN) {\n        v = Math.sign(a);\n    } else {\n        return NaN;\n    }\n    return Number.isFinite(v) ? v : NaN;\n}\n\nfunction predictLgbm(lgbmModel, x) {\n    let sum = 0.0;\n    for (const tree of lgbmModel.trees) {\n        if (tree.n_leaves === 1) { sum += tree.leaf_value[0]; continue; }\n        let node = 0;\n        // 循環参照(細工された.treg)による無限ループを防ぐため、訪問回数に上限を\n        // 設ける(重大-1、C++版 predict_lgbm と同一のガード)。\n        const maxVisits = tree.split_feature.length;  // = 内部ノード数(ni)\n        let visits = 0;\n        for (;;) {\n            if (++visits > maxVisits) throw new Error(\"lgbm tree traversal exceeded node limit (corrupt .treg?)\");\n            const feat = tree.split_feature[node];\n            const thr = tree.threshold[node];\n            const next = (x[feat] <= thr) ? tree.left_child[node] : tree.right_child[node];\n            if (next < 0) { sum += tree.leaf_value[-(next + 1)]; break; }\n            node = next;\n        }\n    }\n    return sum;\n}\n\n// スケーラのεは.treg書き出し時に焼き込み済み(train_bridge._write_treg_stream が\n// scale=max(scale,1e-8)にしてから float32 化する。中-M3)。読み込み側は「.tregの値で\n// 割るだけ」でよく、以前のように読み込み側で +1e-8 を足す必要はない。\nfunction predictLinear(m, x, d) {\n    let s = m.intercept;\n    for (let i = 0; i < d; i++) {\n        const sc = (x[i] - m.mean[i]) / m.scale[i];\n        s += m.coef[i] * sc;\n    }\n    return s;\n}\n\nfunction predictGp(m, x) {\n    const d = m.n_feat;\n    const xs = new Float32Array(d);\n    for (let i = 0; i < d; i++) xs[i] = (x[i] - m.mean[i]) / m.scale[i];\n    let yNorm = 0.0;\n    for (let i = 0; i < m.n_train; i++) {\n        let sq = 0.0;\n        for (let j = 0; j < d; j++) {\n            const diff = xs[j] - m.X_train[i * d + j];\n            const lsJ = m.ls[j];\n            sq += (diff / lsJ) * (diff / lsJ);\n        }\n        yNorm += m.sv * Math.exp(-0.5 * sq) * m.alpha[i];\n    }\n    return yNorm * m.y_std + m.y_mean;\n}\n\nfunction predictMlp(m, x, d) {\n    let h = new Float32Array(d);\n    for (let i = 0; i < d; i++) h[i] = (x[i] - m.mean[i]) / m.scale[i];\n    for (const layer of m.layers) {\n        const outV = new Float32Array(layer.n_out);\n        for (let j = 0; j < layer.n_out; j++) {\n            let val = layer.b[j];\n            for (let k = 0; k < layer.n_in; k++) val += h[k] * layer.W[k * layer.n_out + j];\n            outV[j] = val;\n        }\n        if (layer.act === 0) {\n            for (let j = 0; j < outV.length; j++) outV[j] = Math.max(0.0, outV[j]);\n        }\n        h = outV;\n    }\n    return h.length === 0 ? 0.0 : h[0];\n}\n\nfunction predictLinearPoly(m, x, d) {\n    const s = new Float32Array(d);\n    for (let i = 0; i < d; i++) s[i] = (x[i] - m.center[i]) / m.scale[i];\n    let sum = m.intercept;\n    const n = m.coef.length;\n    for (let t = 0; t < n; t++) {\n        const a = m.termA[t], b = m.termB[t];\n        const val = (b < 0) ? s[a] : s[a] * s[b];\n        sum += m.coef[t] * val;\n    }\n    return sum;\n}\n\nfunction predictBlend(blend, row, rawRow) {\n    // 各メンバーは自身の型・特徴量・y変換・(後処理なしの)個別予測を完結して持つため、\n    // predictRow を再帰的に呼んで得た「実スケールの予測」を重み付き和するだけでよい。\n    // 最終的な smear/y_clip/round_output は呼び出し元の predictRow(外側モデル)側で\n    // 一度だけ適用される。\n    let sum = 0.0;\n    for (const mem of blend.members) {\n        sum += mem.weight * predictRow(mem.model, row, rawRow);\n    }\n    return sum;\n}\n\nfunction buildFeatureVector(model, row, rawRow) {\n    const d = model.feat_cols.length;\n    const x = new Float32Array(d);\n    for (let i = 0; i < d; i++) {\n        const name = model.feat_cols[i];\n        let val = NaN;\n        if (model.derived_idx.has(name)) {\n            val = computeDerived(model, model.derived[model.derived_idx.get(name)], row, rawRow);\n        } else {\n            val = resolveNamed(model, name, row, rawRow);\n        }\n        if (Number.isNaN(val)) {\n            val = model.medians.has(name) ? model.medians.get(name) : 0.0;\n        }\n        if (i < model.x_clip_lo.length) {\n            val = Math.min(Math.max(val, model.x_clip_lo[i]), model.x_clip_hi[i]);\n        }\n        x[i] = val;\n    }\n    return x;\n}\n\nfunction yeoJohnsonInv(y, lam) {\n    if (y >= 0) {\n        if (Math.abs(lam) < 1e-6) return Math.expm1(y);\n        return Math.pow(lam * y + 1.0, 1.0 / lam) - 1.0;\n    } else {\n        const lam2 = 2.0 - lam;\n        if (Math.abs(lam2) < 1e-6) return 1.0 - Math.exp(-y);\n        return 1.0 - Math.pow(-lam2 * y + 1.0, 1.0 / lam2);\n    }\n}\n\nfunction invYTransform(pred, yt, lam) {\n    if (yt === YT_LOG1P) return Math.expm1(pred);\n    if (yt === YT_YEO_JOHNSON) return yeoJohnsonInv(pred, lam);\n    return pred;\n}\n\nfunction roundHalfAwayFromZero(x) {\n    return Math.sign(x) * Math.floor(Math.abs(x) + 0.5);\n}\n\nfunction predictRow(model, row, rawRow) {\n    const x = buildFeatureVector(model, row, rawRow);\n    const d = model.feat_cols.length;\n    let pred;\n    if (model.type === MT_LGBM) {\n        pred = predictLgbm(model.lgbm, x);\n    } else if (model.type === MT_LINEAR) {\n        pred = predictLinear(model.linear, x, d);\n    } else if (model.type === MT_GP) {\n        pred = predictGp(model.gp, x);\n    } else if (model.type === MT_MLP) {\n        pred = predictMlp(model.mlp, x, d);\n    } else if (model.type === MT_LINEAR_POLY) {\n        pred = predictLinearPoly(model.linearPoly, x, d);\n    } else if (model.type === MT_BLEND) {\n        pred = predictBlend(model.blend, row, rawRow);\n    } else {\n        throw new Error(\"unknown model type\");\n    }\n    pred = invYTransform(pred, model.y_transform, model.yeo_lambda);\n    pred *= model.smear;\n    pred = Math.min(Math.max(pred, model.y_clip_lo), model.y_clip_hi);\n    if (model.round_output) pred = roundHalfAwayFromZero(pred);\n    return pred;\n}\n\nmodule.exports = { loadTreg, predictRow, roundHalfAwayFromZero };\n";
 
     // ── i18n (日本語/英語切替) ──────────────────────────────────────────────────
     // キーはドット区切りの名前空間(由来が分かるように): ui.*=静的HTML/固定UI文言,
@@ -1843,6 +1847,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             'sim.lgBest': '緑の丸＝応答が最小だった点',
             'sim.addTitle': '学習済みモデル(.treg / 書き出したHTML)を読み込む。複数入れると同じスライダーで一緒に動く',
             'sim.removeModel': 'このモデルを外す',
+            'sim.cliTitle': 'コマンドラインで一括推論するスクリプトを保存（node スクリプト名 入力.csv）',
             'sim.legendTitle': '記号の意味',
             'sim.deltaNone': '基準行のまま',
             'sim.deltaNoneTitle': 'まだどの変数も動かしていません',
@@ -2133,6 +2138,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             'sim.lgBest': 'Green circle = point with the lowest response',
             'sim.addTitle': 'Load a trained model (.treg or exported HTML). Multiple models move together on the same sliders',
             'sim.removeModel': 'Remove this model',
+            'sim.cliTitle': 'Save a script for batch prediction from the command line (node script input.csv)',
             'sim.legendTitle': 'What the symbols mean',
             'sim.deltaNone': 'Same as the reference row',
             'sim.deltaNoneTitle': 'No variable has been moved yet',
@@ -4211,6 +4217,20 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         models: [],            // [{id,name,model,target,rmse,r2,refOnly,spec}]
         animRaf: 0, predShown: NaN,
     };
+    // base64 ⇄ バイト列。CLIスクリプトの書き出しと、埋め込みモデルの読み込みで使う。
+    function _bytesToB64(bytes) {
+        const CHUNK = 0x8000; let binary = '';
+        for (let i = 0; i < bytes.length; i += CHUNK)
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+        return btoa(binary);
+    }
+    function _b64ToBytes(b64) {
+        const bin = atob(b64);
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        return u8;
+    }
+
     const SIM_ROW_TIPS_SEP = '\n';
     const SIM_MONO = "'IBM Plex Mono', 'Consolas', monospace";
     // 最適点の色は右のグラフとスライダーで共通（同じ色・同じ形にして対応を取る）
@@ -4881,6 +4901,87 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                  + (D.best ? '\n' + t('sim.tipBest', { v: simFmt(D.best.y) }) : '');
     }
 
+    // ── コマンドラインで使うスクリプトの書き出し ──────────────────────────────
+    // ブラウザで動かしているのと同じ推論エンジン(predict-core.js)と、同じ .treg を
+    // 1つの .js にまとめる。Node があれば依存パッケージ無しで
+    //   node model.js input.csv output.csv
+    // として一括推論できる。エンジンはビルド時に文字列としても埋め込んであるので、
+    // ここでロジックを書き写すことはしない（画面と同じ数値が出ることが保証される）。
+    function simBuildCliScript(name) {
+        const src = window.TregPredictCoreSource;
+        if (!src) throw new Error('predict-core source not embedded');
+        const pm = simPrimary();
+        const bytes = Platform.getTregBytes();
+        const b64 = _bytesToB64(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+        const target = (pm && pm.target) || 'prediction';
+        return [
+'#!/usr/bin/env node',
+'// ' + name + ' — T-regressor のモデルをコマンドラインで使うためのスクリプト。',
+'// 使い方:  node ' + name + ' 入力.csv [出力.csv]',
+'//   ・入力CSVの1行目は列名。学習に使った列が揃っていれば、順番や余分な列は自由。',
+'//   ・出力CSVは入力の全列＋予測列(' + target + '_pred)。省略すると 入力名_pred.csv。',
+'//   ・推論エンジンはブラウザ版と同一のファイルなので、同じ入力なら同じ値になる。',
+'"use strict";',
+'const fs = require("fs");',
+'',
+'// ── 推論エンジン（web/js_predict_poc/predict-core.js と同一） ──',
+src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
+'',
+'// ── モデル本体（.treg を base64 で同梱） ──',
+'const TREG_B64 = "' + b64 + '";',
+'const TARGET = ' + JSON.stringify(target) + ';',
+'',
+'// ── CSV の読み書き（RFC4180: 引用符・改行・カンマに対応） ──',
+'function parseCsv(text) {',
+'    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);   // BOM',
+'    const rows = []; let row = [], cell = "", q = false;',
+'    for (let i = 0; i < text.length; i++) {',
+'        const c = text[i];',
+'        if (q) {',
+'            if (c === \'"\') { if (text[i+1] === \'"\') { cell += \'"\'; i++; } else q = false; }',
+'            else cell += c;',
+'        } else if (c === \'"\') q = true;',
+'        else if (c === ",") { row.push(cell); cell = ""; }',
+'        else if (c === "\\n") { row.push(cell); rows.push(row); row = []; cell = ""; }',
+'        else if (c !== "\\r") cell += c;',
+'    }',
+'    if (cell !== "" || row.length) { row.push(cell); rows.push(row); }',
+'    return rows;',
+'}',
+'function csvCell(v) {',
+'    const s = String(v);',
+'    return /[",\\r\\n]/.test(s) ? \'"\' + s.replace(/"/g, \'""\') + \'"\' : s;',
+'}',
+'',
+'function main() {',
+'    const inPath = process.argv[2];',
+'    if (!inPath) { console.error("使い方: node " + require("path").basename(__filename) + " 入力.csv [出力.csv]"); process.exit(1); }',
+'    const outPath = process.argv[3] || inPath.replace(/\\.csv$/i, "") + "_pred.csv";',
+'    const buf = Buffer.from(TREG_B64, "base64");',
+'    const model = loadTreg(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));',
+'    const rows = parseCsv(fs.readFileSync(inPath, "utf8"));',
+'    if (!rows.length) { console.error("空のCSVです"); process.exit(1); }',
+'    const header = rows[0];',
+'    const out = [header.concat([TARGET + "_pred"]).map(csvCell).join(",")];',
+'    let n = 0;',
+'    for (let i = 1; i < rows.length; i++) {',
+'        const r = rows[i];',
+'        if (r.length === 1 && r[0] === "") continue;   // 末尾の空行',
+'        const raw = {}, num = {};',
+'        for (let j = 0; j < header.length; j++) {',
+'            const v = r[j] === undefined ? "" : r[j];',
+'            raw[header[j]] = v; num[header[j]] = Number(v);',
+'        }',
+'        out.push(r.concat([predictRow(model, num, raw)]).map(csvCell).join(","));',
+'        n++;',
+'    }',
+'    fs.writeFileSync(outPath, out.join("\\n") + "\\n", "utf8");',
+'    console.log(n + " 行を予測しました → " + outPath);',
+'}',
+'main();',
+''].join('\n');
+    }
+
     // ── モデルの持ち込み ──────────────────────────────────────────────────────
     // 受け付けるのは .treg（モデル本体）と、④で書き出した単体HTML（中に .treg を
     // base64 で持っている）。複数入れると、同じスライダーで全モデルの応答が動く。
@@ -5107,6 +5208,18 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         simEl('simLegendBtn').classList.toggle('on', open);
         requestAnimationFrame(function () { simRefreshSliders(); simRenderPrediction(); });
     });
+    simEl('simCliBtn').addEventListener('click', function () {
+        try {
+            const pm = simPrimary();
+            const nm = ((pm && pm.name) || 'model').replace(/[^\w.-]/g, '_') + '.cli.js';
+            const text = simBuildCliScript(nm);
+            Platform.downloadFile(new TextEncoder().encode(text), nm, 'text/javascript');
+        } catch (e) {
+            console.warn('[SIMULATE] CLIスクリプトの書き出しに失敗:', e);
+            const b = simEl('simCliBtn');
+            if (b) { b.classList.add('err'); setTimeout(function () { b.classList.remove('err'); }, 1500); }
+        }
+    });
     simEl('simSaveBtn').addEventListener('click', function () {
         const cols = simSpecs().map(s => s.col);
         const esc = function (v) {
@@ -5131,12 +5244,6 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
     });
 
     // ── 書き出した単体HTML（シミュレータ）の起動 ──────────────────────────────
-    function _b64ToBytes(b64) {
-        const bin = atob(b64);
-        const u8 = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-        return u8;
-    }
     function _bootEmbedded() {
         // どこで失敗しても「真っ黒な画面」にならないよう、必ず表示を戻して理由を出す。
         const fail = (detail) => {

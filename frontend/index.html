@@ -233,10 +233,12 @@
             width: 16px; height: 16px; border-radius: 50%; font-family: var(--font-display);
             font-size: 8px; font-weight: 800; flex-shrink: 0;
         }
-        .sn-1 { background: rgba(63,196,236,0.12);  color: var(--cyan); border: 1px solid rgba(63,196,236,0.25); }
-        .sn-2 { background: rgba(79,127,224,0.12);  color: var(--blue); border: 1px solid rgba(79,127,224,0.28); }
-        .sn-3 { background: rgba(47,214,142,0.12);  color: var(--good); border: 1px solid rgba(47,214,142,0.25); }
-        .sn-4 { background: rgba(240,169,78,0.12);  color: var(--gold); border: 1px solid rgba(240,169,78,0.28); }
+        /* ①〜④の番号バッジは色を分けない。4色あると画面の色数が増えて散らかって
+           見えるため、すべて①のシアンに統一する。 */
+        .sn-1, .sn-2, .sn-3, .sn-4 {
+            background: rgba(63,196,236,0.12); color: var(--cyan);
+            border: 1px solid rgba(63,196,236,0.25);
+        }
 
         /* 全インタラクティブ要素を同一高さに */
         .drop-zone, .wf-step .btn { height: 56px; }
@@ -1105,6 +1107,7 @@
             <span class="sim-title">SIMULATE</span>
             <button id="simAddBtn" class="sim-legend-btn" data-i18n-title="sim.addTitle" title="学習済みモデル(.treg / 書き出したHTML)を読み込む">+</button>
             <input id="simAddInput" type="file" accept=".treg,.html,.htm" multiple style="display:none">
+            <button id="simCliBtn" class="sim-legend-btn" data-i18n-title="sim.cliTitle" title="コマンドラインで一括推論するスクリプトを保存">&gt;_</button>
             <button id="simSaveBtn" class="sim-legend-btn" data-i18n-title="sim.saveTitle" title="この1行をCSVで保存">↓</button>
             <button id="simLegendBtn" class="sim-legend-btn" data-i18n-title="sim.legendTitle" title="記号の意味">?</button>
             <button id="simCloseBtn" class="sim-close-btn">✕</button>
@@ -1243,6 +1246,7 @@
             'sim.lgBest': '緑の丸＝応答が最小だった点',
             'sim.addTitle': '学習済みモデル(.treg / 書き出したHTML)を読み込む。複数入れると同じスライダーで一緒に動く',
             'sim.removeModel': 'このモデルを外す',
+            'sim.cliTitle': 'コマンドラインで一括推論するスクリプトを保存（node スクリプト名 入力.csv）',
             'sim.legendTitle': '記号の意味',
             'sim.deltaNone': '基準行のまま',
             'sim.deltaNoneTitle': 'まだどの変数も動かしていません',
@@ -1533,6 +1537,7 @@
             'sim.lgBest': 'Green circle = point with the lowest response',
             'sim.addTitle': 'Load a trained model (.treg or exported HTML). Multiple models move together on the same sliders',
             'sim.removeModel': 'Remove this model',
+            'sim.cliTitle': 'Save a script for batch prediction from the command line (node script input.csv)',
             'sim.legendTitle': 'What the symbols mean',
             'sim.deltaNone': 'Same as the reference row',
             'sim.deltaNoneTitle': 'No variable has been moved yet',
@@ -3611,6 +3616,20 @@
         models: [],            // [{id,name,model,target,rmse,r2,refOnly,spec}]
         animRaf: 0, predShown: NaN,
     };
+    // base64 ⇄ バイト列。CLIスクリプトの書き出しと、埋め込みモデルの読み込みで使う。
+    function _bytesToB64(bytes) {
+        const CHUNK = 0x8000; let binary = '';
+        for (let i = 0; i < bytes.length; i += CHUNK)
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+        return btoa(binary);
+    }
+    function _b64ToBytes(b64) {
+        const bin = atob(b64);
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        return u8;
+    }
+
     const SIM_ROW_TIPS_SEP = '\n';
     const SIM_MONO = "'IBM Plex Mono', 'Consolas', monospace";
     // 最適点の色は右のグラフとスライダーで共通（同じ色・同じ形にして対応を取る）
@@ -4281,6 +4300,87 @@
                  + (D.best ? '\n' + t('sim.tipBest', { v: simFmt(D.best.y) }) : '');
     }
 
+    // ── コマンドラインで使うスクリプトの書き出し ──────────────────────────────
+    // ブラウザで動かしているのと同じ推論エンジン(predict-core.js)と、同じ .treg を
+    // 1つの .js にまとめる。Node があれば依存パッケージ無しで
+    //   node model.js input.csv output.csv
+    // として一括推論できる。エンジンはビルド時に文字列としても埋め込んであるので、
+    // ここでロジックを書き写すことはしない（画面と同じ数値が出ることが保証される）。
+    function simBuildCliScript(name) {
+        const src = window.TregPredictCoreSource;
+        if (!src) throw new Error('predict-core source not embedded');
+        const pm = simPrimary();
+        const bytes = Platform.getTregBytes();
+        const b64 = _bytesToB64(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+        const target = (pm && pm.target) || 'prediction';
+        return [
+'#!/usr/bin/env node',
+'// ' + name + ' — T-regressor のモデルをコマンドラインで使うためのスクリプト。',
+'// 使い方:  node ' + name + ' 入力.csv [出力.csv]',
+'//   ・入力CSVの1行目は列名。学習に使った列が揃っていれば、順番や余分な列は自由。',
+'//   ・出力CSVは入力の全列＋予測列(' + target + '_pred)。省略すると 入力名_pred.csv。',
+'//   ・推論エンジンはブラウザ版と同一のファイルなので、同じ入力なら同じ値になる。',
+'"use strict";',
+'const fs = require("fs");',
+'',
+'// ── 推論エンジン（web/js_predict_poc/predict-core.js と同一） ──',
+src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
+'',
+'// ── モデル本体（.treg を base64 で同梱） ──',
+'const TREG_B64 = "' + b64 + '";',
+'const TARGET = ' + JSON.stringify(target) + ';',
+'',
+'// ── CSV の読み書き（RFC4180: 引用符・改行・カンマに対応） ──',
+'function parseCsv(text) {',
+'    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);   // BOM',
+'    const rows = []; let row = [], cell = "", q = false;',
+'    for (let i = 0; i < text.length; i++) {',
+'        const c = text[i];',
+'        if (q) {',
+'            if (c === \'"\') { if (text[i+1] === \'"\') { cell += \'"\'; i++; } else q = false; }',
+'            else cell += c;',
+'        } else if (c === \'"\') q = true;',
+'        else if (c === ",") { row.push(cell); cell = ""; }',
+'        else if (c === "\\n") { row.push(cell); rows.push(row); row = []; cell = ""; }',
+'        else if (c !== "\\r") cell += c;',
+'    }',
+'    if (cell !== "" || row.length) { row.push(cell); rows.push(row); }',
+'    return rows;',
+'}',
+'function csvCell(v) {',
+'    const s = String(v);',
+'    return /[",\\r\\n]/.test(s) ? \'"\' + s.replace(/"/g, \'""\') + \'"\' : s;',
+'}',
+'',
+'function main() {',
+'    const inPath = process.argv[2];',
+'    if (!inPath) { console.error("使い方: node " + require("path").basename(__filename) + " 入力.csv [出力.csv]"); process.exit(1); }',
+'    const outPath = process.argv[3] || inPath.replace(/\\.csv$/i, "") + "_pred.csv";',
+'    const buf = Buffer.from(TREG_B64, "base64");',
+'    const model = loadTreg(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));',
+'    const rows = parseCsv(fs.readFileSync(inPath, "utf8"));',
+'    if (!rows.length) { console.error("空のCSVです"); process.exit(1); }',
+'    const header = rows[0];',
+'    const out = [header.concat([TARGET + "_pred"]).map(csvCell).join(",")];',
+'    let n = 0;',
+'    for (let i = 1; i < rows.length; i++) {',
+'        const r = rows[i];',
+'        if (r.length === 1 && r[0] === "") continue;   // 末尾の空行',
+'        const raw = {}, num = {};',
+'        for (let j = 0; j < header.length; j++) {',
+'            const v = r[j] === undefined ? "" : r[j];',
+'            raw[header[j]] = v; num[header[j]] = Number(v);',
+'        }',
+'        out.push(r.concat([predictRow(model, num, raw)]).map(csvCell).join(","));',
+'        n++;',
+'    }',
+'    fs.writeFileSync(outPath, out.join("\\n") + "\\n", "utf8");',
+'    console.log(n + " 行を予測しました → " + outPath);',
+'}',
+'main();',
+''].join('\n');
+    }
+
     // ── モデルの持ち込み ──────────────────────────────────────────────────────
     // 受け付けるのは .treg（モデル本体）と、④で書き出した単体HTML（中に .treg を
     // base64 で持っている）。複数入れると、同じスライダーで全モデルの応答が動く。
@@ -4507,6 +4607,18 @@
         simEl('simLegendBtn').classList.toggle('on', open);
         requestAnimationFrame(function () { simRefreshSliders(); simRenderPrediction(); });
     });
+    simEl('simCliBtn').addEventListener('click', function () {
+        try {
+            const pm = simPrimary();
+            const nm = ((pm && pm.name) || 'model').replace(/[^\w.-]/g, '_') + '.cli.js';
+            const text = simBuildCliScript(nm);
+            Platform.downloadFile(new TextEncoder().encode(text), nm, 'text/javascript');
+        } catch (e) {
+            console.warn('[SIMULATE] CLIスクリプトの書き出しに失敗:', e);
+            const b = simEl('simCliBtn');
+            if (b) { b.classList.add('err'); setTimeout(function () { b.classList.remove('err'); }, 1500); }
+        }
+    });
     simEl('simSaveBtn').addEventListener('click', function () {
         const cols = simSpecs().map(s => s.col);
         const esc = function (v) {
@@ -4531,12 +4643,6 @@
     });
 
     // ── 書き出した単体HTML（シミュレータ）の起動 ──────────────────────────────
-    function _b64ToBytes(b64) {
-        const bin = atob(b64);
-        const u8 = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-        return u8;
-    }
     function _bootEmbedded() {
         // どこで失敗しても「真っ黒な画面」にならないよう、必ず表示を戻して理由を出す。
         const fail = (detail) => {
