@@ -1735,8 +1735,8 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             'sim.demoteTitle': '固定に戻す',
             'sim.filterPlaceholder': '絞り込み',
             'sim.fixedTitle': '固定中の列（中央値／最頻値）。クリックでスライダーに追加',
-            'sim.expandTitle': '固定中の {{n}} 列もすべてスライダーで表示',
-            'sim.collapseTitle': '重要度の上位のみ表示に戻す',
+            'sim.expandTitle': '固定中の {{n}} 変数もすべてスライダーで表示',
+            'sim.collapseTitle': '重要度の上位 {{n}} 変数だけに絞る',
             'sim.chipTitle': '{{col}} = {{v}}（重要度 {{imp}}%）',
             'sim.levelTitle': '{{value}}: 学習データ {{n}} 行',
             'sim.tipValue': '{{col}} = {{v}}（重要度 {{imp}}%）',
@@ -2004,8 +2004,8 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
             'sim.demoteTitle': 'Move back to fixed',
             'sim.filterPlaceholder': 'filter',
             'sim.fixedTitle': 'Fixed columns (median / mode). Click to add a slider',
-            'sim.expandTitle': 'Show all {{n}} fixed columns as sliders',
-            'sim.collapseTitle': 'Show only the most important columns',
+            'sim.expandTitle': 'Show all {{n}} fixed variables as sliders',
+            'sim.collapseTitle': 'Narrow down to the top {{n}} variables',
             'sim.chipTitle': '{{col}} = {{v}} (importance {{imp}}%)',
             'sim.levelTitle': '{{value}}: {{n}} training rows',
             'sim.tipValue': '{{col}} = {{v}} (importance {{imp}}%)',
@@ -4108,7 +4108,9 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
                 SIM.state[s.col] = known ? String(raw) : s.mode;
             }
         }
-        SIM.visible = simSpecs().slice(0, SIM_DEFAULT_SLIDERS).map(s => s.col);
+        // 既定で「全変数」にスライダーを用意する。変数が多い場合は可変列グリッドで
+        // 横に折り返されるため縦は伸びにくく、絞り込みは ▴ ボタンで後から選べる。
+        SIM.visible = simSpecs().map(s => s.col);
         simRenderAll();
     }
 
@@ -4226,8 +4228,14 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         ctx.beginPath(); simCurve(ctx, pts);
         ctx.strokeStyle = 'rgba(63,196,236,0.32)'; ctx.lineWidth = 1; ctx.stroke();
 
-        ctx.strokeStyle = 'rgba(160,190,220,0.12)'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(0, base + 0.5); ctx.lineTo(w, base + 0.5); ctx.stroke();
+        // スライドバーの軌道。左から現在値までを明るくして「つまみを引いた量」が
+        // 一目で分かるようにする(密度カーブだけだとスライダーに見えないため)。
+        const tx0 = X(Math.min(Math.max(v, lo), hi));
+        ctx.strokeStyle = 'rgba(160,190,220,0.22)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(2, base + 0.5); ctx.lineTo(w - 2, base + 0.5); ctx.stroke();
+        ctx.strokeStyle = `rgba(${acc},0.75)`; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(2, base + 0.5); ctx.lineTo(Math.max(2, tx0), base + 0.5); ctx.stroke();
+        ctx.lineCap = 'butt';
 
         // x_clip = 行き止まりの壁。ここから先はエンジンが入力をクリップするため
         // つまみを動かしても予測が変わらない。壁として描くことで文章の説明が要らなくなる。
@@ -4338,9 +4346,11 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         }
         const total = sp.length, btn = simEl('simExpandBtn');
         const all = SIM.visible.length >= total;
-        btn.textContent = all ? '▴' : '▾ ' + hidden.length;
-        btn.classList.toggle('on', all);
-        btn.title = all ? t('sim.collapseTitle') : t('sim.expandTitle', { n: hidden.length });
+        // 既定は全変数表示。▴ で重要度の上位だけに絞れる（変数が非常に多い時用）。
+        btn.textContent = all ? '▴ ' + SIM_DEFAULT_SLIDERS : '▾ ' + hidden.length;
+        btn.classList.toggle('on', !all);
+        btn.title = all ? t('sim.collapseTitle', { n: SIM_DEFAULT_SLIDERS })
+                        : t('sim.expandTitle', { n: hidden.length });
         btn.style.display = total <= SIM_DEFAULT_SLIDERS ? 'none' : '';
         simEl('simLinkBtn').style.display = SIM.corr.length ? '' : 'none';
         simEl('simLinkBtn').classList.toggle('on', SIM.linkMode);
