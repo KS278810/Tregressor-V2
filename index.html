@@ -683,7 +683,10 @@
             color: var(--ink-faint); letter-spacing: 0.08em;
         }
         /* 幅に応じて 1→2→3 列。列が増えるほど縦が縮み、変数が多くてもスクロールが消える */
-        .sim-sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); column-gap: 16px; }
+        /* 1行の固定要素(重要度3+列名72+値52+感度38+×11+隙間30=206px)に対して
+           スライダー本体が十分な幅を持てるよう、列の最小幅を余裕をもって取る。
+           狭いと auto-fill が列数を減らすだけで、トラックは潰れない。 */
+        .sim-sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); column-gap: 16px; }
         .sim-row {
             display: flex; align-items: center; gap: 6px; height: 28px; min-width: 0;
             border-radius: 3px; padding: 0 2px 0 6px; transition: background 0.12s;
@@ -700,7 +703,7 @@
         .sim-row.changed .sim-name:hover { color: var(--gold); text-decoration: underline; }
         .sim-imp { width: 3px; border-radius: 2px; background: var(--cyan); opacity: 0.55; flex: none; }
         .sim-name {
-            width: 80px; flex: none; font-family: var(--font-mono); font-size: 10.5px;
+            width: 72px; flex: none; font-family: var(--font-mono); font-size: 10.5px;
             color: var(--ink-dim); white-space: nowrap; overflow: hidden;
             text-overflow: ellipsis; transition: color 0.15s;
         }
@@ -708,7 +711,7 @@
         /* 値は表示専用ではなく直接入力できるようにする。スライダーだけでは
            「ちょうど 22.5」のような狙った値を置けず、実務では致命的なため。 */
         .sim-val {
-            width: 58px; flex: none; text-align: right; font-family: var(--font-mono);
+            width: 52px; flex: none; text-align: right; font-family: var(--font-mono);
             font-size: 11.5px; color: var(--cyan); transition: color 0.15s;
             background: transparent; border: 1px solid transparent; border-radius: 3px;
             padding: 1px 3px; outline: none; min-width: 0;
@@ -729,7 +732,7 @@
         }
         .sim-row:hover .sim-x { opacity: 1; }
         .sim-x:hover { color: var(--bad); }
-        .sim-track { position: relative; flex: 1; height: 22px; min-width: 40px; }
+        .sim-track { position: relative; flex: 1; height: 22px; min-width: 90px; }
         .sim-track canvas { position: absolute; inset: 0; width: 100%; height: 22px; display: block; pointer-events: none; }
         .sim-track input[type=range] {
             position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 22px;
@@ -741,7 +744,7 @@
         .sim-track input[type=range]::-moz-range-thumb { width: 22px; height: 22px; background: transparent; border: none; }
         .sim-spark { width: 40px; height: 22px; flex: none; display: block; }
         /* カテゴリは折り返さず横スクロール。行の高さを一定に保つ */
-        .sim-pills { display: flex; gap: 3px; flex: 1; min-width: 40px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+        .sim-pills { display: flex; gap: 3px; flex: 1; min-width: 90px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
         .sim-pills::-webkit-scrollbar { display: none; }
         .sim-pill {
             padding: 1px 8px; border: 1px solid var(--hairline); border-radius: 9px;
@@ -4370,7 +4373,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         const wrap = row.querySelector('.sim-track');
         if (!wrap) return;
         const cv = wrap.querySelector('canvas');
-        const w = wrap.clientWidth || 0, h = 20;
+        const w = wrap.clientWidth || 0, h = 22;
         if (w <= 0) return;               // 非表示中は描かない（タブ表示時に再描画される）
         const ctx = simHdpi(cv, w, h);
         const [lo, hi] = simRange(s), X = (v) => (v - lo) / (hi - lo) * w;
@@ -4741,7 +4744,7 @@ window.TregPredictCore = { loadTreg, predictRow, roundHalfAwayFromZero };
         const col = row.dataset.col, s = SIM.specBy[col];
         const cv = row.querySelector('.sim-spark');
         if (!cv || !s) return;
-        const w = 40, h = 20;
+        const w = 40, h = 22;
         const pts = [];
         if (s.kind === 'numeric') {
             const [lo, hi] = simRange(s);
