@@ -49,7 +49,9 @@ git diff --no-index predict_template.py web/py/predict_template.py
 
 | 対象 | コマンド | 備考 |
 |---|---|---|
-| JS/C++/Python予測パリティ | `cd web/js_predict_poc && npm test` | 40設定×302行+エンコーディング境界。push/PR時にCIでも自動実行 |
+| JS/C++/Python予測パリティ | `cd web/js_predict_poc && npm test` | 54設定×302行+エンコーディング境界+SIMULATE。push/PR時にCIでも自動実行 |
+| ③ SIMULATE の UI/予測一致 | `cd web/js_predict_poc && npm run test:simulate` | `npm test` にも含まれる。**`web/index.html`（生成物）を読むので、`frontend/index.html`を編集したら先に`build_frontend.mjs`を実行すること** |
+| ③ SIMULATE のデータ契約 | `python tests/test_simulate_spec.py` | `slider_spec`/`y_hist`/`seed_rows`/`neighbor_ref`/`corr_pairs`。numpy/pandasのみで動く |
 | `_light.py` vs sklearn相当 | `python tests/test_light_parity.py` | sklearn/scipy入りのCPythonが必要（embeddable pythonでは不可） |
 | exe版回帰テスト | `& $py tests\verify_rebuild.py` | `$py = dist_portable\T-regressor\python-embed\python.exe`。主回帰スイート、必須 |
 | exe版統合テスト | `& $py tests\test_harness.py` | 25項目の詳細統合テスト |
@@ -61,6 +63,25 @@ git diff --no-index predict_template.py web/py/predict_template.py
 
 `fix:` / `feat:` / `test:` / `build:` / `docs:` プレフィックスで分離する。フロントエンド編集+ビルド生成物+
 Python複製同期のような一連の変更でも、性質が異なれば別コミットにする。
+
+### 5b. ③ SIMULATE（What-if スライダー）は Web版専用
+
+`frontend/index.html` の `simulateSection` と `SIM` オブジェクトが本体。Web版は学習完了と同時に
+スライダーが使えるようになり、CSVドロップによる一括予測は**exe版の役割**とする（③の見出しも
+Web版は `SIMULATE`、exe版は `PREDICT` に切り替わる）。
+
+- 推論には `web/js_predict_poc/predict-core.js` を**そのまま**使う。`build_frontend.mjs` が
+  `/* __PREDICT_CORE_INLINE__ */` を機械的に置換して埋め込むだけで、**内容は1行も書き写さない**
+  （`predict_template.html` のように写経するとルール7の管理対象が5個目に増えてしまう）。
+  そのため `.treg` 形式を変えない限り、SIMULATE の改修でルール3/7は発動しない。
+- スライダーは engineered feature ではなく**生CSV列**に対して並ぶ。そのためのデータ
+  （`slider_spec` / `y_hist` / `seed_rows` / `neighbor_ref` / `corr_pairs`）は `train_bridge.py` の
+  `_sim_*` 関数が学習結果JSONに載せる。**`.treg`には何も足さない**。
+- 表示方針: 説明文を画面に出さず `title` 属性へ退避し、状態は色・形・位置で表す
+  （外挿=amber、x_clip飽和=角いつまみと壁、相関=ゴーストつまみ、近傍件数=リングの欠け）。
+  文言を足すときはこの方針を壊さないこと。
+- 詳細設計: [docs/interactive-predict-design.md](docs/interactive-predict-design.md)、
+  UIモック: [docs/interactive-predict-mock.html](docs/interactive-predict-mock.html)
 
 ### 6. dist_portable/ は生成物、直接編集しない
 

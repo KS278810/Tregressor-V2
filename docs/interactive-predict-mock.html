@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>T-regressor ③ SIMULATE — モック v3</title>
+<!--
+  interactive-predict-mock.html v3 — 設計書 docs/interactive-predict-design.md の UI モック。
+  v3 の主眼: 変数が多い場合でもスクロールと目線移動を最小化する。
+    ・スライダー1本 = 1行26px（名前・トラック・値・感度を横一列に圧縮）
+    ・左ペインを可変列グリッド化（幅に応じて 1→2→3 列）。50列でもスクロールなしに収まる
+    ・右の予測パネルは position:sticky。左をスクロールしても常に視界に残る
+    ・v2 の方針（説明文は title へ退避／密度カーブ／機能は減らさない）はすべて維持
+  ダミーデータ(800行×50列)とダミー予測関数で完全自己完結して動く。
+-->
+<style>
+:root{
+  --font-display:'Chakra Petch','Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono','Consolas',monospace;
+  --font-body:'Yu Gothic UI','Segoe UI',-apple-system,BlinkMacSystemFont,sans-serif;
+  --void:#06080f; --surface:#0b0f1a; --hairline:rgba(255,255,255,0.06);
+  --ink:#eef3fa; --ink-dim:#7a8ca6; --ink-faint:#3d4a5e;
+  --cyan:#3fc4ec; --good:#2fd68e; --gold:#f0a94e; --bad:#ef5c5c;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:18px;background:var(--void);color:var(--ink);font-family:var(--font-body);font-size:13px}
+
+.mockbar{max-width:1320px;margin:0 auto 12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+  padding:6px 12px;border:1px dashed rgba(240,169,78,0.28);border-radius:6px;background:rgba(240,169,78,0.03)}
+.mockbar b{font-family:var(--font-display);letter-spacing:.06em;color:var(--gold);font-size:10px}
+.mockbar label{color:var(--ink-dim);font-size:10.5px;display:flex;gap:5px;align-items:center}
+.mockbar select{background:#0e1424;color:var(--ink);border:1px solid var(--hairline);border-radius:4px;
+  padding:2px 6px;font-family:var(--font-mono);font-size:10.5px}
+
+.panel{max-width:1320px;margin:0 auto;background:var(--surface);border:1px solid var(--hairline);border-radius:10px}
+.panel-head{display:flex;align-items:center;gap:12px;padding:9px 16px;border-bottom:1px solid var(--hairline);
+  background:linear-gradient(90deg,rgba(63,196,236,0.07),transparent 60%);border-radius:10px 10px 0 0}
+.panel-head h2{margin:0;font-family:var(--font-display);font-size:13px;letter-spacing:.18em;color:var(--cyan)}
+.grid{display:grid;grid-template-columns:1fr 340px;align-items:start}
+@media(max-width:820px){.grid{grid-template-columns:1fr}
+  .right{order:-1;position:static!important;border-left:none!important;border-bottom:1px solid var(--hairline)}}
+
+/* ── 左: スライダー（1本=1行26px、可変列グリッド） ── */
+.left{padding:10px 14px 12px;min-width:0}
+.toolbar{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.seedseg{display:flex;border:1px solid var(--hairline);border-radius:5px;overflow:hidden}
+.seedseg button{background:transparent;border:none;color:var(--ink-faint);font-family:var(--font-mono);
+  font-size:10px;padding:3px 9px;cursor:pointer;transition:.15s}
+.seedseg button:hover{color:var(--ink-dim)}
+.seedseg button.on{background:rgba(63,196,236,0.13);color:var(--cyan)}
+.iconbtn{background:transparent;border:1px solid var(--hairline);border-radius:5px;color:var(--ink-faint);
+  cursor:pointer;height:22px;min-width:24px;padding:0 6px;font-size:11px;line-height:1;
+  font-family:var(--font-mono);transition:.15s}
+.iconbtn:hover{color:var(--cyan);border-color:rgba(63,196,236,0.45)}
+.iconbtn.on{color:var(--cyan);border-color:rgba(63,196,236,0.45);background:rgba(63,196,236,0.08)}
+.tcount{margin-left:auto;font-family:var(--font-mono);font-size:9.5px;color:var(--ink-faint);letter-spacing:.08em}
+
+/* 幅に応じて 1→2→3 列。列が増えるほど縦が短くなりスクロールが消える */
+#sliders{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));column-gap:18px}
+.srow{display:flex;align-items:center;gap:6px;height:26px;min-width:0;border-radius:3px;
+  padding:0 2px;transition:background .12s}
+.srow:hover{background:rgba(255,255,255,0.022)}
+.simp{width:3px;border-radius:2px;background:var(--cyan);opacity:.55;flex:none}
+.sname{width:84px;flex:none;font-family:var(--font-mono);font-size:10.5px;color:var(--ink-dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color .15s}
+.srow:hover .sname{color:var(--ink)}
+.sval{width:52px;flex:none;text-align:right;font-family:var(--font-mono);font-size:11.5px;
+  color:var(--cyan);transition:color .15s}
+.srow.warn .sval{color:var(--gold)}
+.srow.warn .sname{color:var(--gold)}
+.sx{flex:none;width:11px;opacity:0;border:none;background:transparent;color:var(--ink-faint);
+  cursor:pointer;font-size:11px;line-height:1;padding:0;transition:.15s}
+.srow:hover .sx{opacity:1}
+.sx:hover{color:var(--bad)}
+.twrap{position:relative;flex:1;height:20px;min-width:40px}
+.twrap canvas{position:absolute;inset:0;width:100%;height:20px;display:block;pointer-events:none}
+.twrap input[type=range]{position:absolute;left:0;right:0;top:0;width:100%;height:20px;margin:0;
+  -webkit-appearance:none;appearance:none;background:transparent;cursor:ew-resize}
+.twrap input[type=range]::-webkit-slider-runnable-track{height:20px;background:transparent}
+.twrap input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:20px;background:transparent;border:none}
+.twrap input[type=range]::-moz-range-track{height:20px;background:transparent}
+.twrap input[type=range]::-moz-range-thumb{width:18px;height:20px;background:transparent;border:none}
+.spark{width:40px;height:20px;flex:none;display:block}
+/* カテゴリ: 折り返さず横スクロール。行の高さを一定に保つ */
+.pills{display:flex;gap:3px;flex:1;min-width:40px;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none}
+.pills::-webkit-scrollbar{display:none}
+.pill{padding:1px 8px;border:1px solid var(--hairline);border-radius:9px;font-size:10px;flex:none;
+  font-family:var(--font-mono);color:var(--ink-faint);cursor:pointer;background:transparent;transition:.15s}
+.pill:hover{color:var(--ink-dim);border-color:rgba(63,196,236,0.3)}
+.pill.on{background:rgba(63,196,236,0.13);border-color:rgba(63,196,236,0.55);color:var(--cyan)}
+
+/* 固定列: 1行に収めて横スクロール（縦を増やさない） */
+.chiprow{display:flex;align-items:center;gap:6px;margin-top:8px;padding-top:7px;
+  border-top:1px solid rgba(255,255,255,0.04)}
+.chiprow .lbl{font-family:var(--font-mono);font-size:9.5px;color:var(--ink-faint);letter-spacing:.1em;flex:none}
+.chipscroll{display:flex;gap:4px;overflow-x:auto;flex:1;scrollbar-width:thin;padding-bottom:2px}
+.chipscroll::-webkit-scrollbar{height:3px}
+.chipscroll::-webkit-scrollbar-thumb{background:rgba(160,190,220,0.18);border-radius:2px}
+.chip{padding:1px 8px;border:1px solid rgba(255,255,255,0.045);border-radius:4px;font-family:var(--font-mono);
+  font-size:10px;color:var(--ink-faint);cursor:pointer;transition:.15s;white-space:nowrap;flex:none}
+.chip:hover{border-color:rgba(63,196,236,0.45);color:var(--cyan)}
+#chipFilter{background:transparent;border:none;border-bottom:1px solid var(--hairline);color:var(--ink);
+  font-family:var(--font-mono);font-size:10px;width:74px;padding:1px 2px;outline:none;flex:none}
+#chipFilter:focus{border-color:var(--cyan)}
+
+/* ── 右: 予測（sticky で常に視界に残す） ── */
+.right{padding:12px 14px 14px;border-left:1px solid var(--hairline);background:rgba(255,255,255,0.012);
+  position:sticky;top:18px;align-self:start;transition:filter .25s}
+.right.lowq{filter:saturate(.35)}
+.ptag{font-family:var(--font-display);font-size:8.5px;letter-spacing:.2em;color:var(--ink-faint);
+  text-align:center;margin-bottom:3px}
+.pred{display:flex;align-items:flex-end;gap:8px;justify-content:center}
+.pnum{font-family:var(--font-mono);font-size:36px;font-weight:600;color:var(--cyan);line-height:1;
+  letter-spacing:-.01em;transition:color .2s}
+.right.lowq .pnum{color:var(--ink-dim)}
+.pband{font-family:var(--font-mono);font-size:12.5px;color:var(--ink-faint);padding-bottom:4px}
+#histCanvas{display:block;width:100%;margin-top:4px}
+.statusrow{display:flex;align-items:center;gap:10px;margin-top:6px;padding-top:8px;
+  border-top:1px solid rgba(255,255,255,0.04)}
+#ringCanvas{flex:none;display:block}
+.flags{display:flex;gap:5px;flex-wrap:wrap;flex:1;min-width:0}
+.flag{display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:9.5px;
+  color:var(--ink-faint);padding:1px 6px;border-radius:3px;border:1px solid transparent;cursor:default;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flag i{width:5px;height:5px;border-radius:50%;background:currentColor;font-style:normal;flex:none}
+.flag.on{color:var(--gold);border-color:rgba(240,169,78,0.3);background:rgba(240,169,78,0.05)}
+.flag.stop{color:var(--bad);border-color:rgba(239,92,92,0.3);background:rgba(239,92,92,0.05)}
+.flag.stop i{border-radius:1px}
+
+.foot{padding:7px 16px;border-top:1px solid var(--hairline);font-size:10px;color:var(--ink-faint);
+  display:flex;align-items:center;gap:7px;border-radius:0 0 10px 10px}
+.foot a{color:rgba(63,196,236,0.75);text-decoration:none;border-bottom:1px solid rgba(63,196,236,0.25)}
+.foot a:hover{color:var(--cyan)}
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <b>MOCK</b>
+  <label>精度<select id="qualitySel">
+    <option value="high">R²0.94</option><option value="mid" selected>R²0.71</option>
+    <option value="low">R²0.28</option><option value="ref">参考値のみ</option></select></label>
+  <label>列数<select id="colsSel">
+    <option value="6">6</option><option value="18">18</option>
+    <option value="50" selected>50</option></select></label>
+  <label><input type="checkbox" id="linkChk">連動</label>
+  <span style="color:var(--ink-faint);font-size:10px">※説明は title 属性に保持（ホバーで確認可）</span>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>SIMULATE</h2></div>
+  <div class="grid">
+    <div class="left">
+      <div class="toolbar">
+        <div class="seedseg" id="seedSeg"></div>
+        <button class="iconbtn" id="resetBtn" title="基準行の値に戻す">↺</button>
+        <button class="iconbtn" id="expandBtn"></button>
+        <span class="tcount" id="tcount"></span>
+      </div>
+      <div id="sliders"></div>
+      <div class="chiprow" id="chiprow">
+        <span class="lbl" id="fixedLabel"></span>
+        <div class="chipscroll" id="chips"></div>
+        <input id="chipFilter" placeholder="filter">
+      </div>
+    </div>
+
+    <div class="right" id="rightPane">
+      <div class="ptag" id="targetTag">PREDICTED YIELD</div>
+      <div class="pred"><span class="pnum" id="predVal">—</span><span class="pband" id="predBand"></span></div>
+      <canvas id="histCanvas"></canvas>
+      <div class="statusrow">
+        <canvas id="ringCanvas" width="0" height="0"></canvas>
+        <div class="flags" id="flags"></div>
+        <button class="iconbtn" id="saveBtn" title="この1行をCSVで保存">↓</button>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>一括予測はデスクトップ版</span><a href="#" onclick="return false">DOWNLOAD</a></div>
+</div>
+
+<script>
+/* =====================================================================
+   1. ダミー学習データ（本番では Python が統計を計算して JSON で渡す）
+   ===================================================================== */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+const rnd=mulberry32(20260731);
+function gauss(){let u=0,v=0;while(u===0)u=rnd();while(v===0)v=rnd();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+
+const CITY=['Tokyo','Osaka','Nagoya','Fukuoka'],MACHINE=['A','B','C'];
+const N_ROWS=800,AUX_N=43;
+const NUM_COLS=['temperature','pressure','flow_rate','catalyst_ratio','humidity']
+  .concat(Array.from({length:AUX_N},(_,i)=>'aux_'+String(i+1).padStart(2,'0')));
+const CAT_COLS=['city','machine'];
+const ALL_COLS=NUM_COLS.concat(CAT_COLS),TARGET='yield';
+
+function truth(r){
+  const cityOff={Tokyo:0,Osaka:-3.4,Nagoya:1.8,Fukuoka:-1.1}[r.city]??0;
+  const macOff={A:0,B:4.2,C:-2.6}[r.machine]??0;
+  return 11+1.35*r.temperature+0.42*r.pressure
+    -0.16*Math.pow(r.flow_rate-15.5,2)+26*r.catalyst_ratio-0.055*r.humidity
+    +0.7*Math.sin(r.temperature*0.35)+cityOff+macOff;
+}
+const rows=[];
+for(let i=0;i<N_ROWS;i++){
+  const temperature=22+6.5*gauss();
+  const pressure=93.5+0.34*temperature+1.2*gauss();     // r≈0.88（連動デモ用）
+  const r={temperature,pressure,flow_rate:Math.max(0.5,14+4*gauss()),
+    catalyst_ratio:Math.min(1,Math.max(0,0.42+0.13*gauss())),
+    humidity:Math.min(100,Math.max(5,52+16*gauss())),
+    city:CITY[Math.floor(rnd()*4)],machine:MACHINE[Math.floor(rnd()*3)]};
+  for(let k=1;k<=AUX_N;k++)r['aux_'+String(k).padStart(2,'0')]=50+12*gauss();
+  r[TARGET]=truth(r)+2.2*gauss();rows.push(r);
+}
+
+/* =====================================================================
+   2. Python が返す契約データ相当
+   ===================================================================== */
+const pctl=(s,q)=>{const i=(s.length-1)*q,lo=Math.floor(i),hi=Math.ceil(i);
+  return lo===hi?s[lo]:s[lo]+(s[hi]-s[lo])*(i-lo);};
+const colSorted=c=>rows.map(r=>r[c]).sort((a,b)=>a-b);
+const modeOf=c=>{const m={};rows.forEach(r=>m[r[c]]=(m[r[c]]||0)+1);
+  return Object.entries(m).sort((a,b)=>b[1]-a[1])[0][0];};
+function medianRow(){const o={};NUM_COLS.forEach(c=>o[c]=pctl(colSorted(c),0.5));
+  CAT_COLS.forEach(c=>o[c]=modeOf(c));return o;}
+
+const IMP=(()=>{const base=medianRow(),out={};
+  NUM_COLS.forEach(c=>{const s=colSorted(c);
+    out[c]=Math.abs(truth({...base,[c]:pctl(s,0.95)})-truth({...base,[c]:pctl(s,0.05)}));});
+  CAT_COLS.forEach(c=>{const v=[...new Set(rows.map(r=>r[c]))].map(x=>truth({...base,[c]:x}));
+    out[c]=Math.max(...v)-Math.min(...v);});
+  const t=Object.values(out).reduce((a,b)=>a+b,0)||1;
+  for(const k in out)out[k]=out[k]/t*100;return out;})();
+
+const SLIDER_SPEC=(()=>{const spec=[];
+  for(const c of NUM_COLS){
+    const s=colSorted(c),min=s[0],max=s[s.length-1],span=max-min||1,HB=28,hist=new Array(HB).fill(0);
+    s.forEach(v=>{let b=Math.floor((v-min)/span*HB);if(b>=HB)b=HB-1;hist[b]++;});
+    spec.push({col:c,kind:'numeric',importance_pct:+IMP[c].toFixed(1),median:pctl(s,0.5),
+      p1:pctl(s,0.01),p99:pctl(s,0.99),min,max,step:+(span/300).toPrecision(1),
+      hist,hist_lo:min,hist_hi:max,x_clip_lo:min,x_clip_hi:max,is_integer:false});}
+  for(const c of CAT_COLS){const m={};rows.forEach(r=>m[r[c]]=(m[r[c]]||0)+1);
+    spec.push({col:c,kind:'categorical',importance_pct:+IMP[c].toFixed(1),mode:modeOf(c),
+      levels:Object.entries(m).map(([value,count])=>({value,count})).sort((a,b)=>b.count-a.count),
+      truncated:false});}
+  return spec.sort((a,b)=>b.importance_pct-a.importance_pct);})();
+const SPEC_BY=Object.fromEntries(SLIDER_SPEC.map(s=>[s.col,s]));
+const MAX_IMP=Math.max(...SLIDER_SPEC.map(s=>s.importance_pct));
+
+const Y_HIST=(()=>{const y=rows.map(r=>r[TARGET]).sort((a,b)=>a-b);
+  const iqr=pctl(y,0.75)-pctl(y,0.25),lo=y[0],hi=y[y.length-1];
+  let bw=2*iqr/Math.cbrt(y.length);
+  let nb=bw>0?Math.min(40,Math.max(10,Math.ceil((hi-lo)/bw))):20;bw=(hi-lo)/nb;
+  const edges=Array.from({length:nb+1},(_,i)=>lo+bw*i),counts=new Array(nb).fill(0);
+  y.forEach(v=>{let b=Math.floor((v-lo)/bw);if(b>=nb)b=nb-1;if(b<0)b=0;counts[b]++;});
+  return {bin_edges:edges,counts,n:y.length,p10:pctl(y,0.1),p50:pctl(y,0.5),p90:pctl(y,0.9),sorted:y};})();
+
+const SEED_ROWS=(()=>{const idx=rows.map((r,i)=>i).sort((a,b)=>rows[a][TARGET]-rows[b][TARGET]);
+  const at=q=>idx[Math.round((idx.length-1)*q)];
+  const pick=(label,i)=>({label,y:rows[i][TARGET],
+    values:Object.fromEntries(ALL_COLS.map(c=>[c,String(rows[i][c])]))});
+  return [pick('low',at(0.1)),pick('median',at(0.5)),pick('high',at(0.9)),
+          pick('random',idx[Math.floor(rnd()*idx.length)])];})();
+const SEED_LABEL={low:'LOW',median:'MID',high:'HIGH',random:'RAND'};
+const SEED_TITLE={low:'y が低め(p10)の実データ行',median:'y が中位の実データ行',
+  high:'y が高め(p90)の実データ行',random:'ランダムに選んだ実データ行'};
+
+const NEIGHBOR=(()=>{const cols=NUM_COLS,mean=[],std=[];
+  cols.forEach(c=>{const v=rows.map(r=>r[c]),m=v.reduce((a,b)=>a+b,0)/v.length;
+    mean.push(m);std.push(Math.sqrt(v.reduce((a,b)=>a+(b-m)**2,0)/v.length)||1);});
+  const wRaw=cols.map(c=>Math.max(IMP[c]||0,0.01)),wSum=wRaw.reduce((a,b)=>a+b,0);
+  const weight=wRaw.map(w=>w/wSum*cols.length);
+  const step=Math.max(1,Math.ceil(rows.length/300)),out=[];
+  for(let i=0;i<rows.length;i+=step)out.push(cols.map((c,j)=>(rows[i][c]-mean[j])/std[j]));
+  return {cols,mean,std,weight,rows:out};})();
+function wdist(a,b){let s=0;for(let k=0;k<a.length;k++)s+=NEIGHBOR.weight[k]*(a[k]-b[k])**2;
+  return Math.sqrt(s);}
+const NEIGH_K=10;
+const NEIGH_R=(()=>{const R=NEIGHBOR.rows,samp=Math.min(R.length,120),ds=[];
+  for(let i=0;i<samp;i++){const d=[];
+    for(let j=0;j<R.length;j++)if(i!==j)d.push(wdist(R[i],R[j]));
+    d.sort((a,b)=>a-b);ds.push(d[Math.min(NEIGH_K-1,d.length-1)]);}
+  ds.sort((a,b)=>a-b);return ds[Math.floor(ds.length/2)];})();
+
+const CORR=(()=>{const out=[];
+  for(let i=0;i<NUM_COLS.length;i++)for(let j=i+1;j<NUM_COLS.length;j++){
+    const a=NUM_COLS[i],b=NUM_COLS[j],x=rows.map(r=>r[a]),y=rows.map(r=>r[b]);
+    const mx=x.reduce((s,v)=>s+v,0)/x.length,my=y.reduce((s,v)=>s+v,0)/y.length;
+    let sxy=0,sxx=0,syy=0;
+    for(let k=0;k<x.length;k++){sxy+=(x[k]-mx)*(y[k]-my);sxx+=(x[k]-mx)**2;syy+=(y[k]-my)**2;}
+    const r=sxy/Math.sqrt(sxx*syy||1);
+    if(Math.abs(r)<0.7)continue;
+    const sAB=sxy/(sxx||1),iAB=my-sAB*mx,sBA=sxy/(syy||1),iBA=mx-sBA*my;
+    let r1=0,r2=0;
+    for(let k=0;k<x.length;k++){r1+=(y[k]-(sAB*x[k]+iAB))**2;r2+=(x[k]-(sBA*y[k]+iBA))**2;}
+    out.push({a,b,r:+r.toFixed(2),sAB,iAB,sBA,iBA,
+      sdB:Math.sqrt(r1/x.length),sdA:Math.sqrt(r2/x.length)});}
+  return out.sort((p,q)=>Math.abs(q.r)-Math.abs(p.r)).slice(0,20);})();
+
+/* =====================================================================
+   3. 予測（本番では predict-core.js の predictRow に置換）
+   ===================================================================== */
+function predict(st){const r={};
+  for(const s of SLIDER_SPEC){
+    let v=st[s.col]!==undefined?st[s.col]:(s.kind==='numeric'?s.median:s.mode);
+    if(s.kind==='numeric'){v=+v;
+      if(s.x_clip_lo!=null)v=Math.min(Math.max(v,s.x_clip_lo),s.x_clip_hi);}
+    r[s.col]=v;}
+  return truth(r);}
+
+/* =====================================================================
+   4. 状態
+   ===================================================================== */
+const QUALITY={high:{r2:0.94,rmse:3.1},mid:{r2:0.71,rmse:6.8},
+  low:{r2:0.28,rmse:14.2},ref:{r2:0.55,rmse:null,refOnly:true}};
+const R2_NOTE={high:'あてはまりは良好です。± は検証誤差(RMSE)です。',
+  mid:'ある程度あてはまっています。± の幅と併せて読んでください。',
+  low:'あてはまりが弱く、個々の予測値の信頼性は低いです。傾向の把握に留めてください。',
+  ref:'学習行数が少ないため R² は参考値です。'};
+let qKey='mid',quality=QUALITY.mid;
+let visibleCols=[],colBudget=50,state={},seedLabel='median',linkMode=false,showAll=false;
+// 1行26pxなので、既定12本でも高さは 2列×6行 ≒ 156px に収まる
+const DEFAULT_SLIDERS=12;
+const specsInBudget=()=>SLIDER_SPEC.slice(0,Math.min(colBudget,SLIDER_SPEC.length));
+
+function applySeed(label){
+  seedLabel=label;
+  const sr=SEED_ROWS.find(s=>s.label===label)||SEED_ROWS[1];
+  state={};
+  for(const s of specsInBudget())
+    state[s.col]=s.kind==='numeric'?+sr.values[s.col]:sr.values[s.col];
+  const sp=specsInBudget();
+  visibleCols=(showAll?sp:sp.slice(0,DEFAULT_SLIDERS)).map(s=>s.col);
+  renderAll();
+}
+
+/* =====================================================================
+   5. ユーティリティ
+   ===================================================================== */
+const $=id=>document.getElementById(id);
+const fmt=v=>{if(!isFinite(v))return String(v);const a=Math.abs(v);let s;
+  if(a>=1000)return v.toLocaleString(undefined,{maximumFractionDigits:0});
+  else if(a>=10)s=v.toFixed(1);else if(a>=1)s=v.toFixed(2);
+  else if(a>=0.01)s=v.toFixed(3);else return v.toPrecision(2);
+  return s.replace(/\.?0+$/,'');};
+const sliderRange=s=>{const sp=(s.max-s.min)||1;return [s.min-sp*0.12,s.max+sp*0.12];};
+const isExtrap=(s,v)=>v<s.p1||v>s.p99;
+const atClip=(s,v)=>s.x_clip_lo!=null&&(v<=s.x_clip_lo||v>=s.x_clip_hi);
+function hdpi(cv,w,h){const d=devicePixelRatio||1;cv.width=w*d;cv.height=h*d;
+  cv.style.width=w+'px';cv.style.height=h+'px';
+  const c=cv.getContext('2d');c.setTransform(d,0,0,d,0,0);c.clearRect(0,0,w,h);return c;}
+function curve(ctx,pts){
+  if(pts.length<2)return;
+  ctx.moveTo(pts[0].x,pts[0].y);
+  for(let i=0;i<pts.length-1;i++){
+    const p0=pts[i>0?i-1:0],p1=pts[i],p2=pts[i+1],p3=pts[i+2<pts.length?i+2:i+1];
+    ctx.bezierCurveTo(p1.x+(p2.x-p0.x)/6,p1.y+(p2.y-p0.y)/6,
+                      p2.x-(p3.x-p1.x)/6,p2.y-(p3.y-p1.y)/6,p2.x,p2.y);}}
+const smooth3=a=>a.map((v,i)=>(a[Math.max(0,i-1)]+v+a[Math.min(a.length-1,i+1)])/3);
+
+function ghostFor(col){
+  for(const p of CORR){
+    if(p.a===col&&state[p.b]!==undefined)return {v:p.sBA*state[p.b]+p.iBA,sd:p.sdA,other:p.b,r:p.r};
+    if(p.b===col&&state[p.a]!==undefined)return {v:p.sAB*state[p.a]+p.iAB,sd:p.sdB,other:p.a,r:p.r};}
+  return null;}
+
+/* =====================================================================
+   6. スライダー（1本=1行）
+   ===================================================================== */
+function renderSliders(){
+  const host=$('sliders');host.innerHTML='';
+  for(const col of visibleCols){
+    const s=SPEC_BY[col];
+    const row=document.createElement('div');row.className='srow';row.dataset.col=col;
+
+    const imp=document.createElement('span');imp.className='simp';
+    imp.style.height=Math.max(3,Math.round(s.importance_pct/MAX_IMP*14))+'px';
+    const nm=document.createElement('span');nm.className='sname';nm.textContent=col;
+    row.append(imp,nm);
+
+    if(s.kind==='numeric'){
+      const [lo,hi]=sliderRange(s);
+      const wrap=document.createElement('div');wrap.className='twrap';
+      const cv=document.createElement('canvas');
+      const inp=document.createElement('input');inp.type='range';
+      inp.min=lo;inp.max=hi;inp.step=s.step;inp.value=state[col];
+      inp.addEventListener('input',()=>setVal(col,+inp.value,true));
+      inp.addEventListener('change',()=>setVal(col,+inp.value,false));
+      wrap.append(cv,inp);row.appendChild(wrap);
+    }else{
+      const pills=document.createElement('div');pills.className='pills';
+      for(const lv of s.levels){
+        const p=document.createElement('button');p.className='pill';p.dataset.v=lv.value;
+        p.textContent=lv.value;p.title=`${lv.value}: 学習データ ${lv.count} 行`;
+        p.addEventListener('click',()=>setVal(col,lv.value,false));
+        pills.appendChild(p);}
+      row.appendChild(pills);
+    }
+    const val=document.createElement('span');val.className='sval';
+    const sp=document.createElement('canvas');sp.className='spark';
+    const x=document.createElement('button');x.className='sx';x.textContent='×';x.title='固定に戻す';
+    x.addEventListener('click',()=>{visibleCols=visibleCols.filter(c=>c!==col);
+      showAll=false;renderAll();});
+    row.append(val,sp,x);
+    host.appendChild(row);
+  }
+  refreshSliders();
+  scheduleSparklines();
+}
+
+function drawTrack(row){
+  const col=row.dataset.col,s=SPEC_BY[col];
+  const wrap=row.querySelector('.twrap');if(!wrap)return;
+  const cv=wrap.querySelector('canvas'),w=wrap.clientWidth||160,h=20;
+  const ctx=hdpi(cv,w,h);
+  const [lo,hi]=sliderRange(s),X=v=>(v-lo)/(hi-lo)*w;
+  const v=state[col],warn=isExtrap(s,v),stop=atClip(s,v);
+  const acc=warn?'240,169,78':'63,196,236';
+  const base=h-3,top=3;
+
+  const hs=smooth3(s.hist),mx=Math.max(...hs)||1,bw=(s.hist_hi-s.hist_lo)/s.hist.length;
+  const pts=hs.map((c,i)=>({x:X(s.hist_lo+bw*(i+0.5)),y:base-(c/mx)*(base-top)}));
+  pts.unshift({x:X(s.hist_lo),y:base});pts.push({x:X(s.hist_hi),y:base});
+  ctx.beginPath();curve(ctx,pts);
+  ctx.lineTo(pts[pts.length-1].x,base);ctx.lineTo(pts[0].x,base);ctx.closePath();
+  const g=ctx.createLinearGradient(0,top,0,base);
+  g.addColorStop(0,'rgba(63,196,236,0.22)');g.addColorStop(1,'rgba(63,196,236,0.03)');
+  ctx.fillStyle=g;ctx.fill();
+  ctx.beginPath();curve(ctx,pts);
+  ctx.strokeStyle='rgba(63,196,236,0.32)';ctx.lineWidth=1;ctx.stroke();
+
+  ctx.strokeStyle='rgba(160,190,220,0.12)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,base+.5);ctx.lineTo(w,base+.5);ctx.stroke();
+
+  // x_clip = 行き止まりの壁
+  [[s.x_clip_lo,-1],[s.x_clip_hi,1]].forEach(([bv,dir])=>{
+    if(bv==null)return;const bx=X(bv);
+    ctx.strokeStyle=stop?'rgba(239,92,92,0.85)':'rgba(160,190,220,0.2)';
+    ctx.lineWidth=stop?1.5:1;
+    ctx.beginPath();ctx.moveTo(bx,top-1);ctx.lineTo(bx,base+1);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(bx,base+1);ctx.lineTo(bx+dir*3,base+1);ctx.stroke();});
+
+  // 相関相手が示すゴースト
+  const gh=ghostFor(col);
+  if(gh&&isFinite(gh.v)&&gh.v>=lo&&gh.v<=hi){
+    const gx=X(gh.v),tx=X(v),off=Math.abs(v-gh.v)/(gh.sd||1);
+    ctx.strokeStyle=off>1.5?'rgba(240,169,78,0.55)':'rgba(160,190,220,0.26)';
+    ctx.lineWidth=1;
+    if(off>0.4){ctx.setLineDash([2,3]);ctx.beginPath();
+      ctx.moveTo(gx,base-5);ctx.lineTo(tx,base-5);ctx.stroke();ctx.setLineDash([]);}
+    ctx.beginPath();ctx.arc(gx,base-5,2.8,0,Math.PI*2);ctx.stroke();}
+
+  // つまみ: 通常=丸／飽和=角
+  const tx=X(Math.min(Math.max(v,lo),hi));
+  ctx.shadowColor=`rgba(${acc},0.55)`;ctx.shadowBlur=6;ctx.fillStyle=`rgb(${acc})`;
+  if(stop){ctx.fillRect(tx-3,base-9,6,9);}
+  else{ctx.beginPath();ctx.moveTo(tx,base);ctx.lineTo(tx-4,base-7);
+    ctx.lineTo(tx+4,base-7);ctx.closePath();ctx.fill();
+    ctx.beginPath();ctx.arc(tx,base-9,3.2,0,Math.PI*2);ctx.fill();}
+  ctx.shadowBlur=0;
+}
+
+function setVal(col,v,dragging){
+  state[col]=v;
+  if(linkMode&&SPEC_BY[col].kind==='numeric'){
+    for(const p of CORR){
+      let other=null,f=null;
+      if(p.a===col){other=p.b;f=x=>p.sAB*x+p.iAB;}
+      else if(p.b===col){other=p.a;f=x=>p.sBA*x+p.iBA;}
+      if(other&&state[other]!==undefined&&visibleCols.includes(other)){
+        const s2=SPEC_BY[other],[lo,hi]=sliderRange(s2);
+        state[other]=Math.min(hi,Math.max(lo,f(v)));
+        const el=document.querySelector(`.srow[data-col="${other}"] input[type=range]`);
+        if(el)el.value=state[other];}}}
+  refreshSliders();renderPrediction();
+  if(!dragging)scheduleSparklines();
+}
+
+function refreshSliders(){
+  for(const row of document.querySelectorAll('.srow')){
+    const col=row.dataset.col,s=SPEC_BY[col],v=state[col];
+    const val=row.querySelector('.sval');
+    if(s.kind==='numeric'){
+      val.textContent=fmt(v);
+      const warn=isExtrap(s,v),stop=atClip(s,v),gh=ghostFor(col);
+      row.classList.toggle('warn',warn);
+      const tips=[`${col} = ${fmt(v)}（重要度 ${s.importance_pct}%）`,
+        `学習データの範囲 ${fmt(s.p1)} 〜 ${fmt(s.p99)} (p1–p99)`];
+      if(warn)tips.push('現在の値は学習データの外側です');
+      if(stop)tips.push('学習範囲の外では予測が飽和します（モデルの安全機構）');
+      if(gh)tips.push(`${gh.other} と相関 r=${gh.r} / この値なら ${fmt(gh.v)} 付近が自然`);
+      row.title=tips.join('\n');
+      drawTrack(row);
+    }else{
+      val.textContent='';
+      row.querySelectorAll('.pill').forEach(p=>p.classList.toggle('on',p.dataset.v===v));
+      row.title=`${col} = ${v}（重要度 ${s.importance_pct}%）`;}
+  }
+}
+
+function renderChips(){
+  const sp=specsInBudget(),hidden=sp.filter(s=>!visibleCols.includes(s.col));
+  const q=($('chipFilter').value||'').toLowerCase();
+  $('chiprow').style.display=hidden.length?'':'none';
+  $('fixedLabel').textContent='FIXED '+hidden.length;
+  $('fixedLabel').title='固定中の列（中央値／最頻値）。クリックでスライダーに追加';
+  $('chipFilter').style.display=hidden.length>12?'':'none';
+  const host=$('chips');host.innerHTML='';
+  for(const s of hidden){
+    if(q&&!s.col.toLowerCase().includes(q))continue;
+    const c=document.createElement('div');c.className='chip';c.textContent=s.col;
+    c.title=`${s.col} = ${s.kind==='numeric'?fmt(state[s.col]):state[s.col]}（重要度 ${s.importance_pct}%）`;
+    c.addEventListener('click',()=>{visibleCols.push(s.col);
+      visibleCols.sort((a,b)=>SPEC_BY[b].importance_pct-SPEC_BY[a].importance_pct);
+      renderAll();});
+    host.appendChild(c);}
+  // 全表示トグル: 変数が多くても「探しに行く」手数を1クリックにする
+  const total=sp.length,btn=$('expandBtn');
+  const all=visibleCols.length>=total;
+  btn.textContent=all?'▴':'▾ '+hidden.length;
+  btn.classList.toggle('on',all);
+  btn.title=all?'重要度上位のみ表示に戻す':`固定中の ${hidden.length} 列もすべてスライダーで表示`;
+  btn.style.display=total<=DEFAULT_SLIDERS?'none':'';
+  $('tcount').textContent=visibleCols.length+' / '+total;
+}
+
+/* =====================================================================
+   7. 予測パネル
+   ===================================================================== */
+function renderPrediction(){
+  const p=predict(state),rmse=quality.rmse,low=quality.r2<0.5||quality.refOnly;
+  $('rightPane').classList.toggle('lowq',low);
+  $('predVal').textContent=fmt(p);
+  $('predBand').textContent=rmse!=null?'±'+fmt(rmse):'';
+  const seed=SEED_ROWS.find(s=>s.label===seedLabel);
+  const below=Y_HIST.sorted.filter(v=>v<=p).length;
+  const topPct=Math.max(1,Math.round((1-below/Y_HIST.sorted.length)*100));
+  $('predVal').title=[`予測 ${fmt(p)}`,
+    rmse!=null?`検証誤差(RMSE) ±${fmt(rmse)}`:'精度指標なし',
+    low?'':`学習データ分布の上位 ${topPct}%`,
+    seed?`基準行の実測値 ${fmt(seed.y)}`:'',R2_NOTE[qKey]].filter(Boolean).join('\n');
+  $('targetTag').textContent='PREDICTED '+TARGET.toUpperCase();
+  drawHistogram(p,rmse,low,seed);
+  renderStatus();
+}
+
+function drawHistogram(p,rmse,low,seed){
+  const cv=$('histCanvas'),w=cv.parentElement.clientWidth||320,h=Math.round(w*0.46);
+  const ctx=hdpi(cv,w,h);
+  const e=Y_HIST.bin_edges,lo=e[0],hi=e[e.length-1];
+  const pad={l:8,r:8,t:14,b:17},pw=w-pad.l-pad.r,base=h-pad.b,top=pad.t;
+  const X=v=>pad.l+(v-lo)/(hi-lo)*pw;
+  const cs=smooth3(Y_HIST.counts),mx=Math.max(...cs)||1;
+  const bw=(hi-lo)/Y_HIST.counts.length;
+  const pts=cs.map((c,i)=>({x:X(lo+bw*(i+0.5)),y:base-(c/mx)*(base-top)}));
+  pts.unshift({x:X(lo),y:base});pts.push({x:X(hi),y:base});
+  const acc=low?'122,140,166':'240,169,78';
+
+  ctx.beginPath();curve(ctx,pts);
+  ctx.lineTo(pts[pts.length-1].x,base);ctx.lineTo(pts[0].x,base);ctx.closePath();
+  const g=ctx.createLinearGradient(0,top,0,base);
+  g.addColorStop(0,'rgba(63,196,236,0.24)');g.addColorStop(1,'rgba(63,196,236,0.02)');
+  ctx.fillStyle=g;ctx.fill();
+  ctx.beginPath();curve(ctx,pts);
+  ctx.strokeStyle='rgba(63,196,236,0.45)';ctx.lineWidth=1.2;ctx.stroke();
+  ctx.strokeStyle='rgba(160,190,220,0.14)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(pad.l,base+.5);ctx.lineTo(pad.l+pw,base+.5);ctx.stroke();
+
+  if(seed&&seed.y>=lo&&seed.y<=hi){
+    ctx.strokeStyle='rgba(47,214,142,0.75)';ctx.lineWidth=1.4;
+    ctx.beginPath();ctx.arc(X(seed.y),base,3.4,0,Math.PI*2);ctx.stroke();}
+
+  const cl=Math.min(Math.max(p,lo),hi);
+  if(rmse!=null){
+    const b0=X(Math.max(lo,p-rmse)),b1=X(Math.min(hi,p+rmse));
+    const bg=ctx.createLinearGradient(b0,0,b1,0);
+    bg.addColorStop(0,`rgba(${acc},0.02)`);bg.addColorStop(.5,`rgba(${acc},0.20)`);
+    bg.addColorStop(1,`rgba(${acc},0.02)`);
+    ctx.fillStyle=bg;ctx.fillRect(b0,top-6,Math.max(2,b1-b0),base-top+6);}
+  ctx.strokeStyle=`rgba(${acc},0.9)`;ctx.lineWidth=1.6;
+  ctx.beginPath();ctx.moveTo(X(cl),top-6);ctx.lineTo(X(cl),base);ctx.stroke();
+  ctx.fillStyle=`rgb(${acc})`;ctx.shadowColor=`rgba(${acc},0.7)`;ctx.shadowBlur=8;
+  ctx.beginPath();ctx.arc(X(cl),top-6,3.4,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
+  if(p<lo||p>hi){const dir=p<lo?-1:1,ax=p<lo?pad.l+2:pad.l+pw-2;
+    ctx.beginPath();ctx.moveTo(ax+dir*5,base-7);ctx.lineTo(ax,base-11);ctx.lineTo(ax,base-3);
+    ctx.closePath();ctx.fillStyle=`rgba(${acc},0.9)`;ctx.fill();}
+
+  ctx.fillStyle='rgba(122,140,166,0.62)';ctx.font='9px '+getComputedStyle(document.body).fontFamily;
+  ctx.textBaseline='top';
+  ctx.textAlign='left';ctx.fillText(fmt(lo),pad.l,base+5);
+  ctx.textAlign='right';ctx.fillText(fmt(hi),pad.l+pw,base+5);
+  ctx.textAlign='center';ctx.fillStyle='rgba(122,140,166,0.38)';
+  ctx.fillText(fmt(Y_HIST.p50),X(Y_HIST.p50),base+5);
+  cv.title=`${TARGET} の分布（学習データ ${Y_HIST.n} 行）\n緑のリング=基準行の実測値／帯=予測±RMSE`;
+}
+
+function renderStatus(){
+  const N=NEIGHBOR;let n=null;
+  if(N.cols.length){
+    const z=N.cols.map((c,j)=>((state[c]!==undefined?state[c]:SPEC_BY[c].median)-N.mean[j])/N.std[j]);
+    n=0;for(const r of N.rows)if(wdist(r,z)<=NEIGH_R)n++;}
+  const cv=$('ringCanvas'),S=32,ctx=hdpi(cv,S,S),cx=S/2,cy=S/2,rad=11;
+  ctx.strokeStyle='rgba(160,190,220,0.13)';ctx.lineWidth=3;
+  ctx.beginPath();ctx.arc(cx,cy,rad,0,Math.PI*2);ctx.stroke();
+  const frac=n==null?0:Math.min(1,n/NEIGH_K);
+  const col=n==null?'122,140,166':n===0?'239,92,92':n<3?'240,169,78':'47,214,142';
+  if(frac>0){ctx.strokeStyle=`rgb(${col})`;ctx.lineWidth=3;ctx.lineCap='round';
+    ctx.shadowColor=`rgba(${col},0.5)`;ctx.shadowBlur=6;
+    ctx.beginPath();ctx.arc(cx,cy,rad,-Math.PI/2,-Math.PI/2+frac*Math.PI*2);ctx.stroke();
+    ctx.shadowBlur=0;}
+  ctx.fillStyle=`rgb(${col})`;ctx.font='600 11px '+getComputedStyle(document.body).fontFamily;
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(n==null?'—':String(n),cx,cy+.5);
+  cv.title=n==null?'数値列が無いため算出できません'
+    :`現在の組み合わせに近い学習データ ${n} 件\nリングが欠けるほど、実データから遠い組み合わせです`;
+
+  const host=$('flags');host.innerHTML='';
+  const ex=specsInBudget().filter(s=>s.kind==='numeric'&&isExtrap(s,state[s.col])).map(s=>s.col);
+  const st=specsInBudget().filter(s=>s.kind==='numeric'&&atClip(s,state[s.col])).map(s=>s.col);
+  if(ex.length)host.appendChild(mkFlag('on',ex.length===1?ex[0]:ex[0]+' +'+(ex.length-1),
+    '学習データの外側にある列:\n'+ex.join('\n')));
+  if(st.length)host.appendChild(mkFlag('stop',st.length===1?st[0]:st[0]+' +'+(st.length-1),
+    '予測が飽和している列（これ以上動かしても変わりません）:\n'+st.join('\n')));
+}
+function mkFlag(cls,text,tip){const d=document.createElement('span');
+  d.className='flag '+cls;d.innerHTML='<i></i>'+text;d.title=tip;return d;}
+
+let sparkTimer=null;
+function scheduleSparklines(){
+  clearTimeout(sparkTimer);
+  sparkTimer=setTimeout(()=>{
+    const rs=[...document.querySelectorAll('.srow')];let i=0;
+    const step=()=>{const end=Math.min(rs.length,i+4);
+      for(;i<end;i++)drawSpark(rs[i]);
+      if(i<rs.length)requestAnimationFrame(step);};
+    requestAnimationFrame(step);},60);
+}
+function drawSpark(row){
+  const col=row.dataset.col,s=SPEC_BY[col],cv=row.querySelector('.spark');if(!cv)return;
+  const w=40,h=20,ctx=hdpi(cv,w,h),pts=[];
+  if(s.kind==='numeric'){const [lo,hi]=sliderRange(s);
+    for(let k=0;k<21;k++){const v=lo+(hi-lo)*k/20;pts.push({t:k/20,y:predict({...state,[col]:v})});}}
+  else s.levels.forEach((lv,k)=>pts.push({t:s.levels.length>1?k/(s.levels.length-1):0.5,
+    y:predict({...state,[col]:lv.value})}));
+  const ys=pts.map(p=>p.y);let mn=Math.min(...ys),mx=Math.max(...ys);
+  const flat=(mx-mn)<(quality.rmse??1)*0.15;
+  if(mx-mn<1e-9){mn-=1;mx+=1;}
+  const X=t=>2+t*(w-4),Y=v=>h-3-((v-mn)/(mx-mn))*(h-7);
+  ctx.beginPath();curve(ctx,pts.map(p=>({x:X(p.t),y:Y(p.y)})));
+  ctx.strokeStyle=flat?'rgba(122,140,166,0.25)':'rgba(63,196,236,0.6)';
+  ctx.lineWidth=1.2;ctx.stroke();
+  let ct;
+  if(s.kind==='numeric'){const [lo,hi]=sliderRange(s);ct=(state[col]-lo)/(hi-lo);}
+  else{const k=s.levels.findIndex(l=>l.value===state[col]);
+    ct=s.levels.length>1?Math.max(0,k)/(s.levels.length-1):0.5;}
+  ctx.fillStyle=flat?'rgba(122,140,166,0.45)':'#f0a94e';
+  ctx.beginPath();ctx.arc(X(ct),Y(predict(state)),2,0,Math.PI*2);ctx.fill();
+  cv.title=flat?`${col}: 動かしても予測はほぼ変わりません`
+    :`${col} を動かしたときの予測の変化（${fmt(mn)} 〜 ${fmt(mx)}）`;
+}
+
+/* =====================================================================
+   8. 起動 / イベント
+   ===================================================================== */
+function renderAll(){renderSliders();renderChips();renderPrediction();}
+function renderSeedSeg(){
+  const seg=$('seedSeg');seg.innerHTML='';
+  for(const s of SEED_ROWS){
+    const b=document.createElement('button');
+    b.textContent=SEED_LABEL[s.label];b.dataset.label=s.label;
+    b.title=`${SEED_TITLE[s.label]}（実測 ${TARGET} = ${fmt(s.y)}）`;
+    b.classList.toggle('on',s.label===seedLabel);
+    b.addEventListener('click',()=>{applySeed(s.label);renderSeedSeg();});
+    seg.appendChild(b);}
+}
+$('resetBtn').addEventListener('click',()=>applySeed(seedLabel));
+$('expandBtn').addEventListener('click',()=>{
+  showAll=visibleCols.length<specsInBudget().length;
+  visibleCols=(showAll?specsInBudget():specsInBudget().slice(0,DEFAULT_SLIDERS)).map(s=>s.col);
+  renderAll();});
+$('qualitySel').addEventListener('change',e=>{qKey=e.target.value;quality=QUALITY[qKey];
+  renderPrediction();scheduleSparklines();});
+$('colsSel').addEventListener('change',e=>{colBudget=Math.min(+e.target.value,SLIDER_SPEC.length);
+  showAll=false;applySeed(seedLabel);});
+$('linkChk').addEventListener('change',e=>{linkMode=e.target.checked;refreshSliders();scheduleSparklines();});
+$('chipFilter').addEventListener('input',renderChips);
+$('saveBtn').addEventListener('click',()=>{
+  const cols=specsInBudget().map(s=>s.col);
+  const csv=cols.join(',')+'\n'+cols.map(c=>state[c]).join(',')+'\n';
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='scenario.csv';a.click();URL.revokeObjectURL(a.href);});
+let rzTimer=null;
+addEventListener('resize',()=>{clearTimeout(rzTimer);rzTimer=setTimeout(renderAll,120);});
+
+renderSeedSeg();
+applySeed('median');
+</script>
+</body>
+</html>
