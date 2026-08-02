@@ -37,13 +37,17 @@ const EMB_NATIVE_EXE:   &[u8] = include_bytes!("../../native_predictor/predict_n
 struct TrainProcess(Mutex<Option<(Child, Arc<AtomicBool>)>>);
 struct PredictProcess(Mutex<Option<(Child, Arc<AtomicBool>)>>);
 
-// 表示言語(ja/en)。OSネイティブのFileDialog(タイトル/フィルタ名)はJS側のI18N機構が
+// 表示言語(ja/en/zh)。OSネイティブのFileDialog(タイトル/フィルタ名)はJS側のI18N機構が
 // 届かないため、フロントエンドが setLang() の都度 set_ui_lang コマンドで同期する
-// (2026-07 i18n是正)。既定値 "ja" は初回起動〜同期完了までの短い間だけ使われる。
+// (2026-07 i18n是正、2026-08 中国語追加)。既定値 "ja" は初回起動〜同期完了までの短い間だけ使われる。
 struct UiLang(Mutex<String>);
 
-fn dlg_text(lang: &str, ja: &str, en: &str) -> String {
-    if lang == "en" { en.to_string() } else { ja.to_string() }
+fn dlg_text(lang: &str, ja: &str, en: &str, zh: &str) -> String {
+    match lang {
+        "en" => en.to_string(),
+        "zh" => zh.to_string(),
+        _ => ja.to_string(),
+    }
 }
 
 fn take_and_kill(slot: &Mutex<Option<(Child, Arc<AtomicBool>)>>) {
@@ -530,7 +534,11 @@ const SAMPLE_CSV: &str = "area_m2,age_years,walk_min,floor,station_rank,rent_10k
 #[tauri::command]
 fn set_ui_lang(lang: String, state: State<'_, UiLang>) {
     let mut s = state.0.lock().unwrap_or_else(|e| e.into_inner());
-    *s = if lang == "en" { "en".to_string() } else { "ja".to_string() };
+    *s = match lang.as_str() {
+        "en" => "en".to_string(),
+        "zh" => "zh".to_string(),
+        _ => "ja".to_string(),
+    };
 }
 
 #[tauri::command]
@@ -538,7 +546,7 @@ async fn save_sample_csv(lang_state: State<'_, UiLang>) -> Result<Option<String>
     let lang = lang_state.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let dest_file = tauri::async_runtime::spawn_blocking(move || {
         rfd::FileDialog::new()
-            .set_title(dlg_text(&lang, "サンプルCSVの保存先を選択", "Choose where to save the sample CSV"))
+            .set_title(dlg_text(&lang, "サンプルCSVの保存先を選択", "Choose where to save the sample CSV", "选择示例CSV的保存位置"))
             .add_filter("CSV", &["csv"])
             .set_file_name("sample.csv")
             .save_file()
@@ -555,7 +563,7 @@ async fn open_csv_dialog(lang_state: State<'_, UiLang>) -> Result<Option<String>
     let result = tauri::async_runtime::spawn_blocking(move || {
         rfd::FileDialog::new()
             .add_filter("CSV", &["csv"])
-            .set_title(dlg_text(&lang, "CSVファイルを選択", "Choose a CSV file"))
+            .set_title(dlg_text(&lang, "CSVファイルを選択", "Choose a CSV file", "选择CSV文件"))
             .pick_file()
     }).await.map_err(|e| e.to_string())?;
     Ok(result.map(|p| p.to_string_lossy().to_string()))
@@ -612,8 +620,8 @@ async fn export_robot(_app: AppHandle, file_stem: String, lang_state: State<'_, 
 
     let dest_file = tauri::async_runtime::spawn_blocking(move || {
         rfd::FileDialog::new()
-            .set_title(dlg_text(&lang, "予測EXEの保存先を選択", "Choose where to save the prediction EXE"))
-            .add_filter(&dlg_text(&lang, "実行ファイル", "Executable"), &["exe"])
+            .set_title(dlg_text(&lang, "予測EXEの保存先を選択", "Choose where to save the prediction EXE", "选择预测EXE的保存位置"))
+            .add_filter(&dlg_text(&lang, "実行ファイル", "Executable", "可执行文件"), &["exe"])
             .set_file_name(&default_name)
             .save_file()
     }).await.map_err(|e| e.to_string())?;
