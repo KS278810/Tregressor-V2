@@ -143,9 +143,16 @@ chk(!d.getElementById('simDelta')&&!d.getElementById('simRingCanvas')&&!d.getEle
 chk(!d.getElementById('simSaveBtn'),'CSV保存(↓)ボタンは無い');
 chk(!d.getElementById('simFoot'),'下部の案内文は無い');
 chk(!/sim\.lgExtrap/.test(html),'使っていない記号(外挿のひし形)は凡例に無い');
-{// 単体HTMLは画面いっぱいに敷き、はみ出す分は領域ごとにスクロールさせる
- chk(/body\.sim-only #simulatePanel \{[\s\S]{0,200}position: fixed; inset: 0/.test(html),
-   '単体HTMLのパネルは fixed inset:0（100vw/100vhに依存しない）');
+{// 単体HTML(DLしたもの)は、本体のSIMULATEと寸分たがわず同じ見た目にする。
+ // sim-only 側でパネルの大きさ・位置を上書きすると本体とずれ、端が切れる原因になる。
+ // 上書きしてよいのは背景(後ろに本体UIが無いため)と閉じるボタンの非表示だけ。
+ for (const prop of ['position','inset','width','height','max-width','max-height',
+                     'top','left','right','bottom','transform','margin','padding']) {
+   chk(!new RegExp('body\\.sim-only #simulatePanel[^}]*[;{ ]'+prop+' *:').test(html),
+     `単体HTMLはパネルの ${prop} を上書きしない（本体のSIMULATEと同じ寸法）`);
+ }
+ chk(!/body\.sim-only #simulateOverlay[^}]*padding *:/.test(html),
+   '単体HTMLはオーバーレイの余白も上書きしない');
  chk(/\.sim-grid \{[\s\S]{0,200}overflow: auto/.test(html),'収まらない場合はスクロールする');
  chk(/grid-template-columns: minmax\(0, 1fr\) minmax\(\d+px, \d+px\)/.test(html),
    '右列は狭い画面でも縮められる');

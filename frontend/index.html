@@ -900,13 +900,10 @@
         body.sim-only header, body.sim-only .top-panel,
         body.sim-only .main-content, body.sim-only .status-bar,
         body.sim-only #startupOverlay, body.sim-only #termsOverlay { display: none !important; }
-        body.sim-only #simulateOverlay { background: transparent; backdrop-filter: none; padding: 0; }
-        /* 単体HTMLでは画面いっぱいに敷く。100vw/100vh はスクロールバーの分だけ
-           はみ出すことがあるので、fixed の inset で確実に内側に収める。 */
-        body.sim-only #simulatePanel {
-            position: fixed; inset: 0; width: auto; height: auto;
-            max-width: none; max-height: none; border: none; border-radius: 0;
-        }
+        /* 単体HTMLでも、パネルの大きさ・位置は本体の SIMULATE とまったく同じにする。
+           ここで独自の指定(画面いっぱい等)を足すと本体と見え方がずれて、
+           端が切れる原因になる。変えるのは背景だけ(後ろに本体UIが無いため)。 */
+        body.sim-only #simulateOverlay { background: transparent; backdrop-filter: none; }
         body.sim-only #simCloseBtn { display: none; }
         /* モデルについてのメモ。書いた内容はこの端末に自動保存され、
            「メモごと保存」で本文を埋め込んだHTMLとして書き出せる（人に渡せる）。 */
