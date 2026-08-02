@@ -521,11 +521,16 @@ if __name__ == '__main__':
             print(f"[Robot] カテゴリ列エンコード: {sorted(applied_cols)}", flush=True)
 
     # X クリッピング（モデル入力用複製 df_model にのみ適用）
+    # バグ出し2026-08: 数値列に文字列が混入したCSV(例: temp列に"hot")で
+    # object dtype のまま .clip() すると TypeError の生Tracebackで落ちていた。
+    # native(C++)エンジンは同じ入力を「非数値→NaN→median補完」で予測できるため、
+    # Python側も pd.to_numeric(errors="coerce") で揃える(混入セルはNaN化され、
+    # 後段の median 補完が拾う)。数値のみの正常なCSVでは値は一切変わらない。
     if x_clip:
         for col, bounds in x_clip.items():
             if col in df_model.columns:
                 lo, hi = bounds[0], bounds[1]
-                df_model[col] = df_model[col].clip(lower=lo, upper=hi)
+                df_model[col] = pd.to_numeric(df_model[col], errors="coerce").clip(lower=lo, upper=hi)
 
     # 自動特徴量（学習時レシピの再計算 — clip 後の値から生成、モデル入力専用の複製に追加）
     derived_recipe = meta.get("derived_features", []) or []

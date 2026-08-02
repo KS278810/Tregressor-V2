@@ -521,14 +521,22 @@ def _read_csv_with_encoding_fallback(csv_path):
     サイレントに学習が完走してしまうのを防ぐ(中-7)。"""
     with open(csv_path, 'rb') as f:
         raw = f.read()
+    # バグ出し2026-08: 空ファイル(EmptyDataError)・行ごとに列数が違う壊れたCSV
+    # (ParserError)で pandas の生 Traceback がそのままユーザーに漏れていた。
+    # 他の入力エラーと同じ ERROR:<key> 形式に揃える(フロントが翻訳して表示する)。
     try:
-        raw.decode('utf-8')
-        # utf-8-sig: 先頭にBOM(U+FEFF)があれば除去して読む(Excelの「CSV UTF-8」既定出力対策)。
-        # BOMが無い通常のUTF-8 CSVでも挙動は変わらない(中-7 の分岐とは独立)。
-        df = pd.read_csv(csv_path, encoding='utf-8-sig')
-    except UnicodeDecodeError:
-        print(f"[Python] CSVがUTF-8として不正 → Shift-JIS(cp932)として読み込みます", flush=True)
-        df = pd.read_csv(csv_path, encoding='cp932')
+        try:
+            raw.decode('utf-8')
+            # utf-8-sig: 先頭にBOM(U+FEFF)があれば除去して読む(Excelの「CSV UTF-8」既定出力対策)。
+            # BOMが無い通常のUTF-8 CSVでも挙動は変わらない(中-7 の分岐とは独立)。
+            df = pd.read_csv(csv_path, encoding='utf-8-sig')
+        except UnicodeDecodeError:
+            print(f"[Python] CSVがUTF-8として不正 → Shift-JIS(cp932)として読み込みます", flush=True)
+            df = pd.read_csv(csv_path, encoding='cp932')
+    except pd.errors.EmptyDataError:
+        _error_exit("csv_empty")
+    except pd.errors.ParserError as e:
+        _error_exit("csv_parse_failed", detail=str(e)[:200])
     # 列選択UI（frontend/index.html・lib.rs）はヘッダの前後空白をtrimして送信するため、
     # pandas側の列名もtrimして揃える。非対称のままだと「表示された列を選んだのに
     # ターゲット列が存在しません」エラーになる(中-M7)。
@@ -561,12 +569,28 @@ def _resolve_and_validate_target(df, target_column_arg):
         df = df.copy()
         df[target_column] = coerced
 
+    # バグ出し2026-08: ±inf は dropna では落ちず、そのまま学習に混入して y変換・
+    # スケーリング・R²計算を全て壊していた(症状: rmse/scatter/y_range が null、
+    # R²=0.0 で「精度不足」とだけ表示され原因がユーザーから見えない)。
+    # NaN と同じ「無効なターゲット」として除外する。
+    n_target_inf = int(np.isinf(df[target_column]).sum())
+    if n_target_inf > 0:
+        df = df.copy()
+        df[target_column] = df[target_column].replace([np.inf, -np.inf], np.nan)
+        print(f"[Python] ターゲットが±無限大の {n_target_inf} 行を欠損として扱います", flush=True)
+
     n_target_na = int(df[target_column].isna().sum())
     if n_target_na > 0:
         df = df.dropna(subset=[target_column]).reset_index(drop=True)
         print(f"[Python] ターゲット欠損 {n_target_na} 行を除外", flush=True)
     if len(df) == 0:
         _error_exit("target_all_na")
+    # バグ出し2026-08: 定数ターゲットは ss_tot=0 のため r2_score が 1.0 を返し、
+    # 「非常に高精度(R²=1.0, RMSE=0)」と表示されてしまっていた(学習する情報が無いのに)。
+    # 明示的なエラーとして早期に弾く。
+    if df[target_column].nunique() <= 1:
+        _error_exit("target_constant", col=target_column,
+                    value=float(df[target_column].iloc[0]))
     return df, target_column, n_target_na
 
 
