@@ -731,27 +731,36 @@
         .sim-row:hover .sim-name { color: var(--ink); }
         input.sim-name:hover { border-color: rgba(160,190,220,0.28); }
         input.sim-name:focus { border-color: rgba(63,196,236,0.5); color: var(--ink); }
-        /* 登録した組み合わせ(SET)。押すたびに増えていく一覧。
-           スライダー上・応答グラフ上の印と同じ色(紫)で対応を取る。 */
-        .sim-marks { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
-        .sim-mark-row {
-            display: flex; align-items: center; gap: 8px; padding: 3px 7px;
-            border-radius: 5px; background: rgba(167,139,250,0.07);
-            border: 1px solid rgba(167,139,250,0.2); cursor: pointer;
-            transition: background 0.15s;
+        /* 登録した組み合わせ(SET)。押すたびに増えていくチップの一覧。変数側(左)に置き、
+           1件ごとに違う色を割り当てる(スライダー上・応答グラフ上の印も同じ色にして対応を取る)。
+           クリックでその状態に戻りつつ「アクティブ」にする(枠が太くなる)。CLEARはその
+           アクティブな1件だけを消す。 */
+        .sim-marks {
+            margin-bottom: 6px; display: flex; flex-wrap: wrap; gap: 4px;
+            max-height: 64px; overflow-y: auto; flex: none;
         }
-        .sim-mark-row:hover { background: rgba(167,139,250,0.14); }
+        .sim-mark-row {
+            display: flex; align-items: center; gap: 6px; padding: 2px 6px;
+            border-radius: 5px; background: rgba(var(--mc), 0.08);
+            border: 1px solid rgba(var(--mc), 0.3); cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+        }
+        .sim-mark-row:hover { background: rgba(var(--mc), 0.16); }
+        .sim-mark-row.active {
+            border-color: rgba(var(--mc), 0.95); background: rgba(var(--mc), 0.2);
+            box-shadow: 0 0 0 1px rgba(var(--mc), 0.4);
+        }
         .sim-mark-tag {
             font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em;
-            color: rgb(167,139,250); flex: none;
+            color: rgb(var(--mc)); flex: none;
         }
         .sim-mark-val {
-            font-family: var(--font-display); font-weight: 700; font-size: 14px;
-            font-variant-numeric: tabular-nums; color: rgb(167,139,250); flex: 1; text-align: right;
+            font-family: var(--font-display); font-weight: 700; font-size: 12.5px;
+            font-variant-numeric: tabular-nums; color: rgb(var(--mc)); flex: none;
         }
         .sim-mark-x {
             flex: none; border: none; background: transparent; color: var(--ink-faint);
-            cursor: pointer; font-size: 11px; line-height: 1; padding: 0 2px;
+            cursor: pointer; font-size: 11px; line-height: 1; padding: 0 1px;
         }
         .sim-mark-x:hover { color: var(--bad); }
         /* 値は表示専用ではなく直接入力できるようにする。スライダーだけでは
@@ -967,9 +976,10 @@
 </div>
 
 <header>
-    <div class="lang-toggle" role="group" aria-label="Language / 言語">
+    <div class="lang-toggle" role="group" aria-label="Language / 言語 / 语言">
         <button type="button" class="lang-toggle-btn" data-lang="ja">日本語</button>
         <button type="button" class="lang-toggle-btn" data-lang="en">EN</button>
+        <button type="button" class="lang-toggle-btn" data-lang="zh">中文</button>
     </div>
     <img src="assets/logo2.png" class="logo" alt="T-regressor">
     <button id="settingsBtn" class="settings-gear-btn" data-i18n-title="ui.settingsBtnTitle" title="設定"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
@@ -1156,14 +1166,16 @@
             <span class="sim-title">SIMULATE</span>
             <button id="simAddBtn" class="sim-legend-btn" data-i18n-title="sim.addTitle" title="学習済みモデル(.treg / 書き出したHTML)を読み込む">+</button>
             <input id="simAddInput" type="file" accept=".treg,.html,.htm" multiple style="display:none">
-            <button id="simNoteBtn" class="sim-legend-btn" data-i18n-title="sim.noteTitle" title="このモデルについてのメモ">✎</button>
+            <!-- メモ機能の文言は、共有先が日本語話者と限らないため常に英語で固定する
+                 (本体の言語トグルには追従させない。data-i18n-* を付けないのはそのため)。 -->
+            <button id="simNoteBtn" class="sim-legend-btn" title="Notes about this model">✎</button>
             <button id="simCliBtn" class="sim-legend-btn" data-i18n-title="sim.cliTitle" title="コマンドラインで一括推論するスクリプトを保存">&gt;_</button>
             <button id="simSaveStateBtn" class="sim-legend-btn" data-i18n-title="sim.saveStateTitle" title="今の状態（スライダーの位置・変数名・登録した点・メモ）ごと保存する">⤓</button>
             <button id="simCloseBtn" class="sim-close-btn">✕</button>
         </div>
         <div class="sim-note open" id="simNote">
-            <textarea id="simNoteText" data-i18n-placeholder="sim.notePlaceholder"
-                      placeholder="このモデルについてのメモ（条件・気づいたこと・次に試すこと）"></textarea>
+            <textarea id="simNoteText"
+                      placeholder="Notes about this model (conditions, findings, what to try next)"></textarea>
             <div class="sim-note-bar">
                 <span class="sim-note-hint" id="simNoteHint"></span>
             </div>
@@ -1177,14 +1189,14 @@
                 <button class="sim-iconbtn" id="simResetBtn" data-i18n-title="sim.resetTitle" title="最初の値に戻す">↺</button>
                 <button class="sim-iconbtn" id="simBestBtn" data-i18n-title="sim.bestTitle" title="応答が最小だった点にスライダーを合わせる">★</button>
                 <button class="sim-iconbtn" id="simSetBtn" data-i18n-title="sim.setTitle" title="今の変数の組み合わせを登録する（押すたびに増える）">SET</button>
-                <button class="sim-iconbtn" id="simClearBtn" data-i18n-title="sim.clearTitle" title="登録した組み合わせをすべて消す">CLEAR</button>
+                <button class="sim-iconbtn" id="simClearBtn" data-i18n-title="sim.clearTitle" title="選んでいる登録をひとつ消す">CLEAR</button>
             </div>
+            <div class="sim-marks" id="simMarks"></div>
             <div id="simSliders" class="sim-sliders"></div>
         </div>
         <div class="sim-right" id="simRight">
             <div class="sim-ptag" id="simTargetTag">PREDICTED</div>
             <div class="sim-pred"><span class="sim-pnum" id="simPredVal">—</span></div>
-            <div class="sim-marks" id="simMarks"></div>
             <canvas id="simHistCanvas"></canvas>
             <div class="sim-models" id="simModels" style="display:none;"></div>
         </div>
@@ -1893,13 +1905,10 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             'sim.addTitle': '学習済みモデル(.treg / 書き出したHTML)を読み込む。複数入れると同じスライダーで一緒に動く',
             'sim.removeModel': 'このモデルを外す',
             'sim.removeMark': 'この登録を消す',
-            'sim.noteTitle': 'このモデルについてのメモ',
-            'sim.notePlaceholder': 'このモデルについてのメモ（条件・気づいたこと・次に試すこと）',
-            'sim.noteSaved': 'この端末に保存しました',
             'sim.saveStateTitle': '今の状態（スライダーの位置・変数名・登録した点・メモ）ごと保存する',
             'sim.setTitle': '今の変数の組み合わせを登録する（押すたびに増える）',
-            'sim.clearTitle': '登録した組み合わせをすべて消す',
-            'sim.markRecall': '登録した組み合わせ。クリックするとスライダーがその状態に戻る',
+            'sim.clearTitle': '選んでいる登録をひとつ消す',
+            'sim.markRecall': '登録した組み合わせ。クリックでスライダーを戻し、CLEARの対象に選ぶ',
             'sim.renameTitle': '画面に出す名前を変えられます（CSVの列名は {{col}} のまま）',
             'sim.resetOneTitle': 'この変数だけ最初の値に戻す',
             'sim.cliTitle': 'コマンドラインで一括推論するスクリプトを保存（node スクリプト名 入力.csv）',
@@ -2182,13 +2191,10 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             'sim.addTitle': 'Load a trained model (.treg or exported HTML). Multiple models move together on the same sliders',
             'sim.removeModel': 'Remove this model',
             'sim.removeMark': 'Remove this saved point',
-            'sim.noteTitle': 'Notes about this model',
-            'sim.notePlaceholder': 'Notes about this model (conditions, findings, what to try next)',
-            'sim.noteSaved': 'Saved on this device',
             'sim.saveStateTitle': 'Save the current state (slider positions, names, saved point, notes)',
             'sim.setTitle': 'Save the current combination of variables (adds a new one each time)',
-            'sim.clearTitle': 'Remove all saved combinations',
-            'sim.markRecall': 'Saved combination. Click to move the sliders back to it',
+            'sim.clearTitle': 'Remove the selected saved combination',
+            'sim.markRecall': 'Saved combination. Click to restore the sliders and select it for CLEAR',
             'sim.renameTitle': 'You can rename this for the screen (the CSV column stays {{col}})',
             'sim.resetOneTitle': 'Reset just this variable',
             'sim.cliTitle': 'Save a script for batch prediction from the command line (node script input.csv)',
@@ -2462,20 +2468,307 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             'terms.agreeLabel': 'I agree to the terms of use',
             'terms.acceptBtn': 'Agree and continue',
         },
+        zh: {
+            'common.listSep': '、',
+
+            'sim.bestTitle': '将滑块移动到响应最小的点',
+            'sim.tipBest': '扫描中响应最小的点: {{v}}',
+            'sim.distTitle': '在输入空间中用 Sobol 点扫描 {{n}} 次时的响应分布',
+            'sim.addTitle': '加载已训练的模型(.treg 或导出的 HTML)。加载多个模型后,可在同一组滑块上联动',
+            'sim.removeModel': '移除此模型',
+            'sim.removeMark': '删除此保存点',
+            'sim.saveStateTitle': '保存当前状态(滑块位置、变量名、保存点、备注)',
+            'sim.setTitle': '保存当前变量组合(每次点击都会新增一条)',
+            'sim.clearTitle': '删除选中的已保存组合',
+            'sim.markRecall': '已保存的组合。点击可恢复滑块位置,并将其选为 CLEAR 的对象',
+            'sim.renameTitle': '可以为屏幕显示重命名(CSV 列名仍为 {{col}})',
+            'sim.resetOneTitle': '仅重置此变量',
+            'sim.cliTitle': '保存用于命令行批量预测的脚本(node 脚本 输入.csv)',
+            'sim.deltaNone': '与参考行相同',
+            'sim.deltaNoneTitle': '尚未移动任何变量',
+            'sim.deltaFrom': '(相对 {{base}} / 已更改 {{n}} 个)',
+            'sim.deltaTitle': '与参考预测值 {{base}} 的差异。已移动 {{n}} 个变量。点击列名可仅还原该变量',
+            'sim.zoneReady': '▶ 打开模拟器',
+            'sim.subtitle': '移动滑块以探索 {{target}} 的预测值',
+            'sim.footNote': '大文件的批量预测请使用桌面版(exe)',
+            'sim.resetTitle': '恢复为参考行',
+            'sim.linkTitle': '联动相关列',
+            'sim.saveTitle': '将此行另存为 CSV',
+            'sim.demoteTitle': '移回固定项',
+            'sim.filterPlaceholder': '筛选',
+            'sim.fixedTitle': '固定列(中位数/众数)。点击可添加为滑块',
+            'sim.expandTitle': '将全部 {{n}} 个固定变量都显示为滑块',
+            'sim.collapseTitle': '仅缩小到重要性最高的 {{n}} 个变量',
+            'sim.chipTitle': '{{col}} = {{v}}(重要性 {{imp}}%)',
+            'sim.levelTitle': '{{value}}: 训练数据 {{n}} 行',
+            'sim.tipValue': '{{col}} = {{v}}(重要性 {{imp}}%)',
+            'sim.tipValueCat': '{{col}} = {{v}}(重要性 {{imp}}%)',
+            'sim.tipRange': '训练数据范围 {{lo}} – {{hi}}(p1–p99)',
+            'sim.tipExtrap': '当前值超出了训练数据范围',
+            'sim.tipSaturated': '超出训练范围后预测会饱和(模型的安全机制)',
+            'sim.tipCorr': '与 {{other}} 相关(r={{r}});该值下 {{v}} 附近较为自然',
+            'sim.tipPred': '预测值 {{v}}',
+            'sim.tipRmse': '验证误差(RMSE) ±{{v}}',
+            'sim.tipNoRmse': '没有可用的精度指标',
+            'sim.tipPercentile': '训练数据分布的前 {{pct}}%',
+            'sim.tipSeedActual': '参考行的实际值: {{v}}',
+            'sim.noteHigh': '拟合效果良好。± 为验证误差(RMSE)。',
+            'sim.noteMid': '拟合效果尚可。请结合 ± 范围一起解读。',
+            'sim.noteLow': '拟合效果较弱,单个预测值的可信度较低。仅可用于把握大致趋势。',
+            'sim.noteRef': '由于训练行数较少,R² 仅供参考。',
+            'sim.histTitle': '{{target}} 的分布(训练数据 {{n}} 行)\n绿色圆环=参考行的实际值;色带=预测值±RMSE',
+            'sim.ringTitle': '与当前组合接近的训练数据有 {{n}} 行\n圆环缺口越大,说明该组合离真实数据越远',
+            'sim.ringUnavailable': '无法计算(没有数值型列)',
+            'sim.flagExtrap': '超出训练数据范围的列:',
+            'sim.flagSaturated': '预测已饱和的列(继续移动也不会改变结果):',
+            'sim.sparkFlat': '{{col}}: 移动它几乎不会改变预测值',
+            'sim.sparkRange': '{{col}} 变化时的预测值({{lo}} – {{hi}})',
+            'sim.seed.low': 'LOW',
+            'sim.seed.median': 'MID',
+            'sim.seed.high': 'HIGH',
+            'sim.seed.random': 'RAND',
+            'sim.seedTitle.low': '目标变量偏低(p10)的真实数据行',
+            'sim.seedTitle.median': '目标变量为中位数的真实数据行',
+            'sim.seedTitle.high': '目标变量偏高(p90)的真实数据行',
+            'sim.seedTitle.random': '随机选取的真实数据行',
+            'sim.seedActualSuffix': '(实际 {{target}} = {{v}})',
+
+            'ui.startupStatusInitial': '正在启动...',
+            'ui.suRetryBtn': '↻ 重试',
+            'ui.settingsBtnTitle': '设置',
+            'ui.dropZoneHint': '↓ 将 CSV 拖放到此处',
+            'ui.predictSubLabelInitial': '训练完成后可用',
+            'ui.exportBtn': '下载模型',
+            'ui.chatTextInitial': '将训练数据拖放到左侧的方框中。',
+            'ui.sampleCsvBtn': '获取示例 CSV',
+            'ui.targetSelectSub': '选择要预测的列(默认使用最右侧的列)',
+            'ui.predictErrorTitle': '预测出错 — 重新拖放 CSV 以重试',
+            'ui.warnBannerTitle': '注意事项',
+            'ui.retrainThoroughBtn': '以“仔细”模式重新训练',
+            'ui.detailBtn': '查看详情 ↗',
+            'ui.tabFeature': '特征重要性',
+            'ui.tabCandidates': '候选模型',
+            'ui.tabPredict': '预测结果',
+            'ui.predictDownloadBtn': '下载 CSV',
+            'ui.retryBtn': '↩ 重新开始',
+            'ui.settingsModeLabel': '模式',
+            'ui.settingsModeInstant': '极速',
+            'ui.settingsModeQuick': '快速',
+            'ui.settingsModeThorough': '仔细',
+            'ui.settingsInfoTitle': '关于模式',
+            'ui.settingsInfoBody':
+                '<b>极速</b>：当训练数据较多时,仅使用部分行进行训练,比“快速”模式返回结果更快(精度可能略低于“快速”)。<br>' +
+                '<b>快速</b>：以标准设置训练4种模型(线性回归、LightGBM、高斯过程、神经网络 — 根据数据量自动选择),并采用精度最高的一个。<br>' +
+                '<b>仔细</b>：通过交叉验证进行公平评估,自动生成新的特征(如特征间的交互项),并以“预选→决赛”的方式广泛搜索多组超参数候选。还会尝试以最优权重组合最多6种模型的集成方法,以追求更高精度(训练需数十秒到数分钟)。',
+            'ui.settingsCpuJobsLabel': 'CPU 并行数',
+            'ui.settingsCpuJobsDisabledTitle': '浏览器版中不可用(单线程)',
+            'ui.settingsAboutTitle': '关于',
+            'ui.settingsAboutBody':
+                '作者：Kohei Shintani, Ph.D.<br>' +
+                '联系方式：<a href="mailto:mailad4me@gmail.com">mailad4me@gmail.com</a><br>' +
+                '许可协议：<b>CC BY-NC 4.0</b>(署名-非商业性使用) — 商业用途需事先联系并获得许可。详情请参阅首次启动时的同意界面。',
+            'ui.creditTitle': '许可与联系方式',
+            'ui.footerCredit': '© Kohei Shintani, Ph.D. · CC BY-NC 4.0',
+
+            'startup.resourceCheck': '正在检查资源...',
+            'startup.scanModel': '正在查找此前的模型...',
+            'startup.uiInit': '正在初始化界面...',
+            'startup.failed': '启动失败: {{detail}}',
+            'startup.pythonExtracting': '正在解压 Python 环境...',
+            'startup.extractingProgress': '正在解压... {{current}} / {{total}} 个文件',
+            'startup.setupComplete': '设置完成!',
+            'startup.extractError': '错误: {{detail}}',
+            'startup.boot': '正在启动引擎…',
+            'startup.libs': '正在加载库…',
+            'startup.extract': '正在解压模型代码…',
+            'startup.ready': '就绪',
+
+            'robot.dropHint': '将训练数据拖放到左侧的方框中。',
+            'robot.busyTraining': '训练正在进行中。请等待完成,或点击 CANCEL。',
+            'robot.busyPredicting': '预测正在进行中,请稍候。',
+            'robot.nonCsvDrop': '这里只能读取 CSV 文件。',
+            'robot.dropMiss': '请将其拖放到方框上。',
+            'robot.headerReadFail': '无法读取 CSV 的列名。\n请确认第一行包含表头。',
+            'robot.headersLoaded': '已加载 {{n}} 列。\n请选择要预测的列。',
+            'robot.targetChosen': '将预测“{{col}}”。\n点击 TRAIN 开始训练!',
+            'robot.predictingTauri': '正在预测...请稍候。',
+            'robot.predictingWeb': '正在预测...请稍候。\n(浏览器可能会短暂无响应)',
+            'robot.predictFailed': '预测时出现问题。\n请重新拖放 CSV 再试一次。',
+            'robot.trainFailedLow': 'R²={{r2}} — 精度不足。\n请尝试增加数据量或更换目标列。',
+            'robot.trainDoneOk': '训练完成! R²={{r2}}。将 CSV 拖到右侧即可预测。',
+            'robot.trainErrorGeneric': '训练过程中出现问题。\n请查看下方的错误详情。',
+            'robot.needCsvFirst': '请先将 CSV 拖放到方框①。',
+            'robot.trainingTauri': '正在训练...请稍候',
+            'robot.trainingWeb': '正在训练...请稍候(浏览器可能会短暂无响应。\n“仔细”模式可能需要数十秒以上)',
+            'robot.trainCancelledWithResult': '训练已取消。显示此前的结果。',
+            'robot.trainCancelled': '训练已取消。',
+            'robot.predictDoneWithDl': '已预测 {{rows}} 行!\n请使用“下载 CSV”按钮保存。',
+            'robot.predictDoneNoDl': '已预测 {{rows}} 行!\n结果已保存为 CSV 文件。',
+            'robot.predictDoneWarningHint': '\n⚠ 请查看下方注意事项。',
+            'robot.deploySavedWithWarning': '已保存!请查看下方注意事项。',
+            'robot.deploySavedQuickHint': '模型已保存!\n切换到“仔细”模式可获得更高精度。',
+            'robot.deploySaved': '模型已保存!',
+            'robot.deploySaveFailed': '保存时出现问题。\n请重试。{{detail}}',
+            'robot.sampleLoadFailed': '示例 CSV 加载失败: {{detail}}',
+            'robot.sampleSaved': '示例 CSV 已保存!\n拖放进来试试看。',
+            'robot.sampleSaveFailed': '示例 CSV 保存失败: {{detail}}',
+            'robot.tryingLinear': '正在尝试线性模型...',
+            'robot.trainingLgbm': '正在使用 LightGBM 训练...',
+            'robot.tryingGp': '正在尝试高斯过程模型...',
+            'robot.gpDone': '高斯过程模型完成',
+            'robot.trainingMlp': '正在训练神经网络...',
+            'robot.savingModel': '正在保存模型...',
+
+            'detail.presetThorough': '仔细',
+            'detail.presetQuick': '快速',
+            'detail.presetInstant': '极速',
+            'detail.evalOof': 'OOF 交叉验证 (n={{n}})',
+            'detail.evalVal': '验证数据 (n={{n}})',
+            'detail.evalTrain': '训练数据(无留出集)',
+            'detail.algorithm': '算法',
+            'detail.trainMode': '训练模式',
+            'detail.gpFormat': 'GP 格式',
+            'detail.targetCol': '目标列',
+            'detail.trainRows': '训练行数',
+            'detail.valRows': '验证行数',
+            'detail.rowsValue': '{{n}} 行',
+            'detail.model': '模型',
+            'detail.accuracy': '精度',
+            'detail.data': '数据',
+            'detail.predVsActual': '预测值 vs 实际值',
+            'detail.scatterNoteOof': '交叉验证(相当于未见过的数据)上的预测',
+            'detail.scatterNoteVal': '验证数据上的预测',
+            'detail.scatterNoteTrain': '训练数据上的预测',
+            'detail.scatterCaptionSuffix': ' · 越接近对角线精度越高',
+            'detail.predictableRange': '可预测范围',
+            'detail.outputLabel': '输出',
+            'detail.rangeSpan': '{{lo}} 至 {{hi}}',
+            'detail.rangeNote': '此范围反映了训练数据中的实际取值。预测值会被限制在此范围内 — 模型不会大幅外推超出此范围。',
+
+            'scatter.noData': '没有可显示的数据',
+            'scatter.trueAxis': '实际值',
+            'scatter.predAxis': '预测值',
+
+            'ui.evalBadgeVal': '验证 (n={{n}})',
+            'ui.evalBadgeOof': 'OOF 交叉验证 (n={{n}})',
+            'ui.evalBadgeTrain': '训练(无留出集)',
+            'ui.rmseLabel': 'RMSE {{v}}',
+            'ui.maeLabel': 'MAE {{v}}',
+            'ui.r2Below0': 'R²<0: 精度不足',
+            'ui.deployBlockedNote': '无法部署 — 精度过低',
+            'ui.predictReadyHint': '↓ 拖放/点击 CSV',
+            'ui.noExportableModel': '⚠ 没有可导出的模型',
+            'ui.deploySubstitutedNote': '改为使用 {{model}}(R²={{r2}}) 进行部署',
+            'ui.predictAgainHint': '↩ 再次预测',
+            'ui.predictRetryHint': '↩ 重试:拖放 CSV',
+            'ui.predictRowsLabel': '已预测 {{rows}} 行 → {{name}}',
+            'ui.deploySubstitutedFull': '当前设置下无法导出画面显示的 {{shown}} 模型,已改用 {{used}}(R²={{r2}}) 代替。',
+            'ui.deployedNote': '✓ 已部署',
+            'ui.deployedNoteSubstituted': '✓ 已部署(使用 {{model}})',
+            'ui.sampleCsvLoading': '加载中...',
+            'ui.sampleCsvSaving': '保存中...',
+            'ui.sampleCsvSavedCheckmark': '✓ 已保存',
+            'ui.inputNoteLoaded': '✓ 已加载',
+
+            'warning.catDroppedFull': '⚠ 已排除(相对行数基数过高):“{{cols}}”。这些列在训练和导出的模型中均不会被使用。',
+            'warning.catDroppedDeployNote': '⚠ 类别列“{{cols}}”已被排除(基数相对行数过高 — 可能影响精度)。',
+            'warning.missingColsHint': '⚠ 训练时使用的列“{{cols}}”未找到,已用中位数填充。精度可能因此下降。',
+            'warning.missingColsMore': ' 等',
+            'warning.small_full_data': '数据仅有 {{n_rows}} 行,因此使用了全部数据进行训练。R² 是训练分数,可能偏乐观。',
+            'warning.oof_eval': '通过 OOF 交叉验证进行评估。',
+            'warning.oof_eval_small_n': '数据量较少({{n_rows}} 行) — 通过 OOF 交叉验证进行评估。',
+            'warning.small_val_set': '验证集仅有 {{n_val}} 行,R² 可能不稳定。建议100行以上。',
+            'warning.target_na_excluded': '已从训练中排除目标变量缺失的 {{n}} 行。',
+            'warning.outliers_corrected': '已将 {{n}} 行目标值异常点截断到可接受范围内(IQR×{{iqr_mult}})。',
+            'warning.duplicate_rows': '存在 {{n}} 行重复数据,可能导致评估结果偏乐观。',
+            'warning.cat_cols_dropped': '已排除的列(相对行数基数过高): {{cols}}',
+            'warning.winsorize_skipped_cv': '经交叉验证判断,对目标值进行异常值截断会削弱信号,因此未启用(保留了真实的尾部数据)。',
+
+            'status.ready': '就绪',
+            'status.deployed': '✓ 已部署',
+            'status.training': '训练中...',
+            'status.trainDone': '训练完成',
+            'status.trainDoneCheckmark': '✓ 训练完成',
+            'status.predicting': '预测中...',
+            'status.deploying': '部署中...',
+
+            'progress.reading_csv': '正在读取 CSV',
+            'progress.fold_feature_select': '正在按折选择特征',
+            'progress.preprocess_done': '预处理完成',
+            'progress.linear_fit': '正在训练线性模型',
+            'progress.lgbm_fit': '正在训练 LightGBM',
+            'progress.mlp_gp_fit': '正在训练神经网络与高斯过程',
+            'progress.parallel4_fit': '正在并行训练4个模型',
+            'progress.lgbm_search': '正在搜索超参数 {{pidx}}/{{n_cand}}',
+            'progress.extra_models_fit': '正在训练其他模型',
+            'progress.ensemble_optimize': '正在优化模型集成',
+            'progress.saving_model': '正在保存模型',
+            'progress.done': '完成',
+
+            'error.target_col_not_found': '在 CSV 中未找到目标列“{{col}}”',
+            'error.target_col_not_numeric': '目标列“{{col}}”包含非数值数据(例如 {{example}})',
+            'error.target_all_na': '没有一行数据具有有效的目标值',
+            'error.csv_path_missing': '未指定 CSV 路径',
+            'error.duplicate_columns': '存在重复的列名(已去除首尾空白): {{cols}}',
+            'error.no_valid_model': '没有模型能够训练成功',
+            'error.result_move_failed': '训练结果移动失败(可能有其他进程正在使用): {{detail}}',
+            'error.predict_failed': '预测失败: {{detail}}',
+            'error.predictTemplateFetchFailed': '获取 predict_template.html 失败 (HTTP {{status}})',
+            'error.modelDataNotFound': '未找到模型数据。请重新训练。',
+            'error.predictTemplateFormatInvalid': 'predict_template.html 格式异常(缺少占位符)',
+
+            // 以下为源自 Rust 侧(src-tauri/lib.rs)的键,与 Python 使用相同的
+            // ERROR:key:{json} 约定合并(2026-07 i18n 修复)。
+            'error.embedded_python_missing': '找不到内置的 Python 运行环境,安装可能已损坏。如果重启应用无法解决,请重新安装。',
+            'error.extraction_tmpdir_failed': '创建解压文件夹失败: {{detail}}',
+            'error.extraction_empty_archive': '内置的 python-embed 压缩包为空',
+            'error.extraction_partial_failure': '部分文件解压失败,请检查磁盘空间并重启。',
+            'error.extraction_old_move_failed': '移动旧的 python-embed 失败: {{detail}}',
+            'error.extraction_swap_failed': '替换新的 python-embed 失败: {{detail}}',
+            'error.extraction_place_failed': '放置 python-embed 失败: {{detail}}',
+            'error.invalid_file_path': '文件路径无效',
+            'error.python_launch_failed': '启动 Python 失败: {{detail}}',
+            'error.train_no_result': '训练进程退出但未返回结果,请检查 CSV 内容。',
+            'error.train_crashed': '训练进程崩溃:\n{{tail}}',
+            'error.predict_no_result': '预测进程退出但未返回结果。',
+            'error.predict_crashed': '预测进程崩溃:\n{{tail}}',
+            'error.json_parse_failed': '解析 JSON 失败: {{detail}}',
+            'error.model_treg_missing': '未找到 model.treg,请重新训练。',
+            'error.predict_native_missing': '未找到预测可执行文件(predict_native.exe),安装可能已损坏,请重新安装。',
+            'error.model_treg_invalid': 'model.treg 格式无效,请重新训练。',
+            'error.model_type_unsupported_for_exe': '此模型类型不支持导出为 EXE,请改用 HTML 导出。',
+
+            'r2interp.very_high': '精度极高',
+            'r2interp.high': '精度很高(可用于生产环境)',
+            'r2interp.practical': '精度可用',
+            'r2interp.moderate': '精度偏低',
+            'r2interp.insufficient': '精度不足',
+            'r2interp.nonfunctional': '模型无法正常工作',
+
+            'terms.title': '请同意使用条款',
+            'terms.licenseLine': '本工具采用 <b>CC BY-NC 4.0</b>(署名-非商业性使用)协议,可自由用于教育和研究。',
+            'terms.eduTitle': '✅ 教育与研究可免费使用',
+            'terms.eduBody': '可在学校、大学的课堂与研究中使用,用于制作教材或个人学习,均无需另行许可。欢迎在课堂或学术会议上分享。',
+            'terms.commTitle': '商业使用请先联系我们',
+            'terms.commBody': '如需用于付费服务、API 提供或企业培训,请联系 <a href="mailto:kohei.shintani@brainverse.jp">kohei.shintani@brainverse.jp</a>。通常会予以许可。',
+            'terms.agreeLabel': '我同意使用条款',
+            'terms.acceptBtn': '同意并继续',
+        },
     };
 
     const LANG_STORAGE_KEY = 'treg_lang';
 
     // 2026-07: 初期表示は常に英語をデフォルトとする(以前はnavigator.languageで
     // ブラウザのロケールから自動判定していたが、公開ツールとして英語を既定にする
-    // 方針に変更)。日本語へはヘッダー右上のトグルでいつでも切替可能。
+    // 方針に変更)。日本語・中国語へはヘッダー右上のトグルでいつでも切替可能。
+    const SUPPORTED_LANGS = ['ja', 'en', 'zh'];
     function detectDefaultLang() {
         return 'en';
     }
     function getLang() {
         try {
             const saved = localStorage.getItem(LANG_STORAGE_KEY);
-            if (saved === 'ja' || saved === 'en') return saved;
+            if (SUPPORTED_LANGS.includes(saved)) return saved;
         } catch (_) { /* file://等でlocalStorageにアクセスできない環境向けフォールバック */ }
         return detectDefaultLang();
     }
@@ -2519,7 +2812,7 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
     let _lastErrorParsed = null;
 
     function setLang(lang) {
-        _lang = (lang === 'en') ? 'en' : 'ja';
+        _lang = SUPPORTED_LANGS.includes(lang) ? lang : 'ja';
         try { localStorage.setItem(LANG_STORAGE_KEY, _lang); } catch (_) {}
         applyStaticI18n();
         if (typeof Platform !== 'undefined' && Platform.setUiLang) Platform.setUiLang(_lang);
@@ -4289,8 +4582,22 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
         models: [],            // [{id,name,model,target,rmse,r2,refOnly,spec}]
         animRaf: 0, predShown: NaN,
         labels: {},            // 画面に出す変数名の置き換え {列名: 表示名}
-        marks: [],             // SETで登録した組み合わせの一覧 [{state:{...}, y:予測値}, ...]
+        marks: [],             // SETで登録した組み合わせの一覧 [{id,state,y,color}, ...]
+        markSeq: 0,             // marks の id 採番。色の割り当てにも使う
+        activeMarkId: null,     // 一覧でクリック中の1件。CLEARはこれだけを消す
     };
+    // SETは押すたびに違う色を割り当てる(スライダー・応答グラフ上の印もこの色にして
+    // どの登録がどれか対応を取る)。--gold(警告)・--good(最適点)・--bad(エラー)・
+    // --cyan(現在値)とは被らない色を選ぶ。数が増えたら巡回する。
+    const SIM_MARK_PALETTE = [
+        [167, 139, 250], // purple
+        [236, 72, 153],  // pink
+        [56, 142, 253],  // blue
+        [234, 179, 8],   // yellow
+        [45, 212, 191],  // teal
+        [251, 113, 133], // rose
+    ];
+    function simMarkRgba(color, a) { return 'rgba(' + color.join(',') + ',' + a + ')'; }
     // base64 ⇄ バイト列。CLIスクリプトの書き出しと、埋め込みモデルの読み込みで使う。
     function _bytesToB64(bytes) {
         const CHUNK = 0x8000; let binary = '';
@@ -4315,8 +4622,6 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
     const SIM_MONO = "'IBM Plex Mono', 'Consolas', monospace";
     // 最適点の色は右のグラフとスライダーで共通（同じ色・同じ形にして対応を取る）
     const SIM_BEST_RGBA = (a) => 'rgba(47,214,142,' + a + ')';
-    // SETで登録した組み合わせの色。最適点(緑)・現在値(水色)と取り違えないよう紫にする。
-    const SIM_MARK_RGBA = (a) => 'rgba(167,139,250,' + a + ')';
     // 画面に出す変数名。CSVの列名は分かりにくいことが多いので書き換えられるようにする。
     // 置き換えるのは表示だけで、モデルもCSVの列名も元のまま。
     function simLabel(col) {
@@ -4811,19 +5116,20 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             }
         }
 
-        // ⑤' SETで登録した組み合わせでのこの変数の値。右のグラフの印と同じ色・同じ形
-        //     （紫の▼）にして、どちらが同じ組み合わせを指すのか対応が取れるようにする。
+        // ⑤' SETで登録した組み合わせでのこの変数の値。一覧の各行・応答グラフの印と
+        //     同じ色・同じ形(▼)にして、どれが同じ組み合わせを指すのか対応が取れるようにする。
         // 複数登録しているときは重なって見分けにくくなるため、1本あたりの不透明度を
-        // 下げる(多いほど薄く)。
+        // 下げる(多いほど薄く)。選んでいる(アクティブな)1件だけは不透明にして目立たせる。
         if (SIM.marks.length) {
-            const a = Math.max(0.35, 0.9 / Math.sqrt(SIM.marks.length));
+            const baseA = Math.max(0.3, 0.85 / Math.sqrt(SIM.marks.length));
             for (const mk of SIM.marks) {
                 const mstate = mk && mk.state;
                 if (!mstate || mstate[col] === undefined) continue;
                 const mv = isNum ? Number(mstate[col]) : simLevelIndex(s, mstate[col]);
                 if (!Number.isFinite(mv)) continue;
                 const mx2 = X(Math.min(Math.max(mv, lo), hi));
-                ctx.fillStyle = SIM_MARK_RGBA(a);
+                const a = mk.id === SIM.activeMarkId ? 0.95 : baseA;
+                ctx.fillStyle = simMarkRgba(mk.color || SIM_MARK_PALETTE[0], a);
                 ctx.beginPath(); ctx.moveTo(mx2, railY - 9);
                 ctx.lineTo(mx2 + 3.6, railY - 14.5); ctx.lineTo(mx2 - 3.6, railY - 14.5);
                 ctx.closePath(); ctx.fill();
@@ -4998,16 +5304,19 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             ctx.beginPath(); ctx.arc(bx, base, 4.5, 0, Math.PI * 2); ctx.stroke();
         }
 
-        // SETで登録した組み合わせ（スライダー上の印と同じ紫の▼）。複数あれば全部描く。
+        // SETで登録した組み合わせ（一覧・スライダー上の印と同じ色の▼）。複数あれば全部描き、
+        // 選んでいる(アクティブな)1件だけは不透明にする。
         if (SIM.marks.length) {
-            const ma = Math.max(0.35, 0.9 / Math.sqrt(SIM.marks.length));
+            const baseA = Math.max(0.3, 0.85 / Math.sqrt(SIM.marks.length));
             for (const mk of SIM.marks) {
                 if (!mk || !Number.isFinite(mk.y)) continue;
                 const mxp = X(Math.min(Math.max(mk.y, lo), hi));
-                ctx.setLineDash([2, 3]); ctx.strokeStyle = SIM_MARK_RGBA(ma * 0.7); ctx.lineWidth = 1.2;
+                const a = mk.id === SIM.activeMarkId ? 0.95 : baseA;
+                const col = mk.color || SIM_MARK_PALETTE[0];
+                ctx.setLineDash([2, 3]); ctx.strokeStyle = simMarkRgba(col, a * 0.7); ctx.lineWidth = 1.2;
                 ctx.beginPath(); ctx.moveTo(mxp, top - 2); ctx.lineTo(mxp, base); ctx.stroke();
                 ctx.setLineDash([]);
-                ctx.fillStyle = SIM_MARK_RGBA(ma);
+                ctx.fillStyle = simMarkRgba(col, a);
                 ctx.beginPath(); ctx.moveTo(mxp, top + 3);
                 ctx.lineTo(mxp + 4, top - 3); ctx.lineTo(mxp - 4, top - 3);
                 ctx.closePath(); ctx.fill();
@@ -5129,55 +5438,65 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
     }
 
     // ── 組み合わせの登録（SET / CLEAR） ───────────────────────────────────────
-    // 気に入った条件を、押すたびに増やして残していける。登録した点はどれも
-    // スライダー上と応答のグラフの両方に同じ色(紫)で印が出る。動かしたあとでも、
-    // 一覧のどれかをクリックすればその状態に戻れる。
+    // 気に入った条件を、押すたびに増やして残していける。登録した点はどれもスライダー上と
+    // 応答のグラフの両方に、その組み合わせだけの色で印が出る。一覧のどれかをクリックすると
+    // その状態に戻りつつ「アクティブ」になり(枠が強調される)、CLEARはそのアクティブな
+    // 1件だけを消す(全部消えるわけではない)。
+    function simNextMarkColor() { return SIM_MARK_PALETTE[SIM.markSeq % SIM_MARK_PALETTE.length]; }
     function simSetMark() {
         if (!SIM.ready) return;
         const st = {};
         for (const s of simSpecs()) st[s.col] = SIM.state[s.col];
-        SIM.marks.push({ state: st, y: simPredict(st) });
+        const id = ++SIM.markSeq;
+        SIM.marks.push({ id: id, state: st, y: simPredict(st), color: simNextMarkColor() });
+        SIM.activeMarkId = id;
         simPersistUi(); simRenderPrediction(); simKick();
     }
-    function simClearMarks() {
-        SIM.marks = [];
+    // アクティブに選ばれている1件だけを消す。何も選んでいなければ何もしない
+    // (CLEARボタン自体もその間は無効化される)。
+    function simClearActiveMark() {
+        if (SIM.activeMarkId == null) return;
+        simRemoveMark(SIM.activeMarkId);
+    }
+    function simRemoveMark(id) {
+        SIM.marks = SIM.marks.filter(m => m.id !== id);
+        if (SIM.activeMarkId === id) SIM.activeMarkId = null;
         simPersistUi(); simRenderPrediction(); simKick();
     }
-    function simRemoveMark(i) {
-        SIM.marks.splice(i, 1);
-        simPersistUi(); simRenderPrediction(); simKick();
-    }
-    function simRecallMark(i) {
-        const m = SIM.marks[i];
+    function simRecallMark(id) {
+        const m = SIM.marks.find(mk => mk.id === id);
         if (!m || !m.state) return;
         for (const s of simSpecs()) {
             if (m.state[s.col] === undefined) continue;
             SIM.state[s.col] = m.state[s.col];
         }
+        SIM.activeMarkId = id;
         simRefreshSliders(); simRenderPrediction(); simKick();
     }
     function simRenderMarks() {
         const host = simEl('simMarks');
         if (!host) return;
         host.innerHTML = '';
-        SIM.marks.forEach(function (m, i) {
+        SIM.marks.forEach(function (m) {
             if (!Number.isFinite(m.y)) return;
+            const idx = SIM.marks.indexOf(m);
             const row = document.createElement('div');
-            row.className = 'sim-mark-row';
+            row.className = 'sim-mark-row' + (m.id === SIM.activeMarkId ? ' active' : '');
+            row.style.setProperty('--mc', (m.color || SIM_MARK_PALETTE[0]).join(','));
             row.title = t('sim.markRecall');
-            row.addEventListener('click', function () { simRecallMark(i); });
+            row.addEventListener('click', function () { simRecallMark(m.id); });
             const tag = document.createElement('span'); tag.className = 'sim-mark-tag';
-            tag.textContent = 'SET ' + (i + 1);
+            tag.textContent = 'SET ' + (idx + 1);
             const val = document.createElement('span'); val.className = 'sim-mark-val';
             val.textContent = simFmt(m.y);
             const x = document.createElement('button'); x.className = 'sim-mark-x';
             x.type = 'button'; x.textContent = '×'; x.title = t('sim.removeMark');
-            x.addEventListener('click', function (e) { e.stopPropagation(); simRemoveMark(i); });
+            x.addEventListener('click', function (e) { e.stopPropagation(); simRemoveMark(m.id); });
             row.appendChild(tag); row.appendChild(val); row.appendChild(x);
             host.appendChild(row);
         });
         const cb = simEl('simClearBtn');
-        if (cb) cb.disabled = SIM.marks.length === 0;
+        if (cb) cb.disabled = SIM.activeMarkId == null;
         const sb = simEl('simSetBtn');
         if (sb) sb.classList.toggle('on', SIM.marks.length > 0);
     }
@@ -5220,11 +5539,21 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
         };
         const st = take(ui.state);
         for (const col in st) SIM.state[col] = st[col];
-        // marks は新形式(配列)。古い保存データ(単一の mark)も読めるようにしておく。
+        // marks は新形式(配列)。古い保存データ(単一の mark、id/color無し)も読めるようにしておく。
         const rawMarks = Array.isArray(ui.marks) ? ui.marks : (ui.mark ? [ui.mark] : []);
-        SIM.marks = rawMarks
-            .map(mk => { const ms = take(mk && mk.state); return Object.keys(ms).length ? { state: ms, y: simPredict(ms) } : null; })
-            .filter(Boolean);
+        let seq = 0;
+        SIM.marks = rawMarks.map(mk => {
+            const ms = take(mk && mk.state);
+            if (!Object.keys(ms).length) return null;
+            seq++;
+            const id = Number.isFinite(mk.id) ? mk.id : seq;
+            const color = Array.isArray(mk.color) ? mk.color : SIM_MARK_PALETTE[(seq - 1) % SIM_MARK_PALETTE.length];
+            return { id: id, state: ms, y: simPredict(ms), color: color };
+        }).filter(Boolean);
+        SIM.markSeq = SIM.marks.reduce((mx, mk) => Math.max(mx, mk.id), 0);
+        // 復元直後は、直前まで見ていたはずの最後の登録をアクティブ扱いにしておく
+        // (CLEARがいきなり無効のままにならないように)。
+        SIM.activeMarkId = SIM.marks.length ? SIM.marks[SIM.marks.length - 1].id : null;
     }
     function simRestoreUi() {
         try {
@@ -5254,7 +5583,8 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
         try { localStorage.setItem(simNoteKey(), ta.value); } catch (_) {}
         simEl('simNoteBtn').classList.toggle('on', !!ta.value);
         const h = simEl('simNoteHint');
-        if (h) { h.textContent = t('sim.noteSaved'); clearTimeout(simSaveNoteLocal._t);
+        // メモ機能の文言は共有先を選ばないよう常に英語固定(本体の言語トグルに追従しない)。
+        if (h) { h.textContent = 'Saved on this device'; clearTimeout(simSaveNoteLocal._t);
                  simSaveNoteLocal._t = setTimeout(function () { h.textContent = ''; }, 1600); }
     }
 
@@ -5384,7 +5714,8 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
     }
     function simInit(result) {
         SIM.ready = false; SIM.models = []; SIM.dist = null; SIM.predShown = NaN;
-        SIM.state = {}; SIM.anim = {}; SIM.labels = {}; SIM.marks = [];
+        SIM.state = {}; SIM.anim = {}; SIM.labels = {};
+        SIM.marks = []; SIM.markSeq = 0; SIM.activeMarkId = null;
         if (!simCanUse(result)) return false;
         let model;
         try { model = simTregFromBytes(Platform.getTregBytes()); }
@@ -5472,7 +5803,7 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
         simRefreshSliders(); simRenderPrediction(); simKick();
     });
     simEl('simSetBtn').addEventListener('click', simSetMark);
-    simEl('simClearBtn').addEventListener('click', simClearMarks);
+    simEl('simClearBtn').addEventListener('click', simClearActiveMark);
     simEl('simNoteBtn').addEventListener('click', function () {
         const n = simEl('simNote');
         const open = n.classList.toggle('open');
