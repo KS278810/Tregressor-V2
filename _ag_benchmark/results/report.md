@@ -5,7 +5,7 @@
 - **同一の train/test 分割**(固定シード=42, test=25%)を両ツールに与える。treg が書いた分割ファイルを AG も読むことで分割の同一性を厳密に保証。
 - **中立採点**: 両ツールの test 予測を同一コード(純numpy R²/RMSE/MAE)で採点。treg の自己申告R²(OOF/val)は比較には使わず、別途「誠実性」の参考としてのみ記録。
 - **同一の時間バジェット**: AG には各問題の treg *thorough* 実測学習時間を time_limit として与える(下限60s, preset=good_quality, Windows安定化のためRay不使用・dynamic_stacking無効)。「同じ時間でどちらが賢いか」の比較。
-- 合成問題は既知の **ceiling_r2**(どんな学習器も原理的に超えられない test R²上限)を併記。
+- 合成問題は既知の **ceiling_r2**(どんな学習器も原理的に超えられない test R²上限)を併記。ただしこれは全データでの理論値であり、test集合(25%)は有限サンプルのため、稀に test_r2 が ceiling_r2 をわずかに上回ることがある(サンプリング分散によるもので異常ではない。例: count_poisson)。
 
 ## ヘッドライン
 
@@ -84,3 +84,31 @@
 - **multiplicative** (nonlinear): tt=0.951 vs AG=0.888 (差 -0.063) — 純交互作用(主効果ゼロ)。線形に厳しい
 - **linear_highdim_sparse** (linear): tt=0.984 vs AG=0.934 (差 -0.049) — 高次元(60特徴)中6本のみ有効。特徴選抜
 - **real_diabetes** (real): tt=0.517 vs AG=0.480 (差 -0.038) — sklearn同梱。糖尿病進行度(n=442,10特徴)
+
+## モデル選択・妥当性チェック
+
+結果(R²)の比較だけでなく、「意図通りにモデルが選ばれ、意図通りの性能が出ているか」を自動判定した一覧。判定基準は2つ: (a) 天井到達率(test_r2/ceiling_r2 が 0.85 未満なら要確認)、(b) 生成関数のnoteが特定モデル種別を明示的に予見しているケースのみ、実際に選ばれたモデルと突き合わせる(該当しないデータセットは判定対象外)。**モデルの不一致だけでは要確認にしない**(性能が出ているなら、想定と違うモデルで解けたのは問題ではなく別解と見なす)。
+
+- **判定結果**: OK **40** / 要確認 **0** (全40問中、判定対象外は除く)
+
+| dataset | family | 想定モデル | 実際のモデル | ceiling | attain | 判定 |
+|---|---|---|---|--:|--:|---|
+| categorical_high | categorical | — | lgbm | 0.975 | 0.978 | OK |
+| categorical_interaction | categorical | — | linear | 0.929 | 1.000 | OK |
+| categorical_low | categorical | — | linear | 0.975 | 0.992 | OK |
+| collinear | linear | — | linear | 0.980 | 0.982 | OK |
+| heteroscedastic | linear | — | blend | 0.822 | 0.958 | OK |
+| linear_clean | linear | — | gp | 0.997 | 0.997 | OK |
+| linear_highdim_sparse | linear | — | linear | 0.991 | 0.992 | OK |
+| linear_noisy | linear | — | gp | 0.647 | 0.983 | OK |
+| mixed_messy | mixed | — | linear | 0.990 | 0.983 | OK |
+| interaction_deep | nonlinear | — | gp | 0.902 | 0.995 | OK |
+| many_irrelevant | nonlinear | — | blend | 0.982 | 0.967 | OK |
+| monotonic_saturating | nonlinear | — | gp | 0.983 | 0.997 | OK |
+| multiplicative | nonlinear | — | linear | 0.965 | 0.986 | OK |
+| nonlinear_interaction | nonlinear | — | blend | 0.877 | 0.992 | OK |
+| piecewise_steps | nonlinear | — | lgbm | 0.954 | 0.977 | OK |
+| polynomial_deg3 | nonlinear | — | gp | 0.943 | 0.996 | OK |
+| radial_rbf | nonlinear | — | gp | 0.951 | 0.977 | OK |
+| trig_smooth | nonlinear | — | gp | 0.953 | 0.983 | OK |
+| xor_sign | nonlinear | — | lgbm | 0.961 | 0.987 | OK |

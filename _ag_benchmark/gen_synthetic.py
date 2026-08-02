@@ -295,6 +295,39 @@ GENERATORS = [
 ]
 
 
+# ── モデル選択の妥当性チェック用メタデータ ─────────────────────────────────
+# 2026-08: 「結果(R²)の比較だけでなく、意図通りのモデルが選ばれているか」を自動判定
+# したいという要望に対応。ただしT-regressorの"Linear"は内部でLGBM screening/derived
+# features(交互作用項の自動生成)を伴うため、"family=nonlinearだからLinearが勝ったら
+# 即エラー"のような単純な family⇔model の1対1判定は誤検知を生む(例: multiplicative
+# はfamily=nonlinearだがLinear(Ridge)がceiling比98.5%で勝っており、これは
+# derived interaction featuresが効いているためで異常ではない)。
+# そのため、ここでは「生成関数のnote自体が特定モデル種別を明示的に予見している」
+# 狭いケースだけに絞って expected_models(許容モデル種別の集合)を宣言する。
+# 該当しないデータセットは None のままとし、report.md では家系(family)と選ばれた
+# モデルを併記するに留め、判定は下さない(過剰判定による誤検知を避ける)。
+#
+# model_type の取りうる値: linear / linear_poly / lgbm / gp / mlp / rf / xt / blend
+# (train_bridge.py の _TREG_TYPE_MAP 等を参照。lgbm_bag は lgbm 扱いとして照合する)
+EXPECTED_MODELS = {
+    # note: "動径基底(距離の関数、GP向き)" — RBFカーネルGPが理論的に最適
+    "radial_rbf":            ["gp", "blend"],
+    # note: "滑らかな三角関数曲面(GP向き)"
+    "trig_smooth":            ["gp", "blend"],
+    # note: "階段/閾値関数(木に有利・線形に不利)" — 決定木系が閾値を素直に表現できる
+    "piecewise_steps":        ["lgbm", "rf", "xt", "blend"],
+    # note: "XOR型符号交互作用(線形相関ほぼ0)" — 線形相関がほぼ0なので木/GP/MLP系が必要
+    "xor_sign":               ["lgbm", "rf", "xt", "gp", "mlp", "blend"],
+    # note: "強い多重共線性" — Ridgeの正則化が真価を発揮する典型ケース
+    "collinear":              ["linear", "linear_poly", "blend"],
+    # note: "高次元(60特徴)中6本のみ有効。特徴選抜" — スパース線形+スクリーニングの土俵
+    "linear_highdim_sparse":  ["linear", "linear_poly", "blend"],
+    # note: "リーク検知(Xとy完全独立、ceiling=0)" — モデル種別は問わず、
+    # |test_r2| が小さく保たれているか(=リーク・過信をしていないか)だけを別途チェックする
+    "pure_noise":             None,
+}
+
+
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     manifest = {}
@@ -308,6 +341,7 @@ def main():
             "csv": csv_name, "target": target, "n": int(len(df)),
             "n_cols": int(df.shape[1] - 1), "family": family,
             "ceiling_r2": ceil, "source": "synthetic", "note": note,
+            "expected_models": EXPECTED_MODELS.get(name),
         }
         print(f"生成: {name:24s} n={len(df):5d} cols={df.shape[1]-1:3d} ceiling_r2={ceil:.3f}  {note}")
 

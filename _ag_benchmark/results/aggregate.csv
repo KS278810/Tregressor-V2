@@ -1,41 +1,41 @@
-﻿dataset,source,family,ceiling_r2,n_train,n_test,tq_r2,tt_r2,tt_self_r2,tt_model,tt_sec,tq_sec,ag_r2,ag_model,ag_budget,ag_sec,ag_nmodels,gap_ag_minus_tt,winner,note
-pub_appliances,public_uci,public,,1500,500,0.1844,0.252,0.1826,Blend (Ensemble),255.0,7.0,0.2556,WeightedEnsemble_L3,135,145.1,34,0.0036,tie,"家電エネルギー消費予測(UCI 374, n=19735→2000, 高次元時系列由来特徴)"
-pub_automgp,public_uci,public,,298,100,0.8796,0.9164,0.8804,Blend (Ensemble),414.3,21.6,0.9173,WeightedEnsemble_L2,60,63.5,18,0.0009,tie,"自動車燃費 Auto MPG(UCI 9, n=398)。カテゴリ列(原産地)混在の古典データ"
-pub_concrete,public_uci,public,,772,258,0.9086,0.9277,0.909,LightGBM,89.1,1.7,0.9444,WeightedEnsemble_L2,91,101.2,26,0.0167,AG,"コンクリート圧縮強度(UCI 165, n=1030)。CTR23/AMLB系論文で頻出の定番"
-pub_energy,public_uci,public,,576,192,0.9979,0.9976,0.9969,GaussianProcess (ARD-RBF),90.8,2.8,0.9989,WeightedEnsemble_L2,69,73.6,14,0.0013,tie,"建物エネルギー効率(UCI 242, n=768)。暖房負荷を予測、冷房負荷列は除外"
-pub_forestfires,public_uci,public,,388,129,-0.026,-0.0265,-0.051,GaussianProcess (ARD-RBF),108.8,5.0,-0.0122,WeightedEnsemble_L2,109,99.6,18,0.0143,AG,"森林火災の焼失面積(UCI 162, n=517)。極端な右裾(0が大半)、頑健性の試金石"
-pub_parkinsons,public_uci,public,,1500,500,0.923,0.9645,0.9568,Blend (Ensemble),684.8,4.9,0.9614,WeightedEnsemble_L3,131,138.4,22,-0.0031,tie,"パーキンソン病重症度スコア(UCI 189, n=5875→2000)。total_UPDRSを予測"
-pub_powerplant,public_uci,public,,1500,500,0.9464,0.9552,0.938,LightGBM,61.5,1.5,0.9544,WeightedEnsemble_L3,62,66.0,28,-0.0008,tie,"複合サイクル発電所の出力(UCI 294, n=9568→2000)。4特徴のみの低次元回帰"
-pub_realestate,public_uci,public,,310,104,0.7579,0.7505,0.6751,Blend (Ensemble),54.6,2.0,0.7613,WeightedEnsemble_L2,67,60.3,18,0.0108,AG,"台湾不動産価格(UCI 477, n=414)。小標本の実務データ"
-pub_studentperf,public_uci,public,,487,162,0.1759,0.2089,0.3059,Blend (Ensemble),199.4,11.6,0.2236,WeightedEnsemble_L2,133,141.5,18,0.0147,AG,"生徒の最終成績(UCI 320, n=395)。G1/G2(中間成績)は最終成績と強相関のため除外し純粋な特徴から予測"
-pub_superconduct,public_uci,public,,1500,500,0.8452,0.8774,0.8405,LightGBM,269.0,13.1,0.8808,WeightedEnsemble_L3,200,212.1,30,0.0034,tie,"超伝導臨界温度(UCI 464, n=21263→2000, 81特徴)。高次元・表形式DL論文の定番"
-real_abalone,real,real,,1500,500,0.4651,0.4971,0.5948,Blend (Ensemble),92.0,3.5,0.4705,WeightedEnsemble_L3,109,117.9,24,-0.0266,treg,"アワビの年齢(輪の数, n=4177→2000)"
-real_airfoil,real,real,,1127,376,0.9062,0.9607,0.9497,Blend (Ensemble),131.3,1.5,0.9594,WeightedEnsemble_L3,135,143.5,28,-0.0013,tie,翼型自己雑音の音圧レベル(n=1503)
-real_california,real,real,,1500,500,0.8083,0.8216,0.7481,Blend (Ensemble),118.6,3.1,0.8171,WeightedEnsemble_L3,168,178.4,34,-0.0045,tie,住宅価格中央値(2万→2000にサブサンプル)
-real_cpu,real,real,,1500,500,0.8636,0.9605,0.9761,LightGBM,148.5,4.7,0.963,WeightedEnsemble_L3,150,162.0,34,0.0025,tie,CPU相対性能(cpu_act系)
-real_diabetes,real,real,,332,110,0.4586,0.5175,0.4718,Blend (Ensemble),59.4,2.2,0.4798,WeightedEnsemble_L2,83,42.4,18,-0.0377,treg,"sklearn同梱。糖尿病進行度(n=442,10特徴)"
-real_winequality,real,real,,1500,500,0.2798,0.3202,0.28,Blend (Ensemble),117.6,4.5,0.4092,WeightedEnsemble_L3,132,138.7,36,0.089,AG,赤ワイン品質スコア回帰(n=1599)
-categorical_high,synthetic,categorical,0.9753,450,150,0.9435,0.9535,0.9608,LightGBM,56.5,1.9,0.9519,WeightedEnsemble_L2,136,146.1,14,-0.0016,tie,高カード(30)target-enc + id列(除外)
-categorical_interaction,synthetic,categorical,0.9289,450,150,0.928,0.9294,0.916,Linear (Ridge),43.4,3.5,0.9109,WeightedEnsemble_L2,93,100.1,12,-0.0185,treg,x1の傾きがカテゴリで変わる(cat×num交互作用)
-categorical_low,synthetic,categorical,0.9745,450,150,0.9672,0.9667,0.9725,Linear (Ridge),46.9,11.5,0.9651,WeightedEnsemble_L2,110,129.1,12,-0.0016,tie,低カード(5)one-hot経路
-collinear,synthetic,linear,0.9795,450,150,0.9621,0.9616,0.9714,Linear (Ridge),69.0,4.5,0.9635,WeightedEnsemble_L2,246,182.8,18,0.0019,tie,強い多重共線性(3潜在→12観測)
-heteroscedastic,synthetic,linear,0.8219,525,175,0.8124,0.787,0.8286,Blend (Ensemble),72.2,4.6,0.7965,WeightedEnsemble_L2,60,66.7,18,0.0095,AG,平均は線形だがノイズ分散がxに依存(不均一分散)
-linear_clean,synthetic,linear,0.9973,600,200,0.9959,0.9945,0.9931,GaussianProcess (ARD-RBF),89.6,4.2,0.9899,WeightedEnsemble_L2,103,132.0,12,-0.0046,tie,きれいな線形・低ノイズ
-linear_highdim_sparse,synthetic,linear,0.9912,450,150,0.9829,0.9836,0.9835,Linear (Ridge),57.5,2.9,0.9342,WeightedEnsemble_L2,197,217.0,16,-0.0494,treg,高次元(60特徴)中6本のみ有効。特徴選抜
-linear_noisy,synthetic,linear,0.6472,600,200,0.6807,0.6364,0.5977,GaussianProcess (ARD-RBF),46.2,2.0,0.6277,WeightedEnsemble_L2,106,60.0,18,-0.0087,treg,線形だが高ノイズ(ceiling低)。過信しないか
-mixed_messy,synthetic,mixed,0.9895,450,150,0.9735,0.973,0.9715,Linear (Ridge),73.6,2.4,0.9568,WeightedEnsemble_L2,172,191.8,12,-0.0162,treg,bool+cat+数値+欠損の現実的な混在
-interaction_deep,synthetic,nonlinear,0.9024,600,200,0.8865,0.898,0.8609,GaussianProcess (ARD-RBF),76.7,2.4,0.7269,WeightedEnsemble_L2,123,132.0,16,-0.1711,treg,3方向交互作用(加法モデルに極めて不利)
-many_irrelevant,synthetic,nonlinear,0.9822,450,150,0.9178,0.9496,0.9345,Blend (Ensemble),124.7,5.3,0.9546,WeightedEnsemble_L2,224,288.4,16,0.005,AG,有効4本+無関係41本のダミー特徴
-monotonic_saturating,synthetic,nonlinear,0.9828,525,175,0.9796,0.9798,0.9808,GaussianProcess (ARD-RBF),93.7,1.5,0.9794,WeightedEnsemble_L2,122,134.6,16,-0.0004,tie,単調飽和(tanh/ロジスティック)
-multiplicative,synthetic,nonlinear,0.9646,525,175,0.9488,0.9514,0.9546,Linear (Ridge),41.6,6.1,0.8884,WeightedEnsemble_L2,163,174.0,16,-0.063,treg,純交互作用(主効果ゼロ)。線形に厳しい
-nonlinear_interaction,synthetic,nonlinear,0.8775,675,225,0.7924,0.8701,0.8333,Blend (Ensemble),52.1,2.2,0.8537,WeightedEnsemble_L2,114,121.6,18,-0.0164,treg,非線形+交互作用+段差
-piecewise_steps,synthetic,nonlinear,0.9544,525,175,0.9233,0.9321,0.9326,LightGBM,54.0,1.6,0.9276,WeightedEnsemble_L2,114,126.4,18,-0.0045,tie,階段/閾値関数(木に有利・線形に不利)
-polynomial_deg3,synthetic,nonlinear,0.9428,525,175,0.9369,0.9394,0.9406,GaussianProcess (ARD-RBF),49.8,1.5,0.9295,WeightedEnsemble_L2,66,69.4,16,-0.0099,treg,3次多項式(poly特徴が効く)
-radial_rbf,synthetic,nonlinear,0.9506,450,150,0.9133,0.9285,0.9333,GaussianProcess (ARD-RBF),90.6,4.4,0.937,WeightedEnsemble_L2,114,127.4,18,0.0085,AG,動径基底(距離の関数、GP向き)
-trig_smooth,synthetic,nonlinear,0.9528,525,175,0.9341,0.9362,0.9446,GaussianProcess (ARD-RBF),56.0,1.4,0.932,WeightedEnsemble_L2,103,109.9,18,-0.0042,tie,滑らかな三角関数曲面(GP向き)
-xor_sign,synthetic,nonlinear,0.9613,525,175,0.8486,0.9485,0.9586,LightGBM,65.0,1.5,0.913,WeightedEnsemble_L2,129,133.1,10,-0.0355,treg,XOR型符号交互作用(線形相関ほぼ0)
-count_poisson,synthetic,pathology,0.5264,525,175,0.5696,0.5902,0.4482,Linear (Ridge),38.9,1.8,0.6253,WeightedEnsemble_L2,66,69.3,18,0.0351,AG,ポアソン計数(整数・歪み)
-outlier_contaminated,synthetic,pathology,0.1568,450,150,0.1702,0.1843,0.1474,Linear (Ridge),31.6,2.0,0.181,WeightedEnsemble_L2,60,63.0,16,-0.0033,tie,2%のyに巨大外れ値(頑健性)
-pure_noise,synthetic,pathology,0.0,450,150,-0.0637,-0.022,-0.0073,LightGBM,96.8,5.8,-0.0316,WeightedEnsemble_L2,157,33.9,18,-0.0096,treg,リーク検知(Xとy完全独立、ceiling=0)
-skewed_target,synthetic,pathology,0.861,450,150,0.8289,0.8368,0.8595,Blend (Ensemble),55.6,1.7,0.8156,WeightedEnsemble_L2,79,97.4,18,-0.0212,treg,対数正規の歪んだy(y変換分岐)
-small_n,synthetic,pathology,0.9763,30,10,0.9249,0.8853,0.9424,Blend (Ensemble),9.2,1.6,0.7798,WeightedEnsemble_L2,60,37.1,18,-0.1055,treg,小標本(n=40、過学習リスク)
+﻿dataset,source,family,ceiling_r2,expected_models,n_train,n_test,tq_r2,tt_r2,tt_self_r2,tt_train_r2,tt_model,tt_model_type,tt_sec,tq_sec,ag_r2,ag_model,ag_budget,ag_sec,ag_nmodels,gap_ag_minus_tt,winner,note
+pub_appliances,public_uci,public,,,1500,500,0.1844,0.252,0.1826,,Blend (Ensemble),blend,255.0,7.0,0.2556,WeightedEnsemble_L3,135,145.1,34,0.0036,tie,"家電エネルギー消費予測(UCI 374, n=19735→2000, 高次元時系列由来特徴)"
+pub_automgp,public_uci,public,,,298,100,0.8796,0.9164,0.8804,,Blend (Ensemble),blend,414.3,21.6,0.9173,WeightedEnsemble_L2,60,63.5,18,0.0009,tie,"自動車燃費 Auto MPG(UCI 9, n=398)。カテゴリ列(原産地)混在の古典データ"
+pub_concrete,public_uci,public,,,772,258,0.9086,0.9277,0.909,,LightGBM,lgbm,89.1,1.7,0.9444,WeightedEnsemble_L2,91,101.2,26,0.0167,AG,"コンクリート圧縮強度(UCI 165, n=1030)。CTR23/AMLB系論文で頻出の定番"
+pub_energy,public_uci,public,,,576,192,0.9979,0.9976,0.9969,,GaussianProcess (ARD-RBF),gp,90.8,2.8,0.9989,WeightedEnsemble_L2,69,73.6,14,0.0013,tie,"建物エネルギー効率(UCI 242, n=768)。暖房負荷を予測、冷房負荷列は除外"
+pub_forestfires,public_uci,public,,,388,129,-0.026,-0.0265,-0.051,,GaussianProcess (ARD-RBF),gp,108.8,5.0,-0.0122,WeightedEnsemble_L2,109,99.6,18,0.0143,AG,"森林火災の焼失面積(UCI 162, n=517)。極端な右裾(0が大半)、頑健性の試金石"
+pub_parkinsons,public_uci,public,,,1500,500,0.923,0.9645,0.9568,,Blend (Ensemble),blend,684.8,4.9,0.9614,WeightedEnsemble_L3,131,138.4,22,-0.0031,tie,"パーキンソン病重症度スコア(UCI 189, n=5875→2000)。total_UPDRSを予測"
+pub_powerplant,public_uci,public,,,1500,500,0.9464,0.9552,0.938,,LightGBM,lgbm,61.5,1.5,0.9544,WeightedEnsemble_L3,62,66.0,28,-0.0008,tie,"複合サイクル発電所の出力(UCI 294, n=9568→2000)。4特徴のみの低次元回帰"
+pub_realestate,public_uci,public,,,310,104,0.7579,0.7505,0.6751,,Blend (Ensemble),blend,54.6,2.0,0.7613,WeightedEnsemble_L2,67,60.3,18,0.0108,AG,"台湾不動産価格(UCI 477, n=414)。小標本の実務データ"
+pub_studentperf,public_uci,public,,,487,162,0.1759,0.2089,0.3059,,Blend (Ensemble),blend,199.4,11.6,0.2236,WeightedEnsemble_L2,133,141.5,18,0.0147,AG,"生徒の最終成績(UCI 320, n=395)。G1/G2(中間成績)は最終成績と強相関のため除外し純粋な特徴から予測"
+pub_superconduct,public_uci,public,,,1500,500,0.8452,0.8774,0.8405,,LightGBM,lgbm,269.0,13.1,0.8808,WeightedEnsemble_L3,200,212.1,30,0.0034,tie,"超伝導臨界温度(UCI 464, n=21263→2000, 81特徴)。高次元・表形式DL論文の定番"
+real_abalone,real,real,,,1500,500,0.4651,0.4971,0.5948,,Blend (Ensemble),blend,92.0,3.5,0.4705,WeightedEnsemble_L3,109,117.9,24,-0.0266,treg,"アワビの年齢(輪の数, n=4177→2000)"
+real_airfoil,real,real,,,1127,376,0.9062,0.9607,0.9497,,Blend (Ensemble),blend,131.3,1.5,0.9594,WeightedEnsemble_L3,135,143.5,28,-0.0013,tie,翼型自己雑音の音圧レベル(n=1503)
+real_california,real,real,,,1500,500,0.8083,0.8216,0.7481,,Blend (Ensemble),blend,118.6,3.1,0.8171,WeightedEnsemble_L3,168,178.4,34,-0.0045,tie,住宅価格中央値(2万→2000にサブサンプル)
+real_cpu,real,real,,,1500,500,0.8636,0.9605,0.9761,,LightGBM,lgbm,148.5,4.7,0.963,WeightedEnsemble_L3,150,162.0,34,0.0025,tie,CPU相対性能(cpu_act系)
+real_diabetes,real,real,,,332,110,0.4586,0.5175,0.4718,,Blend (Ensemble),blend,59.4,2.2,0.4798,WeightedEnsemble_L2,83,42.4,18,-0.0377,treg,"sklearn同梱。糖尿病進行度(n=442,10特徴)"
+real_winequality,real,real,,,1500,500,0.2798,0.3202,0.28,,Blend (Ensemble),blend,117.6,4.5,0.4092,WeightedEnsemble_L3,132,138.7,36,0.089,AG,赤ワイン品質スコア回帰(n=1599)
+categorical_high,synthetic,categorical,0.9753,,450,150,0.9435,0.9535,0.9608,,LightGBM,lgbm,56.5,1.9,0.9519,WeightedEnsemble_L2,136,146.1,14,-0.0016,tie,高カード(30)target-enc + id列(除外)
+categorical_interaction,synthetic,categorical,0.9289,,450,150,0.928,0.9294,0.916,,Linear (Ridge),linear,43.4,3.5,0.9109,WeightedEnsemble_L2,93,100.1,12,-0.0185,treg,x1の傾きがカテゴリで変わる(cat×num交互作用)
+categorical_low,synthetic,categorical,0.9745,,450,150,0.9672,0.9667,0.9725,,Linear (Ridge),linear,46.9,11.5,0.9651,WeightedEnsemble_L2,110,129.1,12,-0.0016,tie,低カード(5)one-hot経路
+collinear,synthetic,linear,0.9795,,450,150,0.9621,0.9616,0.9714,,Linear (Ridge),linear,69.0,4.5,0.9635,WeightedEnsemble_L2,246,182.8,18,0.0019,tie,強い多重共線性(3潜在→12観測)
+heteroscedastic,synthetic,linear,0.8219,,525,175,0.8124,0.787,0.8286,,Blend (Ensemble),blend,72.2,4.6,0.7965,WeightedEnsemble_L2,60,66.7,18,0.0095,AG,平均は線形だがノイズ分散がxに依存(不均一分散)
+linear_clean,synthetic,linear,0.9973,,600,200,0.9959,0.9945,0.9931,,GaussianProcess (ARD-RBF),gp,89.6,4.2,0.9899,WeightedEnsemble_L2,103,132.0,12,-0.0046,tie,きれいな線形・低ノイズ
+linear_highdim_sparse,synthetic,linear,0.9912,,450,150,0.9829,0.9836,0.9835,,Linear (Ridge),linear,57.5,2.9,0.9342,WeightedEnsemble_L2,197,217.0,16,-0.0494,treg,高次元(60特徴)中6本のみ有効。特徴選抜
+linear_noisy,synthetic,linear,0.6472,,600,200,0.6807,0.6364,0.5977,,GaussianProcess (ARD-RBF),gp,46.2,2.0,0.6277,WeightedEnsemble_L2,106,60.0,18,-0.0087,treg,線形だが高ノイズ(ceiling低)。過信しないか
+mixed_messy,synthetic,mixed,0.9895,,450,150,0.9735,0.973,0.9715,,Linear (Ridge),linear,73.6,2.4,0.9568,WeightedEnsemble_L2,172,191.8,12,-0.0162,treg,bool+cat+数値+欠損の現実的な混在
+interaction_deep,synthetic,nonlinear,0.9024,,600,200,0.8865,0.898,0.8609,,GaussianProcess (ARD-RBF),gp,76.7,2.4,0.7269,WeightedEnsemble_L2,123,132.0,16,-0.1711,treg,3方向交互作用(加法モデルに極めて不利)
+many_irrelevant,synthetic,nonlinear,0.9822,,450,150,0.9178,0.9496,0.9345,,Blend (Ensemble),blend,124.7,5.3,0.9546,WeightedEnsemble_L2,224,288.4,16,0.005,AG,有効4本+無関係41本のダミー特徴
+monotonic_saturating,synthetic,nonlinear,0.9828,,525,175,0.9796,0.9798,0.9808,,GaussianProcess (ARD-RBF),gp,93.7,1.5,0.9794,WeightedEnsemble_L2,122,134.6,16,-0.0004,tie,単調飽和(tanh/ロジスティック)
+multiplicative,synthetic,nonlinear,0.9646,,525,175,0.9488,0.9514,0.9546,,Linear (Ridge),linear,41.6,6.1,0.8884,WeightedEnsemble_L2,163,174.0,16,-0.063,treg,純交互作用(主効果ゼロ)。線形に厳しい
+nonlinear_interaction,synthetic,nonlinear,0.8775,,675,225,0.7924,0.8701,0.8333,,Blend (Ensemble),blend,52.1,2.2,0.8537,WeightedEnsemble_L2,114,121.6,18,-0.0164,treg,非線形+交互作用+段差
+piecewise_steps,synthetic,nonlinear,0.9544,,525,175,0.9233,0.9321,0.9326,,LightGBM,lgbm,54.0,1.6,0.9276,WeightedEnsemble_L2,114,126.4,18,-0.0045,tie,階段/閾値関数(木に有利・線形に不利)
+polynomial_deg3,synthetic,nonlinear,0.9428,,525,175,0.9369,0.9394,0.9406,,GaussianProcess (ARD-RBF),gp,49.8,1.5,0.9295,WeightedEnsemble_L2,66,69.4,16,-0.0099,treg,3次多項式(poly特徴が効く)
+radial_rbf,synthetic,nonlinear,0.9506,,450,150,0.9133,0.9285,0.9333,,GaussianProcess (ARD-RBF),gp,90.6,4.4,0.937,WeightedEnsemble_L2,114,127.4,18,0.0085,AG,動径基底(距離の関数、GP向き)
+trig_smooth,synthetic,nonlinear,0.9528,,525,175,0.9341,0.9362,0.9446,,GaussianProcess (ARD-RBF),gp,56.0,1.4,0.932,WeightedEnsemble_L2,103,109.9,18,-0.0042,tie,滑らかな三角関数曲面(GP向き)
+xor_sign,synthetic,nonlinear,0.9613,,525,175,0.8486,0.9485,0.9586,,LightGBM,lgbm,65.0,1.5,0.913,WeightedEnsemble_L2,129,133.1,10,-0.0355,treg,XOR型符号交互作用(線形相関ほぼ0)
+count_poisson,synthetic,pathology,0.5264,,525,175,0.5696,0.5902,0.4482,,Linear (Ridge),linear,38.9,1.8,0.6253,WeightedEnsemble_L2,66,69.3,18,0.0351,AG,ポアソン計数(整数・歪み)
+outlier_contaminated,synthetic,pathology,0.1568,,450,150,0.1702,0.1843,0.1474,,Linear (Ridge),linear,31.6,2.0,0.181,WeightedEnsemble_L2,60,63.0,16,-0.0033,tie,2%のyに巨大外れ値(頑健性)
+pure_noise,synthetic,pathology,0.0,,450,150,-0.0637,-0.022,-0.0073,,LightGBM,lgbm,96.8,5.8,-0.0316,WeightedEnsemble_L2,157,33.9,18,-0.0096,treg,リーク検知(Xとy完全独立、ceiling=0)
+skewed_target,synthetic,pathology,0.861,,450,150,0.8289,0.8368,0.8595,,Blend (Ensemble),blend,55.6,1.7,0.8156,WeightedEnsemble_L2,79,97.4,18,-0.0212,treg,対数正規の歪んだy(y変換分岐)
+small_n,synthetic,pathology,0.9763,,30,10,0.9249,0.8853,0.9424,,Blend (Ensemble),blend,9.2,1.6,0.7798,WeightedEnsemble_L2,60,37.1,18,-0.1055,treg,小標本(n=40、過学習リスク)

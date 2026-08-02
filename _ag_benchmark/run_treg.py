@@ -81,7 +81,8 @@ def run_one(name, meta):
 
     rec = {"dataset": name, "target": target, "n_train": n_tr, "n_test": n_te,
            "family": meta.get("family"), "ceiling_r2": meta.get("ceiling_r2"),
-           "source": meta.get("source"), "note": meta.get("note"), "modes": {}}
+           "source": meta.get("source"), "note": meta.get("note"),
+           "expected_models": meta.get("expected_models"), "modes": {}}
 
     for strategy in ("quick", "thorough"):
         try:
