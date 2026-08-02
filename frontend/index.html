@@ -686,6 +686,9 @@
         }
         .sim-iconbtn:hover { color: var(--cyan); border-color: rgba(63,196,236,0.45); }
         .sim-iconbtn.on { color: var(--cyan); border-color: rgba(63,196,236,0.45); background: rgba(63,196,236,0.08); }
+        /* 登録が無いときの CLEAR。押せないことを見た目で示す */
+        .sim-iconbtn:disabled { opacity: 0.3; cursor: default; }
+        .sim-iconbtn:disabled:hover { color: var(--ink-faint); border-color: var(--hairline); }
         .sim-tcount {
             margin-left: auto; font-family: var(--font-mono); font-size: 9.5px;
             color: var(--ink-faint); letter-spacing: 0.08em;
@@ -703,15 +706,38 @@
             content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px;
             border-radius: 1px; background: var(--gold);
         }
-        .sim-row.changed .sim-name { color: var(--ink); cursor: pointer; }
-        .sim-row.changed .sim-name:hover { color: var(--gold); text-decoration: underline; }
-        .sim-imp { width: 3px; border-radius: 2px; background: var(--cyan); opacity: 0.55; flex: none; }
+        .sim-row.changed .sim-name { color: var(--ink); }
+        /* 重要度バーは「この変数だけ最初の値に戻す」ボタンも兼ねる。変数名を
+           書き換えられるようにしたので、名前クリックでの取り消しはここへ移した。 */
+        .sim-imp { width: 3px; border-radius: 2px; background: var(--cyan); opacity: 0.55;
+                   flex: none; border: none; padding: 0; cursor: default; }
+        .sim-row.changed .sim-imp { background: var(--gold); opacity: 0.9; cursor: pointer; }
+        /* 変数名は書き換えられる（CSVの列名は他人には分かりにくいことが多い）。
+           変えるのは画面上の表示名だけで、CSVの列名やモデルの中身には触れない。 */
         .sim-name {
             width: 140px; flex: none; font-family: var(--font-mono); font-size: 11px;
             color: var(--ink-dim); white-space: nowrap; overflow: hidden;
             text-overflow: ellipsis; transition: color 0.15s;
+            background: transparent; border: 1px solid transparent; border-radius: 4px;
+            padding: 2px 4px; outline: none; min-width: 0;
         }
         .sim-row:hover .sim-name { color: var(--ink); }
+        input.sim-name:hover { border-color: rgba(160,190,220,0.28); }
+        input.sim-name:focus { border-color: rgba(63,196,236,0.5); color: var(--ink); }
+        /* 登録した組み合わせ(SET)。スライダー上の印と同じ色で対応を取る。 */
+        .sim-mark {
+            display: flex; align-items: baseline; justify-content: center; gap: 8px;
+            margin-top: 2px; cursor: pointer; opacity: 0.85; transition: opacity 0.15s;
+        }
+        .sim-mark:hover { opacity: 1; }
+        .sim-mark-tag {
+            font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.14em;
+            color: rgb(167,139,250);
+        }
+        .sim-mark-val {
+            font-family: var(--font-display); font-weight: 700; font-size: 17px;
+            font-variant-numeric: tabular-nums; color: rgb(167,139,250);
+        }
         /* 値は表示専用ではなく直接入力できるようにする。スライダーだけでは
            「ちょうど 22.5」のような狙った値を置けず、実務では致命的なため。 */
         /* 数値は本体のR²表示と同じ書体(--font-display = Chakra Petch)。
@@ -832,6 +858,7 @@
         .sim-legend .mk.warn { color: var(--gold); }
         .sim-legend .mk.bad { color: var(--bad); }
         .sim-legend .mk.good { color: var(--good); }
+        .sim-legend .mk.mark { color: rgb(167,139,250); }
         #simHistCanvas { display: block; width: 100%; margin-top: 4px; }
         .sim-statusrow { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.04); }
         #simRingCanvas { flex: none; display: block; }
@@ -855,7 +882,7 @@
         @media (max-width: 900px) {
             .sim-grid { grid-template-columns: 1fr; }
             .sim-right { order: -1; position: static; border-left: none; border-bottom: 1px solid var(--hairline); padding: 2px 2px 10px 2px; }
-        }
+        }
 
         /* ── SIMULATE: 見た目の調整 ─────────────────────────────────── */
         #simulatePanel {
@@ -869,7 +896,7 @@
         .sim-row { width: 100%; max-width: 680px; }
         .sim-left { justify-content: center; }
         .sim-name { width: 124px; font-size: 11px; letter-spacing: 0.01em; }
-        .sim-track { min-width: 150px; }
+        .sim-track { min-width: 150px; }
 
         .sim-row { height: 40px; }
         .sim-imp { width: 3px; border-radius: 2px; }
@@ -1131,6 +1158,7 @@
             <button id="simNoteBtn" class="sim-legend-btn" data-i18n-title="sim.noteTitle" title="このモデルについてのメモ">✎</button>
             <button id="simCliBtn" class="sim-legend-btn" data-i18n-title="sim.cliTitle" title="コマンドラインで一括推論するスクリプトを保存">&gt;_</button>
             <button id="simLegendBtn" class="sim-legend-btn" data-i18n-title="sim.legendTitle" title="記号の意味">?</button>
+            <button id="simSaveStateBtn" class="sim-legend-btn" data-i18n-title="sim.saveStateTitle" title="今の状態（スライダーの位置・変数名・登録した点・メモ）ごと保存する">⤓</button>
             <button id="simCloseBtn" class="sim-close-btn">✕</button>
         </div>
         <div class="sim-legend" id="simLegend"></div>
@@ -1139,7 +1167,6 @@
                       placeholder="このモデルについてのメモ（条件・気づいたこと・次に試すこと）"></textarea>
             <div class="sim-note-bar">
                 <span class="sim-note-hint" id="simNoteHint"></span>
-                <button class="sim-iconbtn" id="simNoteSaveBtn" data-i18n="sim.noteSave">メモごと保存</button>
             </div>
         </div>
 <!-- ③ SIMULATE（What-ifスライダー）。Web版のみ。左に変数のスライダーを縦一列、
@@ -1150,12 +1177,19 @@
             <div class="sim-toolbar">
                 <button class="sim-iconbtn" id="simResetBtn" data-i18n-title="sim.resetTitle" title="最初の値に戻す">↺</button>
                 <button class="sim-iconbtn" id="simBestBtn" data-i18n-title="sim.bestTitle" title="応答が最小だった点にスライダーを合わせる">★</button>
+                <button class="sim-iconbtn" id="simSetBtn" data-i18n-title="sim.setTitle" title="今の変数の組み合わせを登録する（登録済みなら上書き）">SET</button>
+                <button class="sim-iconbtn" id="simClearBtn" data-i18n-title="sim.clearTitle" title="登録した組み合わせを消す">CLEAR</button>
             </div>
             <div id="simSliders" class="sim-sliders"></div>
         </div>
         <div class="sim-right" id="simRight">
             <div class="sim-ptag" id="simTargetTag">PREDICTED</div>
             <div class="sim-pred"><span class="sim-pnum" id="simPredVal">—</span></div>
+            <div class="sim-mark" id="simMark" style="display:none;" data-i18n-title="sim.markRecall"
+                 title="登録した組み合わせ。クリックするとスライダーがその状態に戻る">
+                <span class="sim-mark-tag">SET</span>
+                <span class="sim-mark-val" id="simMarkVal">—</span>
+            </div>
             <canvas id="simHistCanvas"></canvas>
             <div class="sim-models" id="simModels" style="display:none;"></div>
         </div>
@@ -1276,8 +1310,14 @@
             'sim.removeModel': 'このモデルを外す',
             'sim.noteTitle': 'このモデルについてのメモ',
             'sim.notePlaceholder': 'このモデルについてのメモ（条件・気づいたこと・次に試すこと）',
-            'sim.noteSave': 'メモごと保存',
             'sim.noteSaved': 'この端末に保存しました',
+            'sim.saveStateTitle': '今の状態（スライダーの位置・変数名・登録した点・メモ）ごと保存する',
+            'sim.setTitle': '今の変数の組み合わせを登録する（登録済みなら上書き）',
+            'sim.clearTitle': '登録した組み合わせを消す',
+            'sim.markRecall': '登録した組み合わせ。クリックするとスライダーがその状態に戻る',
+            'sim.lgMark': '紫の印＝登録した組み合わせ（SET）',
+            'sim.renameTitle': '画面に出す名前を変えられます（CSVの列名は {{col}} のまま）',
+            'sim.resetOneTitle': 'この変数だけ最初の値に戻す',
             'sim.cliTitle': 'コマンドラインで一括推論するスクリプトを保存（node スクリプト名 入力.csv）',
             'sim.legendTitle': '記号の意味',
             'sim.deltaNone': '基準行のまま',
@@ -1287,7 +1327,7 @@
             'sim.lgThumb': 'つまみ＝現在値',
             'sim.lgClip': '角＝これ以上動かしても予測は変わらない',
             'sim.lgActual': '緑の丸＝基準行の実測値',
-            'sim.lgChanged': '左の縦線＝動かした変数（列名クリックで戻す）',
+            'sim.lgChanged': '左の縦線＝動かした変数（左端の細い棒をクリックで戻す）',
             'sim.lgDensity': '山＝応答が良い上位10%が集まる位置',
             'sim.lgSpark': '折れ線＝その変数だけ動かしたときの変化',
             'sim.lgRing': 'リング＝似た実データの件数',
@@ -1570,8 +1610,14 @@
             'sim.removeModel': 'Remove this model',
             'sim.noteTitle': 'Notes about this model',
             'sim.notePlaceholder': 'Notes about this model (conditions, findings, what to try next)',
-            'sim.noteSave': 'Save with notes',
             'sim.noteSaved': 'Saved on this device',
+            'sim.saveStateTitle': 'Save the current state (slider positions, names, saved point, notes)',
+            'sim.setTitle': 'Save the current combination of variables (overwrites the previous one)',
+            'sim.clearTitle': 'Remove the saved combination',
+            'sim.markRecall': 'Saved combination. Click to move the sliders back to it',
+            'sim.lgMark': 'Purple mark = saved combination (SET)',
+            'sim.renameTitle': 'You can rename this for the screen (the CSV column stays {{col}})',
+            'sim.resetOneTitle': 'Reset just this variable',
             'sim.cliTitle': 'Save a script for batch prediction from the command line (node script input.csv)',
             'sim.legendTitle': 'What the symbols mean',
             'sim.deltaNone': 'Same as the reference row',
@@ -1581,7 +1627,7 @@
             'sim.lgThumb': 'Handle = current value',
             'sim.lgClip': 'Flat top = moving further changes nothing',
             'sim.lgActual': 'Green circle = actual value of the reference row',
-            'sim.lgChanged': 'Left bar = moved variable (click the name to revert)',
+            'sim.lgChanged': 'Left bar = moved variable (click the thin bar to revert)',
             'sim.lgDensity': 'Hill = where the best 10% of responses cluster',
             'sim.lgSpark': 'Line = effect of moving that variable alone',
             'sim.lgRing': 'Ring = number of similar real rows',
@@ -2343,6 +2389,10 @@
                 const payload = {
                     stem: fileStem,
                     note: SIM_PENDING_NOTE || '',
+                    // 画面の状態(スライダー位置・変数の表示名・登録した組み合わせ)。
+                    // 開いた相手が同じ画面から始められるようにするためのもので、
+                    // モデルの中身(.treg)には一切影響しない。
+                    ui: SIM_PENDING_UI || null,
                     treg: bytesToBase64(treg),
                     label: 'T-regressor / ' + fileStem + ' / ' + new Date().toISOString(),
                     result: {
@@ -2887,7 +2937,7 @@
         const el = document.getElementById('step3Label');
         if (el) el.textContent = IS_TAURI ? 'PREDICT' : 'SIMULATE';
     }
-    _applyStep3Label();
+    _applyStep3Label();
 
     // ── 言語切替(ヘッダー常時表示のトグル) ───────────────────────────────────
     applyStaticI18n();
@@ -3345,7 +3395,7 @@
             sampleCsvBtn.textContent = t('ui.sampleCsvBtn');
             setBubble(t('robot.sampleSaveFailed', { detail: e }), true);
         }
-    });
+    });
 
     // ── ① ドラッグ&ドロップ配線（実装は Platform 側: exe=OSネイティブ座標判定 / Web=HTML5） ──
     Platform.wireDragAndDrop({
@@ -3653,6 +3703,8 @@
         state: {}, anim: {}, seedLabel: null, dist: null,
         models: [],            // [{id,name,model,target,rmse,r2,refOnly,spec}]
         animRaf: 0, predShown: NaN,
+        labels: {},            // 画面に出す変数名の置き換え {列名: 表示名}
+        mark: null,            // SETで登録した組み合わせ {state:{...}, y:予測値}
     };
     // base64 ⇄ バイト列。CLIスクリプトの書き出しと、埋め込みモデルの読み込みで使う。
     function _bytesToB64(bytes) {
@@ -3673,9 +3725,19 @@
     let SIM_EXPORT_STEM = null;
     // 「メモごと保存」から書き出すときに本文を渡すための一時置き場
     let SIM_PENDING_NOTE = '';
+    // 同上。スライダーの位置・書き換えた変数名・登録した組み合わせを渡す
+    let SIM_PENDING_UI = null;
     const SIM_MONO = "'IBM Plex Mono', 'Consolas', monospace";
     // 最適点の色は右のグラフとスライダーで共通（同じ色・同じ形にして対応を取る）
     const SIM_BEST_RGBA = (a) => 'rgba(47,214,142,' + a + ')';
+    // SETで登録した組み合わせの色。最適点(緑)・現在値(水色)と取り違えないよう紫にする。
+    const SIM_MARK_RGBA = (a) => 'rgba(167,139,250,' + a + ')';
+    // 画面に出す変数名。CSVの列名は分かりにくいことが多いので書き換えられるようにする。
+    // 置き換えるのは表示だけで、モデルもCSVの列名も元のまま。
+    function simLabel(col) {
+        const v = SIM.labels && SIM.labels[col];
+        return (v && String(v).trim()) ? String(v) : col;
+    }
     const simEl = (id) => document.getElementById(id);
     function simRowEl(col) {
         for (const r of document.querySelectorAll('.sim-row')) if (r.dataset.col === col) return r;
@@ -4009,12 +4071,21 @@
             const row = document.createElement('div');
             row.className = 'sim-row'; row.dataset.col = col;
 
-            const imp = document.createElement('span');
-            imp.className = 'sim-imp';
+            // 重要度バー。動かした変数では「この変数だけ元に戻す」ボタンも兼ねる
+            // （変数名を書き換えられるようにしたので、名前クリックからここへ移した）。
+            const imp = document.createElement('button');
+            imp.className = 'sim-imp'; imp.type = 'button'; imp.tabIndex = -1;
             imp.style.height = Math.max(4, Math.round((s.importance_pct || 0) / maxImp * 16)) + 'px';
-            const nm = document.createElement('span');
-            nm.className = 'sim-name'; nm.textContent = col;
-            nm.addEventListener('click', () => { if (row.classList.contains('changed')) simResetOne(col); });
+            imp.title = t('sim.resetOneTitle');
+            imp.addEventListener('click', () => { if (row.classList.contains('changed')) simResetOne(col); });
+            // 変数名は書き換えられる。書き換えても中身(列名)は変わらない。
+            const nm = document.createElement('input');
+            nm.className = 'sim-name'; nm.type = 'text'; nm.value = simLabel(col);
+            nm.spellcheck = false;
+            nm.title = t('sim.renameTitle', { col: col });
+            nm.addEventListener('input', () => simSetLabel(col, nm.value));
+            nm.addEventListener('keydown', (e) => { if (e.key === 'Enter') nm.blur(); });
+            nm.addEventListener('focus', () => nm.select());
             row.appendChild(imp); row.appendChild(nm);
 
             const val = document.createElement('input');
@@ -4155,6 +4226,20 @@
             }
         }
 
+        // ⑤' SETで登録した組み合わせでのこの変数の値。右のグラフの印と同じ色・同じ形
+        //     （紫の▼）にして、どちらが同じ組み合わせを指すのか対応が取れるようにする。
+        const mstate = SIM.mark && SIM.mark.state;
+        if (mstate && mstate[col] !== undefined) {
+            const mv = isNum ? Number(mstate[col]) : simLevelIndex(s, mstate[col]);
+            if (Number.isFinite(mv)) {
+                const mx2 = X(Math.min(Math.max(mv, lo), hi));
+                ctx.fillStyle = SIM_MARK_RGBA(0.9);
+                ctx.beginPath(); ctx.moveTo(mx2, railY - 9);
+                ctx.lineTo(mx2 + 3.6, railY - 14.5); ctx.lineTo(mx2 - 3.6, railY - 14.5);
+                ctx.closePath(); ctx.fill();
+            }
+        }
+
         // ⑥ つまみ（丸=通常 / ひし形=外挿 / 角=飽和。色だけに頼らない）
         ctx.fillStyle = '#0a0e18';
         ctx.beginPath(); ctx.arc(tx, railY, 8, 0, Math.PI * 2); ctx.fill();
@@ -4177,6 +4262,8 @@
         SIM.state[col] = v;
         simRefreshSliders();
         simKick();
+        // 端末への保存はドラッグ中には行わない（1フレームごとの書き込みは重い）
+        if (!dragging) simPersistUi();
     }
 
     function simRefreshSliders() {
@@ -4195,7 +4282,7 @@
                     rng.setAttribute('aria-valuetext', simFmt(v));
                 }
                 row.classList.toggle('warn', simIsExtrap(s, v));
-                const tips = [t('sim.tipValue', { col: col, v: simFmt(v), imp: s.importance_pct }),
+                const tips = [t('sim.tipValue', { col: simLabel(col), v: simFmt(v), imp: s.importance_pct }),
                               t('sim.tipRange', { lo: simFmt(s.p1 != null ? s.p1 : s.min),
                                                   hi: simFmt(s.p99 != null ? s.p99 : s.max) })];
                 if (simIsExtrap(s, v)) tips.push(t('sim.tipExtrap'));
@@ -4207,7 +4294,7 @@
                     if (document.activeElement !== rng) rng.value = simLevelIndex(s, v);
                     rng.setAttribute('aria-valuetext', String(v));
                 }
-                row.title = t('sim.tipValueCat', { col: col, v: v, imp: s.importance_pct });
+                row.title = t('sim.tipValueCat', { col: simLabel(col), v: v, imp: s.importance_pct });
             }
         }
     }
@@ -4264,6 +4351,7 @@
             simR2Note(),
         ].filter(Boolean).join('\n');
         simRenderModels();
+        simRenderMark();
         simPaintPredictions();
     }
     function simR2Note() {
@@ -4318,6 +4406,18 @@
             ctx.setLineDash([]);
             ctx.strokeStyle = SIM_BEST_RGBA(0.95); ctx.lineWidth = 1.6;
             ctx.beginPath(); ctx.arc(bx, base, 4.5, 0, Math.PI * 2); ctx.stroke();
+        }
+
+        // SETで登録した組み合わせ（スライダー上の印と同じ紫の▼）
+        if (SIM.mark && Number.isFinite(SIM.mark.y)) {
+            const mxp = X(Math.min(Math.max(SIM.mark.y, lo), hi));
+            ctx.setLineDash([2, 3]); ctx.strokeStyle = SIM_MARK_RGBA(0.6); ctx.lineWidth = 1.2;
+            ctx.beginPath(); ctx.moveTo(mxp, top - 2); ctx.lineTo(mxp, base); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = SIM_MARK_RGBA(0.95);
+            ctx.beginPath(); ctx.moveTo(mxp, top + 3);
+            ctx.lineTo(mxp + 4, top - 3); ctx.lineTo(mxp - 4, top - 3);
+            ctx.closePath(); ctx.fill();
         }
 
         if (!Number.isFinite(p)) return;
@@ -4421,6 +4521,103 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
 '}',
 'main();',
 ''].join('\n');
+    }
+
+    // ── 変数名の書き換え ──────────────────────────────────────────────────────
+    // 画面に出す名前だけを差し替える。モデルもCSVの列名も触らないので、
+    // 書き出したCLIスクリプトや一括推論の入出力はこれまで通り元の列名で動く。
+    function simSetLabel(col, text) {
+        const v = String(text == null ? '' : text);
+        if (!v.trim() || v === col) delete SIM.labels[col];
+        else SIM.labels[col] = v;
+        simPersistUi();
+        simRefreshSliders();
+    }
+
+    // ── 組み合わせの登録（SET / CLEAR） ───────────────────────────────────────
+    // 気に入った条件を1つ覚えておき、スライダー上と応答のグラフの両方に同じ色で
+    // 印を出す。動かしたあとでも、印をクリックすればその状態に戻れる。
+    function simSetMark() {
+        if (!SIM.ready) return;
+        const st = {};
+        for (const s of simSpecs()) st[s.col] = SIM.state[s.col];
+        SIM.mark = { state: st, y: simPredict(st) };
+        simPersistUi(); simRenderPrediction(); simKick();
+    }
+    function simClearMark() {
+        SIM.mark = null;
+        simPersistUi(); simRenderPrediction(); simKick();
+    }
+    function simRecallMark() {
+        if (!SIM.mark || !SIM.mark.state) return;
+        for (const s of simSpecs()) {
+            if (SIM.mark.state[s.col] === undefined) continue;
+            SIM.state[s.col] = SIM.mark.state[s.col];
+        }
+        simRefreshSliders(); simRenderPrediction(); simKick();
+    }
+    function simRenderMark() {
+        const box = simEl('simMark');
+        if (!box) return;
+        const on = !!(SIM.mark && Number.isFinite(SIM.mark.y));
+        box.style.display = on ? '' : 'none';
+        if (on) simEl('simMarkVal').textContent = simFmt(SIM.mark.y);
+        const cb = simEl('simClearBtn');
+        if (cb) cb.disabled = !SIM.mark;
+        const sb = simEl('simSetBtn');
+        if (sb) sb.classList.toggle('on', !!SIM.mark);
+    }
+
+    // ── 画面の状態の保存 ──────────────────────────────────────────────────────
+    // 変数名・登録した組み合わせ・スライダーの位置は、メモと同じくこの端末に
+    // 自動保存する。⤓ を押すと、これらを埋め込んだ単体HTMLとして書き出せる。
+    function simUiKey() {
+        const pm = simPrimary();
+        return 'treg_ui_' + (SIM_EXPORT_STEM || (pm && pm.name) || 'model');
+    }
+    function simCurrentUi() {
+        const st = {};
+        for (const s of simSpecs()) st[s.col] = SIM.state[s.col];
+        return { labels: SIM.labels, mark: SIM.mark, state: st };
+    }
+    function simPersistUi() {
+        try { localStorage.setItem(simUiKey(), JSON.stringify(simCurrentUi())); } catch (_) {}
+    }
+    // 保存済み/埋め込み済みの状態を復元する。列が違うモデルに当ててもいいように、
+    // 今のスライダーに存在する列だけを取り込む。
+    function simApplyUi(ui) {
+        if (!ui || typeof ui !== 'object') return;
+        SIM.labels = (ui.labels && typeof ui.labels === 'object') ? ui.labels : {};
+        const known = {};
+        for (const s of simSpecs()) known[s.col] = s;
+        const take = (src) => {
+            const out = {};
+            for (const col in (src || {})) {
+                const s = known[col];
+                if (!s) continue;
+                if (s.kind === 'numeric') {
+                    const n = Number(src[col]);
+                    if (Number.isFinite(n)) out[col] = n;
+                } else if ((s.levels || []).some(l => l.value === String(src[col]))) {
+                    out[col] = String(src[col]);
+                }
+            }
+            return out;
+        };
+        const st = take(ui.state);
+        for (const col in st) SIM.state[col] = st[col];
+        if (ui.mark && ui.mark.state) {
+            const ms = take(ui.mark.state);
+            SIM.mark = Object.keys(ms).length ? { state: ms, y: simPredict(ms) } : null;
+        } else {
+            SIM.mark = null;
+        }
+    }
+    function simRestoreUi() {
+        try {
+            const raw = localStorage.getItem(simUiKey());
+            if (raw) simApplyUi(JSON.parse(raw));
+        } catch (_) {}
     }
 
     // ── メモ ──────────────────────────────────────────────────────────────────
@@ -4630,6 +4827,7 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
             ['', '●', 'sim.lgThumb'], ['bad', '■', 'sim.lgClip'],
             ['good', '○', 'sim.lgBestVar'], ['', '▁▃▅', 'sim.lgDensity'],
             ['warn', '▌', 'sim.lgChanged'], ['', '▓', 'sim.lgBand'],
+            ['mark', '▼', 'sim.lgMark'],
         ];
         host.innerHTML = '';
         for (const it of items) {
@@ -4661,6 +4859,9 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
     function simClose() { document.getElementById('simulateOverlay').style.display = 'none'; }
     document.getElementById('simCloseBtn').addEventListener('click', simClose);
     document.getElementById('simulateOverlay').addEventListener('click', function (e) {
+        // 書き出した単体HTMLはこの画面しか無い。背景を押して閉じると何も無い画面に
+        // なってしまい、開き直す手段も無いため、そのときは閉じない。
+        if (IS_EMBEDDED) return;
         if (e.target === document.getElementById('simulateOverlay')) simClose();
     });
 
@@ -4675,6 +4876,9 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
         }
         simRefreshSliders(); simRenderPrediction(); simKick();
     });
+    simEl('simSetBtn').addEventListener('click', simSetMark);
+    simEl('simClearBtn').addEventListener('click', simClearMark);
+    simEl('simMark').addEventListener('click', simRecallMark);
     simEl('simLegendBtn').addEventListener('click', function () {
         const lg = simEl('simLegend');
         const open = lg.classList.toggle('open');
@@ -4688,14 +4892,18 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
         requestAnimationFrame(function () { simFitToViewport(); simRefreshSliders(); simRenderPrediction(); });
     });
     simEl('simNoteText').addEventListener('input', simSaveNoteLocal);
-    // メモを埋め込んだHTMLとして書き出す（渡した相手も同じメモを見られる）
-    simEl('simNoteSaveBtn').addEventListener('click', async function () {
+    // 今の状態ごと単体HTMLに書き出す。スライダーの位置・書き換えた変数名・
+    // 登録した組み合わせ・メモをそのまま持っていくので、渡した相手は開いた瞬間に
+    // こちらが見ていたのと同じ画面から始められる。
+    simEl('simSaveStateBtn').addEventListener('click', async function () {
+        const btn = simEl('simSaveStateBtn');
         try {
             const note = simEl('simNoteText').value;
+            const ui = simCurrentUi();
             if (IS_EMBEDDED) {
                 // 単体HTMLからは、自分自身を雛形にして書き直す
                 const cur = document.documentElement.outerHTML;
-                const payload = Object.assign({}, EMBEDDED_MODEL, { note: note });
+                const payload = Object.assign({}, EMBEDDED_MODEL, { note: note, ui: ui });
                 const re = /const EMBEDDED_MODEL = [\s\S]*?;\r?\n/;
                 if (!re.test(cur)) throw new Error('slot not found');
                 const out = '<!DOCTYPE html>\n' + cur.replace(re,
@@ -4703,13 +4911,15 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
                 const nm = (EMBEDDED_MODEL.stem || 'model') + '.html';
                 Platform.downloadFile(new TextEncoder().encode(out), nm, 'text/html');
             } else {
-                // 本体からは、④と同じ書き出しにメモを添えて出す
-                SIM_PENDING_NOTE = note;
+                // 本体からは、④と同じ書き出しに今の状態を添えて出す
+                SIM_PENDING_NOTE = note; SIM_PENDING_UI = ui;
                 await Platform.exportModel({ fileStem: SIM_EXPORT_STEM || 'model' });
-                SIM_PENDING_NOTE = '';
+                SIM_PENDING_NOTE = ''; SIM_PENDING_UI = null;
             }
+            btn.classList.add('on'); setTimeout(function () { btn.classList.remove('on'); }, 1200);
         } catch (e) {
-            console.warn('[SIMULATE] メモ付き保存に失敗:', e);
+            console.warn('[SIMULATE] 保存に失敗:', e);
+            btn.classList.add('err'); setTimeout(function () { btn.classList.remove('err'); }, 1500);
         }
     });
     simEl('simCliBtn').addEventListener('click', function () {
@@ -4757,6 +4967,10 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
             Platform.getTregBytes = () => bytes;
             SIM_EXPORT_STEM = EMBEDDED_MODEL.stem || null;
             if (!simInit(EMBEDDED_MODEL.result)) { fail('model'); return; }
+            // 保存された画面の状態を戻す（この端末での続きがあればそちらを優先）
+            simApplyUi(EMBEDDED_MODEL.ui);
+            simRestoreUi();
+            simRenderAll();
             simLoadNote();
             simOpen();
             _hideStartup();

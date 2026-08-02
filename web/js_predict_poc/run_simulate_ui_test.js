@@ -232,8 +232,12 @@ chk(!d.querySelector('.sim-row.warn'),'上下限まで動かしてもオレン�
 {const sp0b=sliderSpec.find(x=>x.col===col0);
  chk(Math.abs(Number(r0.min)-sp0b.min)<1e-9&&Math.abs(Number(r0.max)-sp0b.max)<1e-9,
    '可動域は常に変数の上下限');}
+// 変数名は書き換えられる入力欄になったので、名前をクリックしても値は戻らない
+// （その変数だけ戻す操作は左端の重要度バーへ移した。[15]で確認する）
 d.querySelector('.sim-row .sim-name').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(q('.sim-row.changed')===0,'列名クリックでその変数だけ元に戻る');
+chk(q('.sim-row.changed')>0,'名前をクリックしても値は戻らない（名前を編集できる欄のため）');
+d.querySelector('.sim-row.changed .sim-imp').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+chk(q('.sim-row.changed')===0,'左端の棒をクリックするとその変数だけ元に戻る');
 
 console.log('\n[4] Sobol走査による応答分布');
 chk(!!H.SIM.dist,'応答分布が作られている');
@@ -547,19 +551,103 @@ console.log('\n[14] メモ');
  let stored=null; try{ stored=w.localStorage.getItem('treg_note_model_test'); }catch(_){}
  chk(stored===ta.value,'入力がこの端末に自動保存される');
  chk(d.getElementById('simNoteBtn').classList.contains('on'),'メモがあると入口に印が付く');
- // メモを埋め込んだHTMLとして書き出せる
- let noteHtml=null,noteName=null;
+ chk(!d.getElementById('simNoteSaveBtn'),'メモ欄の中に保存ボタンは無い（右上に集約した）');
+
+console.log('\n[15] 変数名の書き換え');
+{const r0=d.querySelectorAll('.sim-row')[0], col0=r0.dataset.col;
+ const nm=r0.querySelector('.sim-name');
+ chk(nm&&nm.tagName==='INPUT','変数名は書き換えられる入力欄');
+ chk(nm.value===col0,`最初は列名がそのまま出る (${nm.value})`);
+ nm.value='反応温度'; nm.dispatchEvent(new w.Event('input',{bubbles:true}));
+ chk(H.SIM.labels[col0]==='反応温度','書き換えた名前を覚えている');
+ chk(r0.dataset.col===col0,'列名(モデル側)は変わらない');
+ chk(H.SIM.state[col0]!==undefined,'値も保持される');
+ // 空にしたら列名に戻る
+ nm.value=''; nm.dispatchEvent(new w.Event('input',{bubbles:true}));
+ chk(H.SIM.labels[col0]===undefined,'空にすると元の列名に戻る');
+ nm.value='反応温度'; nm.dispatchEvent(new w.Event('input',{bubbles:true}));}
+{// 変数だけを元に戻す操作は、名前ではなく左端の重要度バーに移った
+ const r1=d.querySelectorAll('.sim-row')[1], c1=r1.dataset.col;
+ const rng=r1.querySelector('input[type=range]');
+ const before=String(H.SIM.state[c1]);
+ rng.value=rng.max; rng.dispatchEvent(new w.Event('change',{bubbles:true}));
+ chk(r1.classList.contains('changed'),'動かすと印が付く');
+ r1.querySelector('.sim-imp').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ chk(String(H.SIM.state[c1])===before,'左端の棒をクリックでその変数だけ元に戻る');}
+
+console.log('\n[16] 組み合わせの登録（SET / CLEAR）');
+{const setB=d.getElementById('simSetBtn'), clrB=d.getElementById('simClearBtn');
+ chk(!!setB&&!!clrB,'SET と CLEAR のボタンがある');
+ chk(d.getElementById('simMark').style.display==='none','登録前は何も出ない');
+ const r2=d.querySelectorAll('.sim-row')[2], c2=r2.dataset.col;
+ const rng2=r2.querySelector('input[type=range]');
+ rng2.value=rng2.max; rng2.dispatchEvent(new w.Event('change',{bubbles:true}));
+ const at=String(H.SIM.state[c2]), pred=el('simPredVal').textContent;
+ setB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ chk(!!H.SIM.mark&&String(H.SIM.mark.state[c2])===at,'SETで今の組み合わせを登録できる');
+ chk(d.getElementById('simMark').style.display!=='none','登録した応答値が出る');
+ chk(Math.abs(Number(el('simMarkVal').textContent)-Number(pred))<0.2,
+   `登録時の予測値が出る (${el('simMarkVal').textContent} / 画面 ${pred})`);
+ chk(Object.keys(H.SIM.mark.state).length===simSpecCols.length,'全変数の値を覚える');
+ // 別の場所へ動かしても登録は消えない。印をクリックすれば戻れる
+ rng2.value=rng2.min; rng2.dispatchEvent(new w.Event('change',{bubbles:true}));
+ chk(String(H.SIM.state[c2])!==at,'動かすと現在値は離れる');
+ chk(String(H.SIM.mark.state[c2])===at,'登録した値は動かない');
+ d.getElementById('simMark').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ chk(String(H.SIM.state[c2])===at,'印をクリックすると登録した状態に戻る');
+ clrB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ chk(H.SIM.mark===null,'CLEARで登録を消せる');
+ chk(d.getElementById('simMark').style.display==='none','消すと表示も消える');
+ // もう一度登録しておく（保存に含まれるか見るため）
+ setB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));}
+
+console.log('\n[17] 右上の保存（今の状態ごと書き出す）');
+{const btn=d.getElementById('simSaveStateBtn');
+ chk(!!btn,'右上に保存ボタンがある');
+ chk(d.querySelector('.sim-header').contains(btn),'置き場所はヘッダー（右上）');
+ let outHtml=null,outName=null;
  const OB=w.Blob;
  w.Blob=function(parts,opts){ const p0=parts[0];
-   noteHtml=(typeof p0==='string')?p0:Buffer.from(p0).toString('utf8'); return new OB(parts,opts); };
+   outHtml=(typeof p0==='string')?p0:Buffer.from(p0).toString('utf8'); return new OB(parts,opts); };
  w.URL.createObjectURL=()=>'blob:n';
- w.HTMLAnchorElement.prototype.click=function(){ noteName=this.download; };
- return Promise.resolve(d.getElementById('simNoteSaveBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true})))
+ w.HTMLAnchorElement.prototype.click=function(){ outName=this.download; };
+ return Promise.resolve(btn.dispatchEvent(new w.MouseEvent('click',{bubbles:true})))
   .then(()=>new Promise(r=>setTimeout(r,200))).then(()=>{
-   chk(!!noteHtml&&noteHtml.includes('温度を上げると収率が落ちる'),'メモを埋め込んだHTMLを書き出せる');
-   chk(noteName==='model_test.html',`名前も④と揃う (${noteName})`);
-   finish3();
-  });}
+   chk(!!outHtml&&outHtml.includes('温度を上げると収率が落ちる'),'メモが埋め込まれる');
+   chk(outName==='model_test.html',`名前も④と揃う (${outName})`);
+   const m=outHtml.match(/const EMBEDDED_MODEL = (\{[\s\S]*?\});\r?\n/);
+   chk(!!m,'埋め込み先が1箇所に決まる');
+   const pl=JSON.parse(m[1]);
+   chk(!!pl.ui,'画面の状態も一緒に入る');
+   chk(pl.ui.labels&&Object.values(pl.ui.labels).includes('反応温度'),'書き換えた変数名が入る');
+   chk(!!pl.ui.mark&&!!pl.ui.mark.state,'登録した組み合わせが入る');
+   chk(Object.keys(pl.ui.state).length===simSpecCols.length,'スライダーの位置が入る');
+   // 保存したHTMLを開くと、その状態から始まる
+   const d3=new JSDOM(outHtml,{runScripts:'outside-only',pretendToBeVisual:true,url:'http://localhost/'});
+   const w3=d3.window;
+   w3.HTMLCanvasElement.prototype.getContext=()=>ctx2d;
+   if(!w3.TextDecoder) w3.TextDecoder=require('util').TextDecoder;
+   if(!w3.TextEncoder) w3.TextEncoder=require('util').TextEncoder;
+   Object.defineProperty(w3.Element.prototype,'clientWidth',{get(){return 300;}});
+   const code3=outHtml.match(/<script>([\s\S]*)<\/script>/)[1];
+   let boot3=null;
+   try{ w3.eval(code3+'\n;window.__H3__={SIM:SIM};'); }catch(e){ boot3=e.message; }
+   chk(!boot3,'保存したHTMLが例外なく実行される'+(boot3?': '+boot3:''));
+   return new Promise(r=>setTimeout(r,300)).then(()=>{
+    const S3=w3.__H3__&&w3.__H3__.SIM;
+    const nm3=w3.document.querySelector('.sim-name');
+    chk(!!nm3&&nm3.value==='反応温度',`開くと変数名も再現される (${nm3&&nm3.value})`);
+    chk(!!S3&&!!S3.mark,'登録した組み合わせも再現される');
+    const same=simSpecCols.every(c=>String(S3.state[c])===String(H.SIM.state[c]));
+    chk(same,'スライダーの位置も再現される');
+    // 背景クリックで消えてしまうと、単体HTMLでは戻す手段が無い
+    const ov3=w3.document.getElementById('simulateOverlay');
+    ov3.dispatchEvent(new w3.MouseEvent('click',{bubbles:true}));
+    chk(ov3.style.display==='flex','背景をクリックしても画面が消えない');
+    try{ d3.window.close(); }catch(_){}
+    finish3();
+   });
+  });}}
 
 function finish3(){
 console.log('\n[8] 画面に出る文字量');
