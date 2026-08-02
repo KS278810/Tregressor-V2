@@ -1381,6 +1381,8 @@
             'ui.detailBtn': '詳細を見る ↗',
             'ui.tabFeature': '特徴量重要度',
             'ui.tabCandidates': '候補モデル',
+            'candidate.skipMinRows': '未実行（データが{{n}}行未満のため）',
+            'candidate.skipFailed': '未実行（学習に失敗）',
             'ui.tabPredict': '予測結果',
             'ui.predictDownloadBtn': 'CSVをDL',
             'ui.retryBtn': '↩ 最初からやり直す',
@@ -1667,6 +1669,8 @@
             'ui.detailBtn': 'View details ↗',
             'ui.tabFeature': 'Feature importance',
             'ui.tabCandidates': 'Candidate models',
+            'candidate.skipMinRows': 'Skipped (fewer than {{n}} rows)',
+            'candidate.skipFailed': 'Skipped (training failed)',
             'ui.tabPredict': 'Prediction results',
             'ui.predictDownloadBtn': 'Download CSV',
             'ui.retryBtn': '↩ Start over',
@@ -1953,6 +1957,8 @@
             'ui.detailBtn': '查看详情 ↗',
             'ui.tabFeature': '特征重要性',
             'ui.tabCandidates': '候选模型',
+            'candidate.skipMinRows': '未运行（数据不足{{n}}行）',
+            'candidate.skipFailed': '未运行（训练失败）',
             'ui.tabPredict': '预测结果',
             'ui.predictDownloadBtn': '下载 CSV',
             'ui.retryBtn': '↩ 重新开始',
@@ -3401,8 +3407,12 @@
         const BAR_BASE = '#3fc4ec';
         const BAR_BEST = '#f0a94e';
         candidates.forEach((c, i) => {
-            const alpha = c.is_best ? 1 : Math.max(0.45, 1 - i * 0.07);
-            const barColor = c.is_best ? BAR_BEST : BAR_BASE;
+            // skip_reason: バックエンドが計算自体を行わなかった候補(例: 行数不足でMLPを
+            // 未実行)を「一覧には出すがスコアは空欄」で示すためのフラグ。実際に学習して
+            // 精度が出なかった候補と見分けられるよう、グレー・斜体・理由付きtitleにする。
+            const skipped = !!c.skip_reason;
+            const alpha = c.is_best ? 1 : skipped ? 0.45 : Math.max(0.45, 1 - i * 0.07);
+            const barColor = c.is_best ? BAR_BEST : skipped ? '#7a8494' : BAR_BASE;
             const hasR2 = typeof c.r2 === 'number' && isFinite(c.r2);
             // maxR2に対する比率だけで幅を決めると、全候補のR²が0以下(精度不足)の場合に
             // 全バーが最小幅に潰れて相対順位が見えなくなる。min-max間の相対位置で
@@ -3412,7 +3422,16 @@
                 : 60; // 全候補が同スコアの場合は一律の中間幅
             const div = document.createElement('div'); div.className = 'feature-bar';
             const nm  = document.createElement('div'); nm.className = 'feature-name';
-            nm.title = c.name; nm.textContent = c.name;
+            nm.textContent = c.name;
+            if (skipped) {
+                nm.title = c.skip_reason === 'min_rows'
+                    ? t('candidate.skipMinRows', { n: c.skip_rows_needed ?? '?' })
+                    : t('candidate.skipFailed');
+                nm.style.fontStyle = 'italic';
+                nm.style.opacity = '0.7';
+            } else {
+                nm.title = c.name;
+            }
             if (c.is_best) { nm.style.color = BAR_BEST; nm.style.fontWeight = '700'; }
             const ct  = document.createElement('div'); ct.className = 'feature-line-container';
             const ln  = document.createElement('div'); ln.className = 'feature-line'; ln.dataset.pct = pct;
@@ -3421,7 +3440,8 @@
             ln.style.boxShadow = `0 0 8px ${barColor}60`;
             ct.appendChild(ln);
             const pt = document.createElement('div'); pt.className = 'feature-pct';
-            pt.style.color = c.is_best ? `rgba(240,169,78,${alpha})` : `rgba(63,196,236,${alpha})`;
+            pt.style.color = c.is_best ? `rgba(240,169,78,${alpha})`
+                : skipped ? `rgba(122,132,148,${alpha})` : `rgba(63,196,236,${alpha})`;
             pt.textContent = hasR2 ? c.r2.toFixed(4) : '—';
             div.appendChild(nm); div.appendChild(ct); div.appendChild(pt);
             listEl.appendChild(div);

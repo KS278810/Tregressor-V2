@@ -3403,8 +3403,16 @@ async def _run_main():
         candidates['LightGBM'] = lgb_res
     if gp_res[0] is not None and np.isfinite(gp_res[0]):
         candidates['GaussianProcess (ARD-RBF)'] = gp_res
+    mlp_skip_reason = None
     if mlp_res[0] is not None and np.isfinite(mlp_res[0]):
         candidates['MLP'] = mlp_res
+    elif len(df_train) < MLP_MIN_ROWS:
+        # ユーザー指摘(2026-08): 未実行のまま候補一覧から消えると「MLPは検討すらされて
+        # いない」ように見える。実際は行数不足で意図的にスキップしているだけなので、
+        # candidate_models には空欄(r2=None)のエントリとして残し、UIで「-」+ 理由表示させる。
+        mlp_skip_reason = 'min_rows'
+    else:
+        mlp_skip_reason = 'failed'
 
     # ── LightGBM バギング多様化メンバー（RF / ExtraTrees モード、thorough のみ） ──
     #    TREG_NO_SKTREE=1 で無効化（去就の実測比較用）。
@@ -3666,7 +3674,16 @@ async def _run_main():
                 key=lambda kv: kv[1][0] if np.isfinite(kv[1][0]) else -np.inf,
                 reverse=True,
             )
-        ],
+        ] + ([{
+            "name": "MLP",
+            "r2": None,
+            "model_type": None,
+            "is_best": False,
+            "r2_std": None,
+            "train_r2": None,
+            "skip_reason": mlp_skip_reason,
+            "skip_rows_needed": MLP_MIN_ROWS if mlp_skip_reason == 'min_rows' else None,
+        }] if mlp_skip_reason else []),
     }
 
     # ── デプロイ用 .treg: 表示モデル(best_name)を最優先で書き出す ──────────────
