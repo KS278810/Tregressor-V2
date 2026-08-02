@@ -140,6 +140,15 @@ chk([...d.querySelectorAll('.sim-row')].every(r=>r.querySelector('input[type=ran
  chk(/justify-content: center/.test(blk),'スライダーは上下中央寄せ');}
 chk(!d.getElementById('simDelta')&&!d.getElementById('simRingCanvas')&&!d.getElementById('simFlags'),
   '応答側はグラフと応答値だけ（差分・リング・フラグは無い）');
+chk(!d.getElementById('simSaveBtn'),'CSV保存(↓)ボタンは無い');
+chk(!d.getElementById('simFoot'),'下部の案内文は無い');
+chk(!/sim\.lgExtrap/.test(html),'使っていない記号(外挿のひし形)は凡例に無い');
+{el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ const marks=[...d.querySelectorAll('#simLegend .mk')].map(e=>e.textContent);
+ chk(!marks.includes('◆'),`凡例に◆が無い (${marks.join('')})`);
+ el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));}
+chk(!/btn-deploy-ready \{ color: var\(--gold\)/.test(html),'DEPLOYの準備完了はオレンジではない');
+chk(!/ctaGlowGold/.test(html),'DEPLOY用の金色アニメーションは無い');
 chk(/\.sim-sliders \{ display: flex; flex-direction: column;/.test(html),'スライダーは縦一列');
 {// 全画面ではなく元ツールの外形に収まる大きさか（#simulatePanel の指定を見る）
  const blk=html.slice(html.indexOf('#simulatePanel {'), html.indexOf('#simulatePanel {')+400);
@@ -294,9 +303,6 @@ chk(!d.getElementById('simLinkBtn'),'連動モードのボタンは無い（変�
  chk(moved.length===1&&moved[0]===cc,
    `動かした1本だけが変わる (変化した変数: ${moved.join(',')||'なし'})`);
  d.getElementById('simResetBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));}
-H.Platform.downloadFile=(b,n,m)=>{w.__SAVED__={n:n,len:b.length};};
-el('simSaveBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(!!w.__SAVED__&&w.__SAVED__.n==='scenario.csv',`CSV保存 (${w.__SAVED__&&w.__SAVED__.len} bytes)`);
 chk(!el('simLegend').classList.contains('open'),'凡例は既定で閉じている');
 el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 chk(el('simLegend').classList.contains('open')&&d.querySelectorAll('#simLegend div').length>=6,'?で凡例が開く');
@@ -469,8 +475,15 @@ console.log('\n[13] コマンドラインで使うスクリプト');
 try{ {chk(!!d.getElementById('simCliBtn'),'CLIスクリプトの書き出しボタンがある');
  chk(typeof w.TregPredictCoreSource==='string'&&w.TregPredictCoreSource.length>1000,
    'エンジンのソースが文字列としても埋め込まれている');
+ // ④の書き出し(model_test)を済ませてあるので、CLIの名前もそれに揃うはず
+ let cliName=null;
+ const OrigBlob3=w.Blob;
+ w.Blob=function(parts,opts){ return new OrigBlob3(parts,opts); };
+ w.URL.createObjectURL=()=>'blob:cli';
+ w.HTMLAnchorElement.prototype.click=function(){ cliName=this.download; };
+ d.getElementById('simCliBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ chk(cliName==='model_test.cli.js',`CLIの名前が④の書き出しと揃う (${cliName})`);
  const text=H.simBuildCliScript('model_test.cli.js');
- const cliName='model_test.cli.js';
  chk(typeof text==='string'&&text.length>10000,`CLIスクリプトを生成できる (${Math.round(text.length/1024)}KB)`);
  // 実際に node で動かし、ブラウザと同じ値になるか確かめる
  // 一時ディレクトリは実行場所の隣に作る（環境によっては /tmp に書けない）
@@ -498,6 +511,32 @@ try{ {chk(!!d.getElementById('simCliBtn'),'CLIスクリプトの書き出しボ�
  }
  fs.rmSync(dir,{recursive:true,force:true});} }catch(e){ chk(false,'CLI検証で例外: '+e.message); }
 
+console.log('\n[14] メモ');
+{chk(!!d.getElementById('simNoteBtn')&&!!d.getElementById('simNoteText'),'メモの入口と入力欄がある');
+ chk(!d.getElementById('simNote').classList.contains('open'),'メモは既定で閉じている');
+ d.getElementById('simNoteBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ chk(d.getElementById('simNote').classList.contains('open'),'✎で開く');
+ const ta=d.getElementById('simNoteText');
+ ta.value='温度を上げると収率が落ちる。次は触媒比を振る。';
+ ta.dispatchEvent(new w.Event('input',{bubbles:true}));
+ let stored=null; try{ stored=w.localStorage.getItem('treg_note_model_test'); }catch(_){}
+ chk(stored===ta.value,'入力がこの端末に自動保存される');
+ chk(d.getElementById('simNoteBtn').classList.contains('on'),'メモがあると入口に印が付く');
+ // メモを埋め込んだHTMLとして書き出せる
+ let noteHtml=null,noteName=null;
+ const OB=w.Blob;
+ w.Blob=function(parts,opts){ const p0=parts[0];
+   noteHtml=(typeof p0==='string')?p0:Buffer.from(p0).toString('utf8'); return new OB(parts,opts); };
+ w.URL.createObjectURL=()=>'blob:n';
+ w.HTMLAnchorElement.prototype.click=function(){ noteName=this.download; };
+ return Promise.resolve(d.getElementById('simNoteSaveBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true})))
+  .then(()=>new Promise(r=>setTimeout(r,200))).then(()=>{
+   chk(!!noteHtml&&noteHtml.includes('温度を上げると収率が落ちる'),'メモを埋め込んだHTMLを書き出せる');
+   chk(noteName==='model_test.html',`名前も④と揃う (${noteName})`);
+   finish3();
+  });}
+
+function finish3(){
 console.log('\n[8] 画面に出る文字量');
 const shown=el('simulateSection').textContent.replace(/\s+/g,' ').trim();
 console.log('       '+JSON.stringify(shown.slice(0,150))+'...');
@@ -508,6 +547,7 @@ console.log('');
 if(errs.length){console.log('ERRORS:\n'+errs.join('\n'));process.exit(1);}
 if(FAIL.length){console.log(`NG: ${FAIL.length} 件失敗`);FAIL.forEach(m=>console.log('  - '+m));process.exit(1);}
 console.log('すべて成功');
+}
 }
 }
 

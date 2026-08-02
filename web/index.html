@@ -281,11 +281,7 @@
             0%,100% { box-shadow: 0 0  8px rgba(47,214,142,0.28); opacity: 1; }
             50%      { box-shadow: 0 0 28px rgba(47,214,142,0.68); opacity: 0.95; }
         }
-        .btn-deploy-ready.action-pulse { animation: ctaGlowGold 2s infinite ease-in-out; }
-        @keyframes ctaGlowGold {
-            0%,100% { box-shadow: 0 0  8px rgba(240,169,78,0.28); opacity: 1; }
-            50%      { box-shadow: 0 0 28px rgba(240,169,78,0.72); opacity: 0.95; }
-        }
+        .btn-deploy-ready.action-pulse { animation: ctaGlow 2s infinite ease-in-out; }
 
         .predict-sub-label { font-family: var(--font-display); font-size: 12.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #4a6a80; margin-top: 2px; }
         .drop-predict-ready .predict-sub-label { color: #3ac48f; }
@@ -317,7 +313,8 @@
         .btn-train-ready  { color: var(--blue); background: rgba(79,127,224,0.12); border-color: rgba(79,127,224,0.5); box-shadow: 0 0 12px rgba(79,127,224,0.18); }
         .drop-predict-ready { color: var(--good); background: rgba(47,214,142,0.12); border-color: rgba(47,214,142,0.5); box-shadow: 0 0 12px rgba(47,214,142,0.18); }
         .drop-predict-retry { color: var(--retry); background: rgba(221,138,60,0.12); border-color: rgba(221,138,60,0.5); box-shadow: 0 0 12px rgba(221,138,60,0.18); }
-        .btn-deploy-ready { color: var(--gold); background: rgba(240,169,78,0.12); border-color: rgba(240,169,78,0.5); box-shadow: 0 0 12px rgba(240,169,78,0.18); }
+        /* 色数を増やさないため、DEPLOYの準備完了もシアンに揃える */
+        .btn-deploy-ready { color: var(--cyan); background: rgba(63,196,236,0.12); border-color: rgba(63,196,236,0.5); box-shadow: 0 0 12px rgba(63,196,236,0.18); }
 
         .deploy-col { display: flex; flex-direction: column; gap: 5px; }
         .deploy-note { font-size: 11px; letter-spacing: 0.3px; color: var(--ink-dim); text-align: center; }
@@ -902,6 +899,20 @@
         body.sim-only #simulateOverlay { background: transparent; backdrop-filter: none; padding: 20px; }
         body.sim-only #simulatePanel { width: calc(100vw - 40px); height: calc(100vh - 40px); }
         body.sim-only #simCloseBtn { display: none; }
+        /* モデルについてのメモ。書いた内容はこの端末に自動保存され、
+           「メモごと保存」で本文を埋め込んだHTMLとして書き出せる（人に渡せる）。 */
+        .sim-note { display: none; flex: none; padding: 8px 16px 10px; border-top: 1px solid var(--hairline);
+                    background: rgba(63,196,236,0.03); }
+        .sim-note.open { display: block; }
+        .sim-note textarea {
+            width: 100%; height: 84px; resize: vertical; box-sizing: border-box;
+            background: rgba(0,0,0,0.25); border: 1px solid var(--hairline); border-radius: 5px;
+            color: var(--ink); font-family: var(--font-body); font-size: 12px; line-height: 1.6;
+            padding: 7px 9px; outline: none;
+        }
+        .sim-note textarea:focus { border-color: rgba(63,196,236,0.5); }
+        .sim-note-bar { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+        .sim-note-hint { flex: 1; font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-faint); }
     </style>
 </head>
 <body>
@@ -1111,12 +1122,20 @@
             <span class="sim-title">SIMULATE</span>
             <button id="simAddBtn" class="sim-legend-btn" data-i18n-title="sim.addTitle" title="学習済みモデル(.treg / 書き出したHTML)を読み込む">+</button>
             <input id="simAddInput" type="file" accept=".treg,.html,.htm" multiple style="display:none">
+            <button id="simNoteBtn" class="sim-legend-btn" data-i18n-title="sim.noteTitle" title="このモデルについてのメモ">✎</button>
             <button id="simCliBtn" class="sim-legend-btn" data-i18n-title="sim.cliTitle" title="コマンドラインで一括推論するスクリプトを保存">&gt;_</button>
-            <button id="simSaveBtn" class="sim-legend-btn" data-i18n-title="sim.saveTitle" title="この1行をCSVで保存">↓</button>
             <button id="simLegendBtn" class="sim-legend-btn" data-i18n-title="sim.legendTitle" title="記号の意味">?</button>
             <button id="simCloseBtn" class="sim-close-btn">✕</button>
         </div>
         <div class="sim-legend" id="simLegend"></div>
+        <div class="sim-note" id="simNote">
+            <textarea id="simNoteText" data-i18n-placeholder="sim.notePlaceholder"
+                      placeholder="このモデルについてのメモ（条件・気づいたこと・次に試すこと）"></textarea>
+            <div class="sim-note-bar">
+                <span class="sim-note-hint" id="simNoteHint"></span>
+                <button class="sim-iconbtn" id="simNoteSaveBtn" data-i18n="sim.noteSave">メモごと保存</button>
+            </div>
+        </div>
 <!-- ③ SIMULATE（What-ifスライダー）。Web版のみ。左に変数のスライダーを縦一列、
      右に応答の分布と予測値だけを置く。数値や補助グラフは画面に出さない。 -->
 <div id="simulateSection" style="display:flex;flex-direction:column;flex:1;min-height:0;">
@@ -1135,7 +1154,6 @@
             <div class="sim-models" id="simModels" style="display:none;"></div>
         </div>
     </div>
-    <div class="sim-foot" id="simFoot"></div>
 </div>
     </div>
 </div>
@@ -1841,6 +1859,10 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             'sim.lgBest': '緑の丸＝応答が最小だった点',
             'sim.addTitle': '学習済みモデル(.treg / 書き出したHTML)を読み込む。複数入れると同じスライダーで一緒に動く',
             'sim.removeModel': 'このモデルを外す',
+            'sim.noteTitle': 'このモデルについてのメモ',
+            'sim.notePlaceholder': 'このモデルについてのメモ（条件・気づいたこと・次に試すこと）',
+            'sim.noteSave': 'メモごと保存',
+            'sim.noteSaved': 'この端末に保存しました',
             'sim.cliTitle': 'コマンドラインで一括推論するスクリプトを保存（node スクリプト名 入力.csv）',
             'sim.legendTitle': '記号の意味',
             'sim.deltaNone': '基準行のまま',
@@ -1848,7 +1870,6 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             'sim.deltaFrom': '（基準 {{base}} / {{n}}変数を変更）',
             'sim.deltaTitle': '基準行の予測 {{base}} からの差。{{n}} 個の変数を動かしています。列名をクリックするとその変数だけ元に戻せます',
             'sim.lgThumb': 'つまみ＝現在値',
-            'sim.lgExtrap': 'ひし形＝学習データの外側',
             'sim.lgClip': '角＝これ以上動かしても予測は変わらない',
             'sim.lgActual': '緑の丸＝基準行の実測値',
             'sim.lgChanged': '左の縦線＝動かした変数（列名クリックで戻す）',
@@ -2132,6 +2153,10 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             'sim.lgBest': 'Green circle = point with the lowest response',
             'sim.addTitle': 'Load a trained model (.treg or exported HTML). Multiple models move together on the same sliders',
             'sim.removeModel': 'Remove this model',
+            'sim.noteTitle': 'Notes about this model',
+            'sim.notePlaceholder': 'Notes about this model (conditions, findings, what to try next)',
+            'sim.noteSave': 'Save with notes',
+            'sim.noteSaved': 'Saved on this device',
             'sim.cliTitle': 'Save a script for batch prediction from the command line (node script input.csv)',
             'sim.legendTitle': 'What the symbols mean',
             'sim.deltaNone': 'Same as the reference row',
@@ -2139,7 +2164,6 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             'sim.deltaFrom': '(from {{base}} / {{n}} changed)',
             'sim.deltaTitle': 'Difference from the reference prediction {{base}}. {{n}} variable(s) moved. Click a column name to revert just that one',
             'sim.lgThumb': 'Handle = current value',
-            'sim.lgExtrap': 'Diamond = outside the training data',
             'sim.lgClip': 'Flat top = moving further changes nothing',
             'sim.lgActual': 'Green circle = actual value of the reference row',
             'sim.lgChanged': 'Left bar = moved variable (click the name to revert)',
@@ -2900,7 +2924,10 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
                 if (!tmpl.includes(MARK)) throw new Error(t('error.predictTemplateFormatInvalid'));
                 const r = lastResult || {};
                 // SIMULATE に必要な情報だけを持たせる（学習ログや散布図は入れない）
+                SIM_EXPORT_STEM = fileStem;
                 const payload = {
+                    stem: fileStem,
+                    note: SIM_PENDING_NOTE || '',
                     treg: bytesToBase64(treg),
                     label: 'T-regressor / ' + fileStem + ' / ' + new Date().toISOString(),
                     result: {
@@ -4076,7 +4103,8 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
         cancelBtn.style.display = 'none'; trainBtn.style.display = '';
         trainBtn.disabled = true; trainBtn.className = 'btn';
         inputNote.style.display = 'none'; inputNote.textContent = '';
-        trainNote.textContent = t('status.trainDoneCheckmark'); trainNote.style.color = '#2fd68e'; trainNote.style.display = '';
+        // 学習完了の表示は目立たせない（緑で強調しない）
+        trainNote.textContent = t('status.trainDoneCheckmark'); trainNote.style.color = ''; trainNote.style.display = '';
         applyTrainingResult(result);
         const r2Done = result.r2 ?? 0;
         if (r2Done < 0) {
@@ -4226,6 +4254,10 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
     }
 
     const SIM_ROW_TIPS_SEP = '\n';
+    // ④で書き出したHTMLのファイル名（拡張子なし）。CLIスクリプトの名前をこれに揃える。
+    let SIM_EXPORT_STEM = null;
+    // 「メモごと保存」から書き出すときに本文を渡すための一時置き場
+    let SIM_PENDING_NOTE = '';
     const SIM_MONO = "'IBM Plex Mono', 'Consolas', monospace";
     // 最適点の色は右のグラフとスライダーで共通（同じ色・同じ形にして対応を取る）
     const SIM_BEST_RGBA = (a) => 'rgba(47,214,142,' + a + ')';
@@ -4976,6 +5008,31 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
 ''].join('\n');
     }
 
+    // ── メモ ──────────────────────────────────────────────────────────────────
+    // 学習の条件や気づいたことを、モデルと一緒に残せるようにする。
+    // 入力はこの端末に自動保存し、「メモごと保存」で本文を埋め込んだHTMLを書き出す
+    // （相手に渡せば、モデルもメモもそのまま開ける）。
+    function simNoteKey() {
+        const pm = simPrimary();
+        return 'treg_note_' + (SIM_EXPORT_STEM || (pm && pm.name) || 'model');
+    }
+    function simLoadNote() {
+        const ta = simEl('simNoteText');
+        if (!ta) return;
+        let v = (EMBEDDED_MODEL && EMBEDDED_MODEL.note) || '';
+        try { const st = localStorage.getItem(simNoteKey()); if (st !== null) v = st; } catch (_) {}
+        ta.value = v;
+        simEl('simNoteBtn').classList.toggle('on', !!v);
+    }
+    function simSaveNoteLocal() {
+        const ta = simEl('simNoteText');
+        try { localStorage.setItem(simNoteKey(), ta.value); } catch (_) {}
+        simEl('simNoteBtn').classList.toggle('on', !!ta.value);
+        const h = simEl('simNoteHint');
+        if (h) { h.textContent = t('sim.noteSaved'); clearTimeout(simSaveNoteLocal._t);
+                 simSaveNoteLocal._t = setTimeout(function () { h.textContent = ''; }, 1600); }
+    }
+
     // ── モデルの持ち込み ──────────────────────────────────────────────────────
     // 受け付けるのは .treg（モデル本体）と、④で書き出した単体HTML（中に .treg を
     // base64 で持っている）。複数入れると、同じスライダーで全モデルの応答が動く。
@@ -5151,12 +5208,11 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
         simRenderSliders();
         simRenderPrediction();
         simRenderLegend();
-        simEl('simFoot').textContent = t('sim.footNote');
     }
     function simRenderLegend() {
         const host = simEl('simLegend');
         const items = [
-            ['', '●', 'sim.lgThumb'], ['warn', '◆', 'sim.lgExtrap'], ['bad', '■', 'sim.lgClip'],
+            ['', '●', 'sim.lgThumb'], ['bad', '■', 'sim.lgClip'],
             ['good', '○', 'sim.lgBestVar'], ['', '▁▃▅', 'sim.lgDensity'],
             ['warn', '▌', 'sim.lgChanged'], ['', '▓', 'sim.lgBand'],
         ];
@@ -5171,12 +5227,33 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
     }
 
     // ── オーバーレイの開閉 ────────────────────────────────────────────────────
+    // 書き出した単体HTMLは開く環境の画面サイズが分からない。中身が入りきらない
+    // ときは全体を縮めて必ず収める（ブラウザの拡大率が125%でもはみ出さない）。
+    function simFitToViewport() {
+        const panel = document.getElementById('simulatePanel');
+        const grid = panel && panel.querySelector('.sim-grid');
+        if (!panel || !grid) return;
+        grid.style.transform = ''; grid.style.width = ''; grid.style.height = '';
+        const avail = panel.clientHeight - (panel.firstElementChild ? panel.firstElementChild.offsetHeight : 0) - 8;
+        const need = grid.scrollHeight;
+        if (avail > 0 && need > avail) {
+            const k = Math.max(0.6, avail / need);
+            grid.style.transformOrigin = 'top left';
+            grid.style.transform = 'scale(' + k.toFixed(3) + ')';
+            grid.style.width = (100 / k) + '%';
+            grid.style.height = (avail / k) + 'px';
+        }
+    }
+
     function simOpen() {
         if (!SIM.ready) return;
         document.getElementById('simulateOverlay').style.display = 'flex';
         requestAnimationFrame(function () {
             simRenderAll();
-            requestAnimationFrame(function () { simRefreshSliders(); simRenderPrediction(); simKick(); });
+            requestAnimationFrame(function () {
+                simFitToViewport();
+                simRefreshSliders(); simRenderPrediction(); simKick();
+            });
         });
     }
     function simClose() { document.getElementById('simulateOverlay').style.display = 'none'; }
@@ -5202,10 +5279,42 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
         simEl('simLegendBtn').classList.toggle('on', open);
         requestAnimationFrame(function () { simRefreshSliders(); simRenderPrediction(); });
     });
+    simEl('simNoteBtn').addEventListener('click', function () {
+        const n = simEl('simNote');
+        const open = n.classList.toggle('open');
+        if (open) simEl('simNoteText').focus();
+        requestAnimationFrame(function () { simFitToViewport(); simRefreshSliders(); simRenderPrediction(); });
+    });
+    simEl('simNoteText').addEventListener('input', simSaveNoteLocal);
+    // メモを埋め込んだHTMLとして書き出す（渡した相手も同じメモを見られる）
+    simEl('simNoteSaveBtn').addEventListener('click', async function () {
+        try {
+            const note = simEl('simNoteText').value;
+            if (IS_EMBEDDED) {
+                // 単体HTMLからは、自分自身を雛形にして書き直す
+                const cur = document.documentElement.outerHTML;
+                const payload = Object.assign({}, EMBEDDED_MODEL, { note: note });
+                const re = /const EMBEDDED_MODEL = [\s\S]*?;\r?\n/;
+                if (!re.test(cur)) throw new Error('slot not found');
+                const out = '<!DOCTYPE html>\n' + cur.replace(re,
+                    'const EMBEDDED_MODEL = ' + JSON.stringify(payload) + ';\n');
+                const nm = (EMBEDDED_MODEL.stem || 'model') + '.html';
+                Platform.downloadFile(new TextEncoder().encode(out), nm, 'text/html');
+            } else {
+                // 本体からは、④と同じ書き出しにメモを添えて出す
+                SIM_PENDING_NOTE = note;
+                await Platform.exportModel({ fileStem: SIM_EXPORT_STEM || 'model' });
+                SIM_PENDING_NOTE = '';
+            }
+        } catch (e) {
+            console.warn('[SIMULATE] メモ付き保存に失敗:', e);
+        }
+    });
     simEl('simCliBtn').addEventListener('click', function () {
         try {
             const pm = simPrimary();
-            const nm = ((pm && pm.name) || 'model').replace(/[^\w.-]/g, '_') + '.cli.js';
+            const stem = SIM_EXPORT_STEM || (pm && pm.name) || 'model';
+            const nm = String(stem).replace(/[^\w.-]/g, '_') + '.cli.js';
             const text = simBuildCliScript(nm);
             Platform.downloadFile(new TextEncoder().encode(text), nm, 'text/javascript');
         } catch (e) {
@@ -5213,15 +5322,6 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
             const b = simEl('simCliBtn');
             if (b) { b.classList.add('err'); setTimeout(function () { b.classList.remove('err'); }, 1500); }
         }
-    });
-    simEl('simSaveBtn').addEventListener('click', function () {
-        const cols = simSpecs().map(s => s.col);
-        const esc = function (v) {
-            const s = String(v);
-            return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-        };
-        const csv = cols.join(',') + '\n' + cols.map(c => esc(SIM.state[c])).join(',') + '\n';
-        Platform.downloadFile(new TextEncoder().encode(csv), 'scenario.csv', 'text/csv');
     });
     // 学習済みモデルの持ち込み
     simEl('simAddBtn').addEventListener('click', function () { simEl('simAddInput').click(); });
@@ -5234,7 +5334,9 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
     window.addEventListener('resize', function () {
         if (!SIM.ready) return;
         clearTimeout(_simRzTimer);
-        _simRzTimer = setTimeout(function () { simRefreshSliders(); simRenderPrediction(); }, 120);
+        _simRzTimer = setTimeout(function () {
+            simFitToViewport(); simRefreshSliders(); simRenderPrediction();
+        }, 120);
     });
 
     // ── 書き出した単体HTML（シミュレータ）の起動 ──────────────────────────────
@@ -5251,7 +5353,9 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
             document.body.classList.add('sim-only');
             const bytes = _b64ToBytes(EMBEDDED_MODEL.treg);
             Platform.getTregBytes = () => bytes;
+            SIM_EXPORT_STEM = EMBEDDED_MODEL.stem || null;
             if (!simInit(EMBEDDED_MODEL.result)) { fail('model'); return; }
+            simLoadNote();
             simOpen();
             _hideStartup();
         } catch (e) {
