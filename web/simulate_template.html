@@ -455,6 +455,9 @@
         .eval-badge.oof   { background: rgba(79,127,224,0.12);  color: #8fb0f0; border: 1px solid rgba(79,127,224,0.28); }
         .r2-interp { font-size: 12.5px; color: #64748b; line-height: 1.5; }
         .data-warning { background: rgba(221,138,60,0.08); border: 1px solid rgba(221,138,60,0.28); border-radius: 6px; padding: 7px 11px; font-size: 12.5px; color: var(--retry); line-height: 1.5; }
+        /* 「OOFで評価」「外れ値クリップ非適用」のような方法論の説明は懸念事項ではないため、
+           上の警告枠(オレンジ)には入れず、ふつうの文字色で控えめに出す。 */
+        .data-note { font-size: 11.5px; color: var(--ink-dim); line-height: 1.5; margin-top: 4px; }
         .detail-btn { font-family: var(--font-display); padding: 6px 12px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1); background: transparent; color: #5a7a90; font-size: 12px; letter-spacing: 0.6px; cursor: pointer; transition: all 0.15s; text-align: center; margin-top: auto; text-transform: uppercase; }
         .detail-btn:hover { color: var(--cyan); border-color: rgba(63,196,236,0.3); background: rgba(63,196,236,0.06); }
 
@@ -728,20 +731,29 @@
         .sim-row:hover .sim-name { color: var(--ink); }
         input.sim-name:hover { border-color: rgba(160,190,220,0.28); }
         input.sim-name:focus { border-color: rgba(63,196,236,0.5); color: var(--ink); }
-        /* 登録した組み合わせ(SET)。スライダー上の印と同じ色で対応を取る。 */
-        .sim-mark {
-            display: flex; align-items: baseline; justify-content: center; gap: 8px;
-            margin-top: 2px; cursor: pointer; opacity: 0.85; transition: opacity 0.15s;
+        /* 登録した組み合わせ(SET)。押すたびに増えていく一覧。
+           スライダー上・応答グラフ上の印と同じ色(紫)で対応を取る。 */
+        .sim-marks { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
+        .sim-mark-row {
+            display: flex; align-items: center; gap: 8px; padding: 3px 7px;
+            border-radius: 5px; background: rgba(167,139,250,0.07);
+            border: 1px solid rgba(167,139,250,0.2); cursor: pointer;
+            transition: background 0.15s;
         }
-        .sim-mark:hover { opacity: 1; }
+        .sim-mark-row:hover { background: rgba(167,139,250,0.14); }
         .sim-mark-tag {
-            font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.14em;
-            color: rgb(167,139,250);
+            font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em;
+            color: rgb(167,139,250); flex: none;
         }
         .sim-mark-val {
-            font-family: var(--font-display); font-weight: 700; font-size: 17px;
-            font-variant-numeric: tabular-nums; color: rgb(167,139,250);
+            font-family: var(--font-display); font-weight: 700; font-size: 14px;
+            font-variant-numeric: tabular-nums; color: rgb(167,139,250); flex: 1; text-align: right;
         }
+        .sim-mark-x {
+            flex: none; border: none; background: transparent; color: var(--ink-faint);
+            cursor: pointer; font-size: 11px; line-height: 1; padding: 0 2px;
+        }
+        .sim-mark-x:hover { color: var(--bad); }
         /* 値は表示専用ではなく直接入力できるようにする。スライダーだけでは
            「ちょうど 22.5」のような狙った値を置けず、実務では致命的なため。 */
         /* 数値は本体のR²表示と同じ書体(--font-display = Chakra Petch)。
@@ -840,29 +852,13 @@
         }
         .sim-delta b { color: var(--cyan); font-weight: 600; }
         .sim-right.lowq .sim-delta b { color: var(--ink-dim); }
-        /* 凡例: title に頼るとタッチ環境で情報が完全に消えるため、記号の意味を
-           いつでも開ける場所に置く(既定は閉じたまま。画面の情報量は増やさない) */
+        /* SIMULATEヘッダーのアイコンボタン共通スタイル(+/✎/>_/⤓など) */
         .sim-legend-btn {
             background: transparent; border: 1px solid var(--hairline); border-radius: 5px;
             color: var(--ink-faint); cursor: pointer; width: 24px; height: 22px;
             font-size: 11px; line-height: 1; font-family: var(--font-mono); transition: 0.15s;
         }
         .sim-legend-btn:hover, .sim-legend-btn.on { color: var(--cyan); border-color: rgba(63,196,236,0.45); }
-        .sim-legend {
-            display: none; flex: none; padding: 8px 16px; gap: 6px 20px;
-            border-top: 1px solid var(--hairline); background: rgba(63,196,236,0.03);
-            flex-wrap: wrap; font-size: 10.5px; color: var(--ink-dim); line-height: 1.5;
-        }
-        .sim-legend.open { display: flex; }
-        .sim-legend div { display: flex; align-items: center; gap: 6px; }
-        .sim-legend .mk {
-            font-family: var(--font-mono); color: var(--cyan); flex: none;
-            min-width: 15px; text-align: center;
-        }
-        .sim-legend .mk.warn { color: var(--gold); }
-        .sim-legend .mk.bad { color: var(--bad); }
-        .sim-legend .mk.good { color: var(--good); }
-        .sim-legend .mk.mark { color: rgb(167,139,250); }
         #simHistCanvas { display: block; width: 100%; margin-top: 4px; }
         .sim-statusrow { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.04); }
         #simRingCanvas { flex: none; display: block; }
@@ -1085,6 +1081,7 @@
                     <div id="evalBadge" class="eval-badge val" style="display:none;">VALIDATION</div>
                     <div id="r2Interpretation" class="r2-interp" style="display:none;"></div>
                     <div id="dataWarning" class="data-warning" style="display:none;"></div>
+                    <div id="dataNote" class="data-note" style="display:none;"></div>
                     <button id="retrainThoroughBtn" class="detail-btn" data-i18n="ui.retrainThoroughBtn">じっくりモードで再学習</button>
                     <button class="detail-btn" onclick="openDetailPopup()" data-i18n="ui.detailBtn">詳細を見る ↗</button>
                 </div>
@@ -1161,11 +1158,9 @@
             <input id="simAddInput" type="file" accept=".treg,.html,.htm" multiple style="display:none">
             <button id="simNoteBtn" class="sim-legend-btn" data-i18n-title="sim.noteTitle" title="このモデルについてのメモ">✎</button>
             <button id="simCliBtn" class="sim-legend-btn" data-i18n-title="sim.cliTitle" title="コマンドラインで一括推論するスクリプトを保存">&gt;_</button>
-            <button id="simLegendBtn" class="sim-legend-btn" data-i18n-title="sim.legendTitle" title="記号の意味">?</button>
             <button id="simSaveStateBtn" class="sim-legend-btn" data-i18n-title="sim.saveStateTitle" title="今の状態（スライダーの位置・変数名・登録した点・メモ）ごと保存する">⤓</button>
             <button id="simCloseBtn" class="sim-close-btn">✕</button>
         </div>
-        <div class="sim-legend" id="simLegend"></div>
         <div class="sim-note open" id="simNote">
             <textarea id="simNoteText" data-i18n-placeholder="sim.notePlaceholder"
                       placeholder="このモデルについてのメモ（条件・気づいたこと・次に試すこと）"></textarea>
@@ -1181,19 +1176,15 @@
             <div class="sim-toolbar">
                 <button class="sim-iconbtn" id="simResetBtn" data-i18n-title="sim.resetTitle" title="最初の値に戻す">↺</button>
                 <button class="sim-iconbtn" id="simBestBtn" data-i18n-title="sim.bestTitle" title="応答が最小だった点にスライダーを合わせる">★</button>
-                <button class="sim-iconbtn" id="simSetBtn" data-i18n-title="sim.setTitle" title="今の変数の組み合わせを登録する（登録済みなら上書き）">SET</button>
-                <button class="sim-iconbtn" id="simClearBtn" data-i18n-title="sim.clearTitle" title="登録した組み合わせを消す">CLEAR</button>
+                <button class="sim-iconbtn" id="simSetBtn" data-i18n-title="sim.setTitle" title="今の変数の組み合わせを登録する（押すたびに増える）">SET</button>
+                <button class="sim-iconbtn" id="simClearBtn" data-i18n-title="sim.clearTitle" title="登録した組み合わせをすべて消す">CLEAR</button>
             </div>
             <div id="simSliders" class="sim-sliders"></div>
         </div>
         <div class="sim-right" id="simRight">
             <div class="sim-ptag" id="simTargetTag">PREDICTED</div>
             <div class="sim-pred"><span class="sim-pnum" id="simPredVal">—</span></div>
-            <div class="sim-mark" id="simMark" style="display:none;" data-i18n-title="sim.markRecall"
-                 title="登録した組み合わせ。クリックするとスライダーがその状態に戻る">
-                <span class="sim-mark-tag">SET</span>
-                <span class="sim-mark-val" id="simMarkVal">—</span>
-            </div>
+            <div class="sim-marks" id="simMarks"></div>
             <canvas id="simHistCanvas"></canvas>
             <div class="sim-models" id="simModels" style="display:none;"></div>
         </div>
@@ -1897,36 +1888,25 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             // 出さず title 属性にだけ入る文言(「見れば分かる」表示にするため、説明は
             // ホバー時にだけ現れる)。画面に出るのは列名・数値・FIXED n だけ。
             'sim.bestTitle': '応答が最小だった点にスライダーを合わせる',
-            'sim.lgBestVar': '緑の印＝最適点でのその変数の値',
             'sim.tipBest': '走査した中で応答が最小だった点: {{v}}',
             'sim.distTitle': '入力空間をSobol列で {{n}} 点走査したときの応答の分布',
-            'sim.lgBest': '緑の丸＝応答が最小だった点',
             'sim.addTitle': '学習済みモデル(.treg / 書き出したHTML)を読み込む。複数入れると同じスライダーで一緒に動く',
             'sim.removeModel': 'このモデルを外す',
+            'sim.removeMark': 'この登録を消す',
             'sim.noteTitle': 'このモデルについてのメモ',
             'sim.notePlaceholder': 'このモデルについてのメモ（条件・気づいたこと・次に試すこと）',
             'sim.noteSaved': 'この端末に保存しました',
             'sim.saveStateTitle': '今の状態（スライダーの位置・変数名・登録した点・メモ）ごと保存する',
-            'sim.setTitle': '今の変数の組み合わせを登録する（登録済みなら上書き）',
-            'sim.clearTitle': '登録した組み合わせを消す',
+            'sim.setTitle': '今の変数の組み合わせを登録する（押すたびに増える）',
+            'sim.clearTitle': '登録した組み合わせをすべて消す',
             'sim.markRecall': '登録した組み合わせ。クリックするとスライダーがその状態に戻る',
-            'sim.lgMark': '紫の印＝登録した組み合わせ（SET）',
             'sim.renameTitle': '画面に出す名前を変えられます（CSVの列名は {{col}} のまま）',
             'sim.resetOneTitle': 'この変数だけ最初の値に戻す',
             'sim.cliTitle': 'コマンドラインで一括推論するスクリプトを保存（node スクリプト名 入力.csv）',
-            'sim.legendTitle': '記号の意味',
             'sim.deltaNone': '基準行のまま',
             'sim.deltaNoneTitle': 'まだどの変数も動かしていません',
             'sim.deltaFrom': '（基準 {{base}} / {{n}}変数を変更）',
             'sim.deltaTitle': '基準行の予測 {{base}} からの差。{{n}} 個の変数を動かしています。列名をクリックするとその変数だけ元に戻せます',
-            'sim.lgThumb': 'つまみ＝現在値',
-            'sim.lgClip': '角＝これ以上動かしても予測は変わらない',
-            'sim.lgActual': '緑の丸＝基準行の実測値',
-            'sim.lgChanged': '左の縦線＝動かした変数（左端の細い棒をクリックで戻す）',
-            'sim.lgDensity': '山＝応答が良い上位10%が集まる位置',
-            'sim.lgSpark': '折れ線＝その変数だけ動かしたときの変化',
-            'sim.lgRing': 'リング＝似た実データの件数',
-            'sim.lgBand': '帯＝予測の誤差範囲(±RMSE)',
             'sim.zoneReady': '▶ 推論をひらく',
             'sim.subtitle': '変数を動かして {{target}} の予測を確かめる',
             'sim.footNote': '大量データの一括予測はデスクトップ版（exe）をご利用ください',
@@ -2197,36 +2177,25 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             'common.listSep': ', ',
 
             'sim.bestTitle': 'Move the sliders to the point with the lowest response',
-            'sim.lgBestVar': 'Green mark = value of that variable at the best point',
             'sim.tipBest': 'Lowest response found while scanning: {{v}}',
             'sim.distTitle': 'Response distribution over {{n}} Sobol points in the input space',
-            'sim.lgBest': 'Green circle = point with the lowest response',
             'sim.addTitle': 'Load a trained model (.treg or exported HTML). Multiple models move together on the same sliders',
             'sim.removeModel': 'Remove this model',
+            'sim.removeMark': 'Remove this saved point',
             'sim.noteTitle': 'Notes about this model',
             'sim.notePlaceholder': 'Notes about this model (conditions, findings, what to try next)',
             'sim.noteSaved': 'Saved on this device',
             'sim.saveStateTitle': 'Save the current state (slider positions, names, saved point, notes)',
-            'sim.setTitle': 'Save the current combination of variables (overwrites the previous one)',
-            'sim.clearTitle': 'Remove the saved combination',
+            'sim.setTitle': 'Save the current combination of variables (adds a new one each time)',
+            'sim.clearTitle': 'Remove all saved combinations',
             'sim.markRecall': 'Saved combination. Click to move the sliders back to it',
-            'sim.lgMark': 'Purple mark = saved combination (SET)',
             'sim.renameTitle': 'You can rename this for the screen (the CSV column stays {{col}})',
             'sim.resetOneTitle': 'Reset just this variable',
             'sim.cliTitle': 'Save a script for batch prediction from the command line (node script input.csv)',
-            'sim.legendTitle': 'What the symbols mean',
             'sim.deltaNone': 'Same as the reference row',
             'sim.deltaNoneTitle': 'No variable has been moved yet',
             'sim.deltaFrom': '(from {{base}} / {{n}} changed)',
             'sim.deltaTitle': 'Difference from the reference prediction {{base}}. {{n}} variable(s) moved. Click a column name to revert just that one',
-            'sim.lgThumb': 'Handle = current value',
-            'sim.lgClip': 'Flat top = moving further changes nothing',
-            'sim.lgActual': 'Green circle = actual value of the reference row',
-            'sim.lgChanged': 'Left bar = moved variable (click the thin bar to revert)',
-            'sim.lgDensity': 'Hill = where the best 10% of responses cluster',
-            'sim.lgSpark': 'Line = effect of moving that variable alone',
-            'sim.lgRing': 'Ring = number of similar real rows',
-            'sim.lgBand': 'Band = prediction error range (±RMSE)',
             'sim.zoneReady': '▶ OPEN SIMULATOR',
             'sim.subtitle': 'Move the sliders to explore predictions for {{target}}',
             'sim.footNote': 'For batch prediction on large files, use the desktop app (exe)',
@@ -3380,13 +3349,18 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
                 </div>`;
         }
 
-        const dwTextDetail = renderDataWarningParts(r.data_warning_parts);
+        const dwTextDetail = renderDataWarningParts(r.data_warning_parts, isDataWarn);
         if (dwTextDetail) {
             html += `
                 <div class="detail-warning">
                     <span class="detail-warning-icon">!</span>
                     <span>${esc(dwTextDetail)}</span>
                 </div>`;
+        }
+        // 方法論の説明は懸念事項の枠(オレンジ)に入れず、ふつうの文字色で出す
+        const dnTextDetail = renderDataWarningParts(r.data_warning_parts, isDataNote);
+        if (dnTextDetail) {
+            html += `<div class="detail-note">${esc(dnTextDetail)}</div>`;
         }
 
         document.getElementById('detailContent').innerHTML = html;
@@ -3762,10 +3736,18 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
     // RESULT_JSONのdata_warning_parts(キー+paramsの配列)を表示言語へ翻訳して結合する。
     // 既存のdata_warning(日本語全文フィールド)は既存テストが直接依存しているため
     // 変更していない。表示はこちらの構造化フィールドを優先して使う。
-    function renderDataWarningParts(parts) {
+    // want を渡すと該当キーだけに絞る(懸念事項/方法論の説明を出し分けるため)。
+    function renderDataWarningParts(parts, want) {
         if (!Array.isArray(parts) || parts.length === 0) return '';
-        return parts.map(p => t('warning.' + p.key, p.params)).join(' ');
+        const filtered = want ? parts.filter(want) : parts;
+        return filtered.map(p => t('warning.' + p.key, p.params)).join(' ');
     }
+    // OOFで評価した／外れ値クリップを非適用にした、は「今回こう評価した」という
+    // 方法論の説明であって、対応が必要な懸念事項ではない。ここに含めたキーだけは
+    // 警告枠(オレンジ)を使わず、ふつうの文字色で表示する。
+    const DATA_NOTE_KEYS = new Set(['oof_eval', 'oof_eval_small_n', 'winsorize_skipped_cv']);
+    const isDataNote = (p) => DATA_NOTE_KEYS.has(p.key);
+    const isDataWarn = (p) => !DATA_NOTE_KEYS.has(p.key);
 
     // 学習結果パネルのうち「表示言語だけに依存する」テキスト部分(評価バッジ・データ警告・
     // RMSE/MAEラベル)をlastResultから再描画する。タブ切替・アニメーション等の副作用は
@@ -3795,13 +3777,20 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
         // 唯一「使えない」のはカーディナリティが行数に対して高すぎて除外された列
         // (cat_dropped_columns)なので、これのみ警告する。
         const warnParts = [];
-        const dwText = renderDataWarningParts(result.data_warning_parts);
+        const dwText = renderDataWarningParts(result.data_warning_parts, isDataWarn);
         if (dwText) warnParts.push(dwText);
         if (Array.isArray(result.cat_dropped_columns) && result.cat_dropped_columns.length > 0) {
             warnParts.push(t('warning.catDroppedFull', { cols: result.cat_dropped_columns }));
         }
         if (warnParts.length > 0) { warnEl.textContent = warnParts.join(' '); warnEl.style.display = ''; }
         else { warnEl.style.display = 'none'; }
+
+        // 方法論の説明（OOF評価・外れ値クリップ非適用など）は警告枠に入れず、
+        // ふつうの文字色で別枠に出す。
+        const noteEl = document.getElementById('dataNote');
+        const dnText = renderDataWarningParts(result.data_warning_parts, isDataNote);
+        if (dnText) { noteEl.textContent = dnText; noteEl.style.display = ''; }
+        else { noteEl.style.display = 'none'; }
 
         // RMSE / MAE を R² 下に常時表示
         const r2SubEl = document.getElementById('r2Sub');
@@ -3910,6 +3899,7 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
         lastPredictedCsv = null; document.getElementById('predictDownloadBtn').style.display = 'none';
         subFileName.innerText = ''; predictFileName.innerText = '';
         document.getElementById('dataWarning').style.display = 'none';
+        document.getElementById('dataNote').style.display = 'none';
         targetPanel.classList.remove('active');
         topDropZone.className = 'drop-zone action-pulse';
         trainBtn.disabled = true; trainBtn.className = 'btn'; trainBtn.style.display = '';
@@ -4299,7 +4289,7 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
         models: [],            // [{id,name,model,target,rmse,r2,refOnly,spec}]
         animRaf: 0, predShown: NaN,
         labels: {},            // 画面に出す変数名の置き換え {列名: 表示名}
-        mark: null,            // SETで登録した組み合わせ {state:{...}, y:予測値}
+        marks: [],             // SETで登録した組み合わせの一覧 [{state:{...}, y:予測値}, ...]
     };
     // base64 ⇄ バイト列。CLIスクリプトの書き出しと、埋め込みモデルの読み込みで使う。
     function _bytesToB64(bytes) {
@@ -4823,12 +4813,17 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
 
         // ⑤' SETで登録した組み合わせでのこの変数の値。右のグラフの印と同じ色・同じ形
         //     （紫の▼）にして、どちらが同じ組み合わせを指すのか対応が取れるようにする。
-        const mstate = SIM.mark && SIM.mark.state;
-        if (mstate && mstate[col] !== undefined) {
-            const mv = isNum ? Number(mstate[col]) : simLevelIndex(s, mstate[col]);
-            if (Number.isFinite(mv)) {
+        // 複数登録しているときは重なって見分けにくくなるため、1本あたりの不透明度を
+        // 下げる(多いほど薄く)。
+        if (SIM.marks.length) {
+            const a = Math.max(0.35, 0.9 / Math.sqrt(SIM.marks.length));
+            for (const mk of SIM.marks) {
+                const mstate = mk && mk.state;
+                if (!mstate || mstate[col] === undefined) continue;
+                const mv = isNum ? Number(mstate[col]) : simLevelIndex(s, mstate[col]);
+                if (!Number.isFinite(mv)) continue;
                 const mx2 = X(Math.min(Math.max(mv, lo), hi));
-                ctx.fillStyle = SIM_MARK_RGBA(0.9);
+                ctx.fillStyle = SIM_MARK_RGBA(a);
                 ctx.beginPath(); ctx.moveTo(mx2, railY - 9);
                 ctx.lineTo(mx2 + 3.6, railY - 14.5); ctx.lineTo(mx2 - 3.6, railY - 14.5);
                 ctx.closePath(); ctx.fill();
@@ -4946,7 +4941,7 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             simR2Note(),
         ].filter(Boolean).join('\n');
         simRenderModels();
-        simRenderMark();
+        simRenderMarks();
         simPaintPredictions();
     }
     function simR2Note() {
@@ -5003,16 +4998,20 @@ window.TregPredictCoreSource = "// predict-core.js — T-regressor .treg バイ�
             ctx.beginPath(); ctx.arc(bx, base, 4.5, 0, Math.PI * 2); ctx.stroke();
         }
 
-        // SETで登録した組み合わせ（スライダー上の印と同じ紫の▼）
-        if (SIM.mark && Number.isFinite(SIM.mark.y)) {
-            const mxp = X(Math.min(Math.max(SIM.mark.y, lo), hi));
-            ctx.setLineDash([2, 3]); ctx.strokeStyle = SIM_MARK_RGBA(0.6); ctx.lineWidth = 1.2;
-            ctx.beginPath(); ctx.moveTo(mxp, top - 2); ctx.lineTo(mxp, base); ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.fillStyle = SIM_MARK_RGBA(0.95);
-            ctx.beginPath(); ctx.moveTo(mxp, top + 3);
-            ctx.lineTo(mxp + 4, top - 3); ctx.lineTo(mxp - 4, top - 3);
-            ctx.closePath(); ctx.fill();
+        // SETで登録した組み合わせ（スライダー上の印と同じ紫の▼）。複数あれば全部描く。
+        if (SIM.marks.length) {
+            const ma = Math.max(0.35, 0.9 / Math.sqrt(SIM.marks.length));
+            for (const mk of SIM.marks) {
+                if (!mk || !Number.isFinite(mk.y)) continue;
+                const mxp = X(Math.min(Math.max(mk.y, lo), hi));
+                ctx.setLineDash([2, 3]); ctx.strokeStyle = SIM_MARK_RGBA(ma * 0.7); ctx.lineWidth = 1.2;
+                ctx.beginPath(); ctx.moveTo(mxp, top - 2); ctx.lineTo(mxp, base); ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = SIM_MARK_RGBA(ma);
+                ctx.beginPath(); ctx.moveTo(mxp, top + 3);
+                ctx.lineTo(mxp + 4, top - 3); ctx.lineTo(mxp - 4, top - 3);
+                ctx.closePath(); ctx.fill();
+            }
         }
 
         if (!Number.isFinite(p)) return;
@@ -5130,37 +5129,57 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
     }
 
     // ── 組み合わせの登録（SET / CLEAR） ───────────────────────────────────────
-    // 気に入った条件を1つ覚えておき、スライダー上と応答のグラフの両方に同じ色で
-    // 印を出す。動かしたあとでも、印をクリックすればその状態に戻れる。
+    // 気に入った条件を、押すたびに増やして残していける。登録した点はどれも
+    // スライダー上と応答のグラフの両方に同じ色(紫)で印が出る。動かしたあとでも、
+    // 一覧のどれかをクリックすればその状態に戻れる。
     function simSetMark() {
         if (!SIM.ready) return;
         const st = {};
         for (const s of simSpecs()) st[s.col] = SIM.state[s.col];
-        SIM.mark = { state: st, y: simPredict(st) };
+        SIM.marks.push({ state: st, y: simPredict(st) });
         simPersistUi(); simRenderPrediction(); simKick();
     }
-    function simClearMark() {
-        SIM.mark = null;
+    function simClearMarks() {
+        SIM.marks = [];
         simPersistUi(); simRenderPrediction(); simKick();
     }
-    function simRecallMark() {
-        if (!SIM.mark || !SIM.mark.state) return;
+    function simRemoveMark(i) {
+        SIM.marks.splice(i, 1);
+        simPersistUi(); simRenderPrediction(); simKick();
+    }
+    function simRecallMark(i) {
+        const m = SIM.marks[i];
+        if (!m || !m.state) return;
         for (const s of simSpecs()) {
-            if (SIM.mark.state[s.col] === undefined) continue;
-            SIM.state[s.col] = SIM.mark.state[s.col];
+            if (m.state[s.col] === undefined) continue;
+            SIM.state[s.col] = m.state[s.col];
         }
         simRefreshSliders(); simRenderPrediction(); simKick();
     }
-    function simRenderMark() {
-        const box = simEl('simMark');
-        if (!box) return;
-        const on = !!(SIM.mark && Number.isFinite(SIM.mark.y));
-        box.style.display = on ? '' : 'none';
-        if (on) simEl('simMarkVal').textContent = simFmt(SIM.mark.y);
+    function simRenderMarks() {
+        const host = simEl('simMarks');
+        if (!host) return;
+        host.innerHTML = '';
+        SIM.marks.forEach(function (m, i) {
+            if (!Number.isFinite(m.y)) return;
+            const row = document.createElement('div');
+            row.className = 'sim-mark-row';
+            row.title = t('sim.markRecall');
+            row.addEventListener('click', function () { simRecallMark(i); });
+            const tag = document.createElement('span'); tag.className = 'sim-mark-tag';
+            tag.textContent = 'SET ' + (i + 1);
+            const val = document.createElement('span'); val.className = 'sim-mark-val';
+            val.textContent = simFmt(m.y);
+            const x = document.createElement('button'); x.className = 'sim-mark-x';
+            x.type = 'button'; x.textContent = '×'; x.title = t('sim.removeMark');
+            x.addEventListener('click', function (e) { e.stopPropagation(); simRemoveMark(i); });
+            row.appendChild(tag); row.appendChild(val); row.appendChild(x);
+            host.appendChild(row);
+        });
         const cb = simEl('simClearBtn');
-        if (cb) cb.disabled = !SIM.mark;
+        if (cb) cb.disabled = SIM.marks.length === 0;
         const sb = simEl('simSetBtn');
-        if (sb) sb.classList.toggle('on', !!SIM.mark);
+        if (sb) sb.classList.toggle('on', SIM.marks.length > 0);
     }
 
     // ── 画面の状態の保存 ──────────────────────────────────────────────────────
@@ -5173,7 +5192,7 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
     function simCurrentUi() {
         const st = {};
         for (const s of simSpecs()) st[s.col] = SIM.state[s.col];
-        return { labels: SIM.labels, mark: SIM.mark, state: st };
+        return { labels: SIM.labels, marks: SIM.marks, state: st };
     }
     function simPersistUi() {
         try { localStorage.setItem(simUiKey(), JSON.stringify(simCurrentUi())); } catch (_) {}
@@ -5201,12 +5220,11 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
         };
         const st = take(ui.state);
         for (const col in st) SIM.state[col] = st[col];
-        if (ui.mark && ui.mark.state) {
-            const ms = take(ui.mark.state);
-            SIM.mark = Object.keys(ms).length ? { state: ms, y: simPredict(ms) } : null;
-        } else {
-            SIM.mark = null;
-        }
+        // marks は新形式(配列)。古い保存データ(単一の mark)も読めるようにしておく。
+        const rawMarks = Array.isArray(ui.marks) ? ui.marks : (ui.mark ? [ui.mark] : []);
+        SIM.marks = rawMarks
+            .map(mk => { const ms = take(mk && mk.state); return Object.keys(ms).length ? { state: ms, y: simPredict(ms) } : null; })
+            .filter(Boolean);
     }
     function simRestoreUi() {
         try {
@@ -5366,7 +5384,7 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
     }
     function simInit(result) {
         SIM.ready = false; SIM.models = []; SIM.dist = null; SIM.predShown = NaN;
-        SIM.state = {}; SIM.anim = {};
+        SIM.state = {}; SIM.anim = {}; SIM.labels = {}; SIM.marks = [];
         if (!simCanUse(result)) return false;
         let model;
         try { model = simTregFromBytes(Platform.getTregBytes()); }
@@ -5414,24 +5432,6 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
         if (!SIM.ready) return;
         simRenderSliders();
         simRenderPrediction();
-        simRenderLegend();
-    }
-    function simRenderLegend() {
-        const host = simEl('simLegend');
-        const items = [
-            ['', '●', 'sim.lgThumb'], ['bad', '■', 'sim.lgClip'],
-            ['good', '○', 'sim.lgBestVar'], ['', '▁▃▅', 'sim.lgDensity'],
-            ['warn', '▌', 'sim.lgChanged'], ['', '▓', 'sim.lgBand'],
-            ['mark', '▼', 'sim.lgMark'],
-        ];
-        host.innerHTML = '';
-        for (const it of items) {
-            const d = document.createElement('div');
-            const m = document.createElement('span');
-            m.className = 'mk ' + it[0]; m.textContent = it[1];
-            d.appendChild(m); d.appendChild(document.createTextNode(t(it[2])));
-            host.appendChild(d);
-        }
     }
 
     // ── オーバーレイの開閉 ────────────────────────────────────────────────────
@@ -5472,14 +5472,7 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
         simRefreshSliders(); simRenderPrediction(); simKick();
     });
     simEl('simSetBtn').addEventListener('click', simSetMark);
-    simEl('simClearBtn').addEventListener('click', simClearMark);
-    simEl('simMark').addEventListener('click', simRecallMark);
-    simEl('simLegendBtn').addEventListener('click', function () {
-        const lg = simEl('simLegend');
-        const open = lg.classList.toggle('open');
-        simEl('simLegendBtn').classList.toggle('on', open);
-        requestAnimationFrame(function () { simRefreshSliders(); simRenderPrediction(); });
-    });
+    simEl('simClearBtn').addEventListener('click', simClearMarks);
     simEl('simNoteBtn').addEventListener('click', function () {
         const n = simEl('simNote');
         const open = n.classList.toggle('open');
@@ -5729,8 +5722,10 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
             deployNote.textContent = substituted
                 ? t('ui.deployedNoteSubstituted', { model: lastResult.deployed_model })
                 : t('ui.deployedNote');
-            deployNote.className = 'deploy-note active';
-            deployNote.style.color = '#f0a94e';
+            // 配布完了そのものは注意事項ではないので、ふつうの文字色にする。
+            // モデルが差し替わった場合だけ、下の warnBanner と揃えて琥珀色で目立たせる。
+            deployNote.className = substituted ? 'deploy-note active' : 'deploy-note';
+            deployNote.style.color = substituted ? '#f0a94e' : '';
             // 中-M4: 以前はモデル差替・カテゴリ列の注意を吹き出しに全文追記していたため、
             // 高さ上限(150px≒文字数上限CHAT_MSG_MAX_CHARS=130)を超えて「…」に消えていた。
             // 詳細は常設バナー(warnBanner)へ出し、吹き出しには短い要約だけを残す。

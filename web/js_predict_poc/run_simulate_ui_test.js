@@ -142,7 +142,7 @@ chk(!d.getElementById('simDelta')&&!d.getElementById('simRingCanvas')&&!d.getEle
   '応答側はグラフと応答値だけ（差分・リング・フラグは無い）');
 chk(!d.getElementById('simSaveBtn'),'CSV保存(↓)ボタンは無い');
 chk(!d.getElementById('simFoot'),'下部の案内文は無い');
-chk(!/sim\.lgExtrap/.test(html),'使っていない記号(外挿のひし形)は凡例に無い');
+chk(!d.getElementById('simLegendBtn')&&!d.getElementById('simLegend'),'？の凡例機能は無い');
 {// 単体HTML(DLしたもの)は、本体のSIMULATEと寸分たがわず同じ見た目にする。
  // sim-only 側でパネルの大きさ・位置を上書きすると本体とずれ、端が切れる原因になる。
  // 上書きしてよいのは背景(後ろに本体UIが無いため)と閉じるボタンの非表示だけ。
@@ -167,10 +167,6 @@ chk(!/sim\.lgExtrap/.test(html),'使っていない記号(外挿のひし形)は
  const w2=(sm.match(/width: (\d+)px/)||[])[1];
  chk(w1===w2,`スクロールバーの太さが本体と同じ (${w1}px / ${w2}px)`);
  chk(/rgba\(63,196,236,0\.14\)/.test(sm),'スクロールバーの色も本体と同じ');}
-{el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
- const marks=[...d.querySelectorAll('#simLegend .mk')].map(e=>e.textContent);
- chk(!marks.includes('◆'),`凡例に◆が無い (${marks.join('')})`);
- el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));}
 chk(!/btn-deploy-ready \{ color: var\(--gold\)/.test(html),'DEPLOYの準備完了はオレンジではない');
 chk(!/ctaGlowGold/.test(html),'DEPLOY用の金色アニメーションは無い');
 chk(/\.sim-sliders \{ display: flex; flex-direction: column;/.test(html),'スライダーは縦一列');
@@ -309,7 +305,7 @@ console.log('\n[4b] Sobol列そのものの健全性');
    mx=Math.max(mx,Math.abs(c));}
  chk(mx<0.05,`${dim}変数${n}点での次元間相関が小さい (最大 ${mx.toFixed(4)} < 0.05)`);}
 
-console.log('\n[5] カテゴリ・連動・保存・凡例');
+console.log('\n[5] カテゴリ・連動・保存');
 const catRow=[...d.querySelectorAll('.sim-row')].find(r=>r.dataset.col==='grade');
 const catRng=catRow.querySelector('input[type=range]');
 catRng.value='1'; catRng.dispatchEvent(new w.Event('input',{bubbles:true}));
@@ -331,10 +327,6 @@ chk(!d.getElementById('simLinkBtn'),'連動モードのボタンは無い（変�
  chk(moved.length===1&&moved[0]===cc,
    `動かした1本だけが変わる (変化した変数: ${moved.join(',')||'なし'})`);
  d.getElementById('simResetBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));}
-chk(!el('simLegend').classList.contains('open'),'凡例は既定で閉じている');
-el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-chk(el('simLegend').classList.contains('open')&&d.querySelectorAll('#simLegend div').length>=6,'?で凡例が開く');
-el('simLegendBtn').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 
 console.log('\n[6] 低精度時の抑制表示');
 {const R2=JSON.parse(JSON.stringify(RESULT)); R2.r2=0.28;
@@ -575,30 +567,42 @@ console.log('\n[15] 変数名の書き換え');
  r1.querySelector('.sim-imp').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
  chk(String(H.SIM.state[c1])===before,'左端の棒をクリックでその変数だけ元に戻る');}
 
-console.log('\n[16] 組み合わせの登録（SET / CLEAR）');
+console.log('\n[16] 組み合わせの登録（SET / CLEAR、押すたびに増える）');
 {const setB=d.getElementById('simSetBtn'), clrB=d.getElementById('simClearBtn');
  chk(!!setB&&!!clrB,'SET と CLEAR のボタンがある');
- chk(d.getElementById('simMark').style.display==='none','登録前は何も出ない');
+ chk(d.getElementById('simMarks').children.length===0,'登録前は何も出ない');
  const r2=d.querySelectorAll('.sim-row')[2], c2=r2.dataset.col;
  const rng2=r2.querySelector('input[type=range]');
  rng2.value=rng2.max; rng2.dispatchEvent(new w.Event('change',{bubbles:true}));
  const at=String(H.SIM.state[c2]), pred=el('simPredVal').textContent;
  setB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
- chk(!!H.SIM.mark&&String(H.SIM.mark.state[c2])===at,'SETで今の組み合わせを登録できる');
- chk(d.getElementById('simMark').style.display!=='none','登録した応答値が出る');
- chk(Math.abs(Number(el('simMarkVal').textContent)-Number(pred))<0.2,
-   `登録時の予測値が出る (${el('simMarkVal').textContent} / 画面 ${pred})`);
- chk(Object.keys(H.SIM.mark.state).length===simSpecCols.length,'全変数の値を覚える');
- // 別の場所へ動かしても登録は消えない。印をクリックすれば戻れる
+ chk(H.SIM.marks.length===1&&String(H.SIM.marks[0].state[c2])===at,'SETで今の組み合わせを登録できる');
+ chk(d.getElementById('simMarks').children.length===1,'登録した行が一覧に出る');
+ const rowEl=()=>d.getElementById('simMarks').children[0];
+ chk(Math.abs(Number(rowEl().querySelector('.sim-mark-val').textContent)-Number(pred))<0.2,
+   `登録時の予測値が出る (${rowEl().querySelector('.sim-mark-val').textContent} / 画面 ${pred})`);
+ chk(Object.keys(H.SIM.marks[0].state).length===simSpecCols.length,'全変数の値を覚える');
+ // 別の場所へ動かしてもう一度SET → ボタンが増える
  rng2.value=rng2.min; rng2.dispatchEvent(new w.Event('change',{bubbles:true}));
- chk(String(H.SIM.state[c2])!==at,'動かすと現在値は離れる');
- chk(String(H.SIM.mark.state[c2])===at,'登録した値は動かない');
- d.getElementById('simMark').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
- chk(String(H.SIM.state[c2])===at,'印をクリックすると登録した状態に戻る');
+ const at2=String(H.SIM.state[c2]);
+ chk(at2!==at,'動かすと現在値は離れる');
+ chk(String(H.SIM.marks[0].state[c2])===at,'1つ目の登録は動かない');
+ setB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ chk(H.SIM.marks.length===2,`SETするたびにボタンが増える (${H.SIM.marks.length}個)`);
+ chk(d.getElementById('simMarks').children.length===2,'一覧の行も増える');
+ // 1つ目の行をクリックすると、その状態に戻る
+ d.getElementById('simMarks').children[0].dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ chk(String(H.SIM.state[c2])===at,'一覧の行をクリックするとその登録内容に戻る');
+ // ×で1つだけ消せる
+ d.getElementById('simMarks').children[0].querySelector('.sim-mark-x')
+   .dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ chk(H.SIM.marks.length===1,'×で1件だけ消せる');
+ // CLEARで全部消える
  clrB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
- chk(H.SIM.mark===null,'CLEARで登録を消せる');
- chk(d.getElementById('simMark').style.display==='none','消すと表示も消える');
+ chk(H.SIM.marks.length===0,'CLEARで全部消せる');
+ chk(d.getElementById('simMarks').children.length===0,'消すと一覧も空になる');
  // もう一度登録しておく（保存に含まれるか見るため）
+ setB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
  setB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));}
 
 console.log('\n[17] 右上の保存（今の状態ごと書き出す）');
@@ -620,7 +624,7 @@ console.log('\n[17] 右上の保存（今の状態ごと書き出す）');
    const pl=JSON.parse(m[1]);
    chk(!!pl.ui,'画面の状態も一緒に入る');
    chk(pl.ui.labels&&Object.values(pl.ui.labels).includes('反応温度'),'書き換えた変数名が入る');
-   chk(!!pl.ui.mark&&!!pl.ui.mark.state,'登録した組み合わせが入る');
+   chk(Array.isArray(pl.ui.marks)&&pl.ui.marks.length===2,`登録した組み合わせが全部入る (${pl.ui.marks&&pl.ui.marks.length}件)`);
    chk(Object.keys(pl.ui.state).length===simSpecCols.length,'スライダーの位置が入る');
    // 保存したHTMLを開くと、その状態から始まる
    const d3=new JSDOM(outHtml,{runScripts:'outside-only',pretendToBeVisual:true,url:'http://localhost/'});
@@ -637,7 +641,7 @@ console.log('\n[17] 右上の保存（今の状態ごと書き出す）');
     const S3=w3.__H3__&&w3.__H3__.SIM;
     const nm3=w3.document.querySelector('.sim-name');
     chk(!!nm3&&nm3.value==='反応温度',`開くと変数名も再現される (${nm3&&nm3.value})`);
-    chk(!!S3&&!!S3.mark,'登録した組み合わせも再現される');
+    chk(!!S3&&Array.isArray(S3.marks)&&S3.marks.length===2,`登録した組み合わせも全部再現される (${S3&&S3.marks&&S3.marks.length})`);
     const same=simSpecCols.every(c=>String(S3.state[c])===String(H.SIM.state[c]));
     chk(same,'スライダーの位置も再現される');
     // 背景クリックで消えてしまうと、単体HTMLでは戻す手段が無い
