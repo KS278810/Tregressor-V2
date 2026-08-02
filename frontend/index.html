@@ -652,15 +652,23 @@
         }
         .sim-close-btn:hover { color: var(--bad); border-color: rgba(239,92,92,0.5); }
         .sim-grid {
-            display: grid; grid-template-columns: 1fr 420px;
-            flex: 1; min-height: 0; padding: 12px 20px 0 20px; gap: 20px;
+            display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 400px);
+            flex: 1; min-height: 0; min-width: 0; overflow: auto;
+            padding: 12px 18px 12px 18px; gap: 18px;
         }
-        .sim-left { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .sim-left { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
         /* スライダーは縦一列に並べる。多い場合はここだけがスクロールする。 */
         .sim-sliders { display: flex; flex-direction: column; flex: 1; min-height: 0;
                        overflow-y: auto; padding-right: 6px; justify-content: center; }
-        .sim-sliders::-webkit-scrollbar { width: 6px; }
-        .sim-sliders::-webkit-scrollbar-thumb { background: rgba(160,190,220,0.2); border-radius: 3px; }
+        /* スクロールバーは本体(.feature-bars-scroll)と同じ見た目に揃える */
+        .sim-sliders::-webkit-scrollbar, .sim-grid::-webkit-scrollbar,
+        .sim-right::-webkit-scrollbar { width: 3px; height: 3px; }
+        .sim-sliders::-webkit-scrollbar-track, .sim-grid::-webkit-scrollbar-track,
+        .sim-right::-webkit-scrollbar-track { background: transparent; }
+        .sim-sliders::-webkit-scrollbar-thumb, .sim-grid::-webkit-scrollbar-thumb,
+        .sim-right::-webkit-scrollbar-thumb { background: rgba(63,196,236,0.14); border-radius: 2px; }
+        .sim-sliders::-webkit-scrollbar-thumb:hover, .sim-grid::-webkit-scrollbar-thumb:hover,
+        .sim-right::-webkit-scrollbar-thumb:hover { background: rgba(63,196,236,0.32); }
         .sim-toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; }
         .sim-seedseg { display: flex; border: 1px solid var(--hairline); border-radius: 5px; overflow: hidden; }
         .sim-seedseg button {
@@ -892,8 +900,13 @@
         body.sim-only header, body.sim-only .top-panel,
         body.sim-only .main-content, body.sim-only .status-bar,
         body.sim-only #startupOverlay, body.sim-only #termsOverlay { display: none !important; }
-        body.sim-only #simulateOverlay { background: transparent; backdrop-filter: none; padding: 20px; }
-        body.sim-only #simulatePanel { width: calc(100vw - 40px); height: calc(100vh - 40px); }
+        body.sim-only #simulateOverlay { background: transparent; backdrop-filter: none; padding: 0; }
+        /* 単体HTMLでは画面いっぱいに敷く。100vw/100vh はスクロールバーの分だけ
+           はみ出すことがあるので、fixed の inset で確実に内側に収める。 */
+        body.sim-only #simulatePanel {
+            position: fixed; inset: 0; width: auto; height: auto;
+            max-width: none; max-height: none; border: none; border-radius: 0;
+        }
         body.sim-only #simCloseBtn { display: none; }
         /* モデルについてのメモ。書いた内容はこの端末に自動保存され、
            「メモごと保存」で本文を埋め込んだHTMLとして書き出せる（人に渡せる）。 */
@@ -1124,7 +1137,7 @@
             <button id="simCloseBtn" class="sim-close-btn">✕</button>
         </div>
         <div class="sim-legend" id="simLegend"></div>
-        <div class="sim-note" id="simNote">
+        <div class="sim-note open" id="simNote">
             <textarea id="simNoteText" data-i18n-placeholder="sim.notePlaceholder"
                       placeholder="このモデルについてのメモ（条件・気づいたこと・次に試すこと）"></textarea>
             <div class="sim-note-bar">
@@ -4632,23 +4645,10 @@ src.replace(/module\.exports\s*=\s*\{[^}]*\};?/, ''),
     }
 
     // ── オーバーレイの開閉 ────────────────────────────────────────────────────
-    // 書き出した単体HTMLは開く環境の画面サイズが分からない。中身が入りきらない
-    // ときは全体を縮めて必ず収める（ブラウザの拡大率が125%でもはみ出さない）。
-    function simFitToViewport() {
-        const panel = document.getElementById('simulatePanel');
-        const grid = panel && panel.querySelector('.sim-grid');
-        if (!panel || !grid) return;
-        grid.style.transform = ''; grid.style.width = ''; grid.style.height = '';
-        const avail = panel.clientHeight - (panel.firstElementChild ? panel.firstElementChild.offsetHeight : 0) - 8;
-        const need = grid.scrollHeight;
-        if (avail > 0 && need > avail) {
-            const k = Math.max(0.6, avail / need);
-            grid.style.transformOrigin = 'top left';
-            grid.style.transform = 'scale(' + k.toFixed(3) + ')';
-            grid.style.width = (100 / k) + '%';
-            grid.style.height = (avail / k) + 'px';
-        }
-    }
+    // 開く環境の画面サイズは分からないので、収まらない場合は領域ごとに
+    // スクロールさせる。拡大縮小(transform)は親が overflow:hidden のときに
+    // かえって端が切れる原因になるため使わない。
+    function simFitToViewport() { /* レイアウトはCSSに任せる */ }
 
     function simOpen() {
         if (!SIM.ready) return;
