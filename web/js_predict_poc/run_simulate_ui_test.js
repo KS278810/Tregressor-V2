@@ -36,7 +36,7 @@ if(!w.TextEncoder) w.TextEncoder=require('util').TextEncoder;
 Object.defineProperty(w.Element.prototype,'clientWidth',{get(){return 300;}});
 w.addEventListener('error',e=>errs.push('window.error: '+e.message));
 const code=html.match(/<script>([\s\S]*)<\/script>/)[1];
-try{w.eval(code+'\n;window.__H__={Platform:Platform,applyTrainingResult:applyTrainingResult,showTrainedTab:showTrainedTab,SIM:SIM,simSobolCount:simSobolCount,simSobol:simSobol,simSobolEach:simSobolEach,simAddModelFile:simAddModelFile,simBuildCliScript:simBuildCliScript};');}catch(e){errs.push('THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,6).join('\n'));}
+try{w.eval(code+'\n;window.__H__={Platform:Platform,applyTrainingResult:applyTrainingResult,showTrainedTab:showTrainedTab,SIM:SIM,simSobolCount:simSobolCount,simSobol:simSobol,simSobolEach:simSobolEach,simAddModelFile:simAddModelFile,simBuildCliScript:simBuildCliScript,setLang:setLang,t:t};');}catch(e){errs.push('THROW: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,6).join('\n'));}
 
 console.log('[0] 埋め込みエンジン');
 chk(errs.length===0,'スクリプトが例外なく実行される'); if(errs.length){console.log(errs.join('\n'));process.exit(1);}
@@ -544,6 +544,20 @@ console.log('\n[14] メモ');
  chk(stored===ta.value,'入力がこの端末に自動保存される');
  chk(d.getElementById('simNoteBtn').classList.contains('on'),'メモがあると入口に印が付く');
  chk(!d.getElementById('simNoteSaveBtn'),'メモ欄の中に保存ボタンは無い（右上に集約した）');
+ // メモ機能の文言(ボタンのtitle・placeholder)は共有先の言語を選ばないよう常に英語。
+ // 本体の言語トグル(data-i18n-*)には追従させない。
+ chk(!d.getElementById('simNoteBtn').hasAttribute('data-i18n-title'),
+   'メモボタンのtitleは言語トグルに追従しない(常に英語)');
+ chk(d.getElementById('simNoteBtn').title==='Notes about this model',
+   `メモボタンのtitleは英語固定 (${d.getElementById('simNoteBtn').title})`);
+ chk(!d.getElementById('simNoteText').hasAttribute('data-i18n-placeholder'),
+   'メモ入力欄のplaceholderも言語トグルに追従しない(常に英語)');
+ chk(/^Notes about this model/.test(d.getElementById('simNoteText').placeholder),
+   `placeholderは英語固定 (${d.getElementById('simNoteText').placeholder})`);
+ H.setLang && H.setLang('ja'); // 本体の言語をJPに変えても、メモの文言は英語のまま
+ chk(d.getElementById('simNoteBtn').title==='Notes about this model',
+   '本体の言語をJPにしてもメモボタンのtitleは英語のまま');
+ H.setLang && H.setLang('en');
 
 console.log('\n[15] 変数名の書き換え');
 {const r0=d.querySelectorAll('.sim-row')[0], col0=r0.dataset.col;
@@ -567,10 +581,14 @@ console.log('\n[15] 変数名の書き換え');
  r1.querySelector('.sim-imp').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
  chk(String(H.SIM.state[c1])===before,'左端の棒をクリックでその変数だけ元に戻る');}
 
-console.log('\n[16] 組み合わせの登録（SET / CLEAR、押すたびに増える）');
+console.log('\n[16] 組み合わせの登録（SET / CLEAR、押すたびに増える、色は1件ごとに違う）');
 {const setB=d.getElementById('simSetBtn'), clrB=d.getElementById('simClearBtn');
  chk(!!setB&&!!clrB,'SET と CLEAR のボタンがある');
+ // 変数側(左)に置く。応答側(右、応答値・ヒストグラムのある sim-right)には置かない
+ chk(!!d.querySelector('.sim-left #simMarks'),'登録一覧は変数側(左)にある');
+ chk(!d.querySelector('.sim-right #simMarks'),'登録一覧は応答側(右)には無い');
  chk(d.getElementById('simMarks').children.length===0,'登録前は何も出ない');
+ chk(clrB.disabled,'登録が無ければCLEARは無効');
  const r2=d.querySelectorAll('.sim-row')[2], c2=r2.dataset.col;
  const rng2=r2.querySelector('input[type=range]');
  rng2.value=rng2.max; rng2.dispatchEvent(new w.Event('change',{bubbles:true}));
@@ -578,11 +596,15 @@ console.log('\n[16] 組み合わせの登録（SET / CLEAR、押すたびに増�
  setB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
  chk(H.SIM.marks.length===1&&String(H.SIM.marks[0].state[c2])===at,'SETで今の組み合わせを登録できる');
  chk(d.getElementById('simMarks').children.length===1,'登録した行が一覧に出る');
- const rowEl=()=>d.getElementById('simMarks').children[0];
- chk(Math.abs(Number(rowEl().querySelector('.sim-mark-val').textContent)-Number(pred))<0.2,
-   `登録時の予測値が出る (${rowEl().querySelector('.sim-mark-val').textContent} / 画面 ${pred})`);
+ const rowEl=(i)=>d.getElementById('simMarks').children[i];
+ chk(Math.abs(Number(rowEl(0).querySelector('.sim-mark-val').textContent)-Number(pred))<0.2,
+   `登録時の予測値が出る (${rowEl(0).querySelector('.sim-mark-val').textContent} / 画面 ${pred})`);
  chk(Object.keys(H.SIM.marks[0].state).length===simSpecCols.length,'全変数の値を覚える');
- // 別の場所へ動かしてもう一度SET → ボタンが増える
+ chk(!clrB.disabled,'SET直後はそれがアクティブになりCLEARが有効になる');
+ chk(rowEl(0).classList.contains('active'),'SETした行は自動的にアクティブ表示になる');
+ const color1=rowEl(0).style.getPropertyValue('--mc');
+ chk(!!color1,'各行に固有の色が設定される(CSS変数 --mc)');
+ // 別の場所へ動かしてもう一度SET → ボタンが増え、色も変わる
  rng2.value=rng2.min; rng2.dispatchEvent(new w.Event('change',{bubbles:true}));
  const at2=String(H.SIM.state[c2]);
  chk(at2!==at,'動かすと現在値は離れる');
@@ -590,16 +612,25 @@ console.log('\n[16] 組み合わせの登録（SET / CLEAR、押すたびに増�
  setB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
  chk(H.SIM.marks.length===2,`SETするたびにボタンが増える (${H.SIM.marks.length}個)`);
  chk(d.getElementById('simMarks').children.length===2,'一覧の行も増える');
- // 1つ目の行をクリックすると、その状態に戻る
- d.getElementById('simMarks').children[0].dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ const color2=rowEl(1).style.getPropertyValue('--mc');
+ chk(color1!==color2,`SETごとに違う色が割り当てられる (${color1} / ${color2})`);
+ chk(rowEl(1).classList.contains('active')&&!rowEl(0).classList.contains('active'),
+   '新しく登録したほうがアクティブになる(前のは外れる)');
+ // 1つ目の行をクリックすると、その状態に戻りつつアクティブになる
+ rowEl(0).dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
  chk(String(H.SIM.state[c2])===at,'一覧の行をクリックするとその登録内容に戻る');
- // ×で1つだけ消せる
+ chk(rowEl(0).classList.contains('active')&&!rowEl(1).classList.contains('active'),
+   'クリックした行がアクティブになる(クリック=CLEAR対象を選ぶ操作)');
+ // CLEARは「アクティブな1件だけ」を消す(全部は消えない)
+ clrB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
+ chk(H.SIM.marks.length===1,`CLEARはアクティブな1件だけを消す(残り${H.SIM.marks.length}件)`);
+ chk(H.SIM.marks[0].state[c2]!==undefined&&String(H.SIM.marks[0].state[c2])!==at,
+   '消えたのは選んでいた1つ目で、2つ目は残る');
+ chk(clrB.disabled,'消した後は選択が無くなりCLEARは再び無効になる');
+ // ×ボタンでも個別に消せる(クリックしてアクティブにしなくても消せる)
  d.getElementById('simMarks').children[0].querySelector('.sim-mark-x')
    .dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
- chk(H.SIM.marks.length===1,'×で1件だけ消せる');
- // CLEARで全部消える
- clrB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
- chk(H.SIM.marks.length===0,'CLEARで全部消せる');
+ chk(H.SIM.marks.length===0,'×でも1件だけ消せる');
  chk(d.getElementById('simMarks').children.length===0,'消すと一覧も空になる');
  // もう一度登録しておく（保存に含まれるか見るため）
  setB.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
@@ -659,6 +690,36 @@ const shown=el('simulateSection').textContent.replace(/\s+/g,' ').trim();
 console.log('       '+JSON.stringify(shown.slice(0,150))+'...');
 console.log('       文字数 '+shown.length+' / title保持要素 '+q('#simulateSection [title]'));
 chk(q('#simulateSection [title]')>=15,'説明はtitleに退避されている');
+
+console.log('\n[18] 中国語(zh)対応');
+{
+ const btns=[...d.querySelectorAll('.lang-toggle-btn')].map(b=>b.dataset.lang);
+ chk(btns.includes('ja')&&btns.includes('en')&&btns.includes('zh'),
+   `言語トグルに日本語・英語・中国語がある (${btns.join(',')})`);
+ // 3言語すべてで同じキー集合を持つ(訳し忘れがあると、その言語だけ他言語の文言が
+ // 出てしまうため、キーの過不足がないことを機械的に確認する)。
+ const i18nSrc=html.slice(html.indexOf('const I18N = {'), html.indexOf('\n    };', html.indexOf('const I18N = {'))+8);
+ const dictKeys=(name)=>{
+   const s=i18nSrc.indexOf(name+': {');
+   const nextNames=['ja: {','en: {','zh: {'].map(n=>i18nSrc.indexOf(n)).filter(i=>i>s);
+   const e=nextNames.length?Math.min(...nextNames):i18nSrc.length;
+   return new Set([...i18nSrc.slice(s,e).matchAll(/^\s*'([a-zA-Z0-9_.]+)':/gm)].map(m=>m[1]));
+ };
+ const jaK=dictKeys('ja'), enK=dictKeys('en'), zhK=dictKeys('zh');
+ chk(jaK.size>200&&enK.size===jaK.size&&zhK.size===jaK.size,
+   `ja/en/zh のキー数が一致する (ja=${jaK.size} en=${enK.size} zh=${zhK.size})`);
+ const missingInZh=[...jaK].filter(k=>!zhK.has(k));
+ chk(missingInZh.length===0,`zhに無いキーが無い (${missingInZh.slice(0,5).join(',')})`);
+ // 実際に切り替えて、中国語の訳文が表示に反映されることを確認する
+ H.setLang('zh');
+ const exportBtnText=d.getElementById('exportBtn').textContent;
+ chk(exportBtnText==='下载模型',`中国語に切り替えると翻訳が反映される (${exportBtnText})`);
+ // メモの文言は言語トグルに追従せず英語のまま(前述の[14]の方針と矛盾しない)
+ chk(d.getElementById('simNoteBtn').title==='Notes about this model',
+   '中国語に切り替えてもメモの文言は英語のまま');
+ H.setLang('en');
+ chk(d.getElementById('exportBtn').textContent==='Download model','英語に戻せる');
+}
 
 console.log('');
 if(errs.length){console.log('ERRORS:\n'+errs.join('\n'));process.exit(1);}
