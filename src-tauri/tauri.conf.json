@@ -1,7 +1,7 @@
 {
   "productName": "T-regressor",
   "version": "1.0.0",
-  "identifier": "jp.brainverse.tregressor",
+  "identifier": "jp.tregressor",
   "build": {
     "frontendDist": "../frontend"
   },

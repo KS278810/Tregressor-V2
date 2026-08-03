@@ -281,6 +281,4 @@ Copyright (c) 2026 Kohei Shintani, licensed under CC BY-NC 4.0
 https://creativecommons.org/licenses/by-nc/4.0/
 ```
 
-### 質問・許可申請の連絡先
-
-kohei.shintani@brainverse.jp
+<!-- 連絡先情報は削除されました -->
