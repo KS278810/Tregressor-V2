@@ -20,6 +20,11 @@
 # 生成手順: cd web && node build_offline.mjs (詳細はREADME.md/web/README.md参照)。
 /web/offline-embed.js
 
+# web/_public_site/ は成果物専用の公開リポジトリ(KS278810/T-regressor-app)へpushする
+# ための「別のgit管理下」の作業フォルダ(web/deploy_public.ps1が生成・使用)。
+# 本リポジトリ(非公開)からは無関係な入れ子git扱いになるため追跡対象外にする。
+/web/_public_site/
+
 # build_portable.ps1 実行時のステージング用コピー(T-regressor.exeに埋め込み済みのため
 # 配布には不要。実体はリポジトリルート/frontend/native_predictorの各ファイル)
 /dist_portable/T-regressor/_light.py
