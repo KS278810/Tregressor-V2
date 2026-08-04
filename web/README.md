@@ -200,8 +200,18 @@ npm run build:obfuscated
 `build_frontend.mjs`（および `offline.html` を使う場合は `build_offline.mjs`）を先に実行して
 `index.html` / `offline.html` を最新化してから実行すること。生成物は `dist_obfuscated/` にのみ出力され、
 `.gitignore` によりコミット対象外。難読化対象はアプリ本体ロジック（inline `<script>` と
-`treg-engine.js` / `treg-worker.js` / `treg-worker-client.js` / `offline-engine.js`）のみで、
-`vendor/pyodide/`（サードパーティ）・`offline-embed.js`（埋め込みデータ）はそのままコピーする。
+`treg-engine.js` / `treg-worker.js` / `treg-worker-client.js` / `offline-engine.js`）に加え、
+`py/` 配下の Python ソース（`train_bridge.py` / `_light.py` / `predict_template.py`、
+`python-minifier` でコメント/docstring除去+識別子短縮。ロジックの意味は変えない。
+`pip install python-minifier` が必要）。`vendor/pyodide/`（サードパーティ）・
+`offline-embed.js`（埋め込みデータ）・`predict_template.html`（`__TREG_BASE64__`
+プレースホルダの生テキスト置換に依存するため対象外）はそのままコピーする。
+
+**2026-08〜**: GitHub Pages配信（`.github/workflows/pages.yml`）はこの難読化ビルドを
+`node build_obfuscated.mjs --site` で実行してから配信するようになった（`--site` は
+Pages配信対象のみに絞るオプション。`offline.html`/`offline-engine.js`は対象外）。
+配信先は本リポジトリ(ソース非公開)とは別の成果物専用公開リポジトリ
+（`KS278810/T-regressor-app`）。詳細はワークフローファイル冒頭のコメント参照。
 
 ## 動作特性（利用者に伝えるべき点）
 
