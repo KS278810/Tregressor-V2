@@ -3212,22 +3212,12 @@
     // TERMS_VERSION を変更すると、過去に同意済みの利用者にも再度同意を求められる。
     if (!IS_TAURI) {
         const TERMS_VERSION = '2026-07-17';
-        const TERMS_STORAGE_KEY = 'treg_terms_accepted';
-        const termsOverlay = document.getElementById('termsOverlay');
-        const termsAgreeCheckbox = document.getElementById('termsAgreeCheckbox');
-        const termsAcceptBtn = document.getElementById('termsAcceptBtn');
-        let acceptedVersion = null;
-        try { acceptedVersion = localStorage.getItem(TERMS_STORAGE_KEY); } catch (_) {}
-        if (acceptedVersion !== TERMS_VERSION && !IS_EMBEDDED) {
-            termsOverlay.style.display = 'flex';
-        }
-        termsAgreeCheckbox.addEventListener('change', (e) => {
-            termsAcceptBtn.disabled = !e.target.checked;
-        });
-        termsAcceptBtn.addEventListener('click', () => {
-            try { localStorage.setItem(TERMS_STORAGE_KEY, TERMS_VERSION); } catch (_) {}
-            termsOverlay.style.display = 'none';
-        });
+        // 利用規約同意パネル関連コードは削除されました
+        // const TERMS_STORAGE_KEY = 'treg_terms_accepted';
+        // const termsOverlay = document.getElementById('termsOverlay');
+        // const termsAgreeCheckbox = document.getElementById('termsAgreeCheckbox');
+        // const termsAcceptBtn = document.getElementById('termsAcceptBtn');
+        // ... (以下、利用規約パネル制御コードは削除)
     }
 
     // ── ヘルパー ─────────────────────────────────────────────────────────────
